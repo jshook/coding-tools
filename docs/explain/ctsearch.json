@@ -1,0 +1,60 @@
+{
+  "name": "ctsearch",
+  "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. Exit status is 0 if anything matched, 1 if not, 2 on error. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "base": {
+        "type": "string",
+        "description": "Search root, relative or absolute, independent of the current working directory.",
+        "default": "."
+      },
+      "name": {
+        "type": "string",
+        "description": "File-name pattern. '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name (e.g. '*.java|*.kt')."
+      },
+      "type": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["f", "d", "l"] },
+        "description": "Restrict to entry kinds: f=regular file, d=directory, l=symlink. May be repeated or comma-joined."
+      },
+      "grep": {
+        "type": "string",
+        "description": "Content pattern, substring->glob->regex promoted and searched unanchored against file contents. Implies regular files."
+      },
+      "size": {
+        "type": "string",
+        "description": "Size predicate [+|-]N[k|m|g]: +N larger than, -N smaller than, N at least N. Applies to regular files."
+      },
+      "hidden": {
+        "type": "boolean",
+        "description": "Include dot-entries (names starting with '.'). Default: skipped."
+      },
+      "follow": {
+        "type": "boolean",
+        "description": "Follow symlinks while traversing."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Stop after this many matches."
+      },
+      "list": {
+        "type": "boolean",
+        "description": "Output mode: print one matching path per line. This is the default mode."
+      },
+      "summary": {
+        "type": "boolean",
+        "description": "Output mode: print counts only. Mutually exclusive with the other output modes."
+      },
+      "detail": {
+        "type": "boolean",
+        "description": "Output mode: print matches plus, for --grep, each hit as path:line:text. Mutually exclusive with the other output modes."
+      },
+      "quiet": {
+        "type": "boolean",
+        "description": "Output mode: print nothing; report via exit status only. Mutually exclusive with the other output modes."
+      }
+    },
+    "required": []
+  }
+}
