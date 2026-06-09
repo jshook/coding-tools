@@ -3,12 +3,40 @@
 
 //! Shared library for the `coding_tools` command-line suite.
 //!
-//! The binaries (`ctsearch` and `cttest`) are thin front-ends over the reusable
-//! pieces collected here:
+//! The binaries (`ct` and the `ct-*` tools it dispatches to) are thin
+//! front-ends over the reusable, doctested pieces collected here.
+//!
+//! Cross-cutting surfaces, used by several commands:
 //!
 //! * [`pattern`] — the shared substring → glob → regex promotion that every
 //!   pattern-accepting option uses.
+//! * [`walk`] — the shared file-selection predicates (`--base`/`--name`/`--type`
+//!   /`--size`/`--hidden`/`--follow`) that `ct-search`/`ct-edit`/`ct-patch`/
+//!   `ct-tree` target with.
+//! * [`verdict`] — the shared `SUCCESS`/`ERROR` outcome, its exit-status
+//!   mapping, and the count [`Expect`](verdict::Expect)ation that frames a
+//!   search/edit/patch as a pass/fail test.
+//! * [`template`] — the `{TOKEN}` substitution engine behind every `--emit`
+//!   verdict template.
+//! * [`allowlist`] — `ct-test`'s fixed, read-only command allow-gate.
 //! * [`explain`] — the `--explain` agent-documentation format selector.
+//!
+//! Per-command surfaces (the pure logic each `ct-*` tool is built on):
+//!
+//! * [`view`] — `ct-view`'s range parsing and context-window merging.
+//! * [`tree`] — `ct-tree`'s line/word/character counts and grouping.
+//! * [`edit`] — `ct-edit`'s line-scoped, byte-preserving replacement engine.
+//! * [`patch`] — `ct-patch`'s node-path / predicate / value parsing.
+//! * [`testrun`] — `ct-test`'s `--focus` output distiller.
 
+pub mod allowlist;
+pub mod edit;
 pub mod explain;
+pub mod patch;
 pub mod pattern;
+pub mod template;
+pub mod testrun;
+pub mod tree;
+pub mod verdict;
+pub mod view;
+pub mod walk;

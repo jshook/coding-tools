@@ -1,0 +1,83 @@
+{
+  "name": "ct-patch",
+  "description": "Make structured, format-preserving edits to JSON/JSONC/JSONL/YAML files: address a node by path and --set, --add, --delete, or --move-* it. For JSON/JSONC/JSONL, edits are byte-range splices against the parsed tree, so everything outside the changed node (comments, indentation, key order, blank lines, trailing commas) is preserved exactly; YAML uses the pure-Rust yaml-edit backend (comment-preserving, though a structural edit may relocate an adjacent comment). Format is detected from the extension (.json, .jsonc, .jsonl/.ndjson, .yaml/.yml) or forced with --format; for JSONL each op applies to every non-blank line. Paths are dot-separated keys with [N] array indices or [key=value] object predicates (leading dot optional, e.g. .servers[name=web].port). --set VALUE is parsed as JSON if possible else taken as a string (missing object keys are created and an index equal to the array length appends). --add appends VALUE to the array at PATH (no index needed). --delete removes the node and its separating comma (unresolved path is a no-op). --move-first/--move-last/--move-up/--move-down relocate the array element selected by PATH within its list. YAML currently supports --set (replace existing) and --delete only (both comment-preserving); --add, --move-*, and array-index/predicate paths are JSON-family-only for now and error clearly on YAML. The verdict is --expect applied to the total number of changes (default any); the edit is written only when the verdict is SUCCESS and --dry-run is not set. Not subject to the ct-test allowlist (it runs no programs). With --json emits {tool, verdict, dry_run, applied, changes, files_changed, files:[{path,changes}]}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct patch ...` or `ct-patch ...`.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "base": {
+        "type": "string",
+        "description": "Root to patch. A file patches just that file; a directory is descended. Default '.'.",
+        "default": "."
+      },
+      "name": {
+        "type": "string",
+        "description": "Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name."
+      },
+      "hidden": {
+        "type": "boolean",
+        "description": "Include dot-entries (names starting with '.'). Default: skipped."
+      },
+      "follow": {
+        "type": "boolean",
+        "description": "Follow symlinks while traversing."
+      },
+      "set": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "PATH=VALUE operations (repeatable). VALUE is parsed as JSON if possible, otherwise taken as a string. Missing object keys are created; an index equal to the array length appends. PATH may use [key=value] to select an array element. For YAML, --set replaces an existing key only."
+      },
+      "add": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "PATH=VALUE operations (repeatable): append VALUE to the array at PATH, without computing an index. VALUE is parsed as JSON or taken as a string. JSON family only."
+      },
+      "delete": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "PATH operations (repeatable): remove the node at PATH, taking its separating comma. PATH may use [key=value] to select an array element. An unresolved path is a no-op."
+      },
+      "move-first": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "PATH operations (repeatable): move the array element selected by PATH (by index or [key=value]) to the front of its list. JSON family only."
+      },
+      "move-last": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "PATH operations (repeatable): move the selected array element to the end of its list. JSON family only."
+      },
+      "move-up": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "PATH operations (repeatable): move the selected array element one position earlier. JSON family only."
+      },
+      "move-down": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "PATH operations (repeatable): move the selected array element one position later. JSON family only."
+      },
+      "format": {
+        "type": "string",
+        "enum": ["json", "jsonc", "jsonl", "yaml"],
+        "description": "Force the document format instead of detecting from the file extension."
+      },
+      "expect": {
+        "type": "string",
+        "description": "Verdict expectation over the total number of changes; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). The edit is written only if the verdict is SUCCESS."
+      },
+      "dry-run": {
+        "type": "boolean",
+        "description": "Compute and report the changes and verdict, but write nothing."
+      },
+      "quiet": {
+        "type": "boolean",
+        "description": "Suppress the per-file lines; print only the summary."
+      },
+      "json": {
+        "type": "boolean",
+        "description": "Emit a structured JSON result instead of text."
+      }
+    },
+    "required": []
+  }
+}

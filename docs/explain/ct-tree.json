@@ -1,0 +1,76 @@
+{
+  "name": "ct-tree",
+  "description": "Walk a directory for chosen file types and report the effective file tree with per-file line, word, and character counts. Select files with --base/--name/--ext (--ext is a comma list of extensions added to --name as alternatives), filter with metric predicates (--min-lines/--max-lines/--min-words/--max-words/--min-chars/--max-chars) and per-folder predicates (--min-files-per-folder/--max-files-per-folder, counting matching files in a file's immediate directory), sort by path|name|lines|words|chars|ext (--desc for descending), and choose a summarisation level: --tree (indented tree with per-file counts and per-folder subtotals; default), --flat (one file per line: lines words chars path; best for ranked lists), or --summary (aggregates grouped by --group ext|dir|none). --json emits {tool, base, files:[{path,ext,lines,words,chars}], by_ext, totals}. Exit: 0 if any file is in the report, 1 if none, 2 on error. Read-only. Invoke as `ct tree ...` or `ct-tree ...`. Example: all *.rs files over 5000 lines sorted by line count descending = --ext rs --min-lines 5001 --flat --sort lines --desc.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "base": {
+        "type": "string",
+        "description": "Root directory to walk, relative or absolute. Default '.'.",
+        "default": "."
+      },
+      "name": {
+        "type": "string",
+        "description": "File-name pattern; '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name."
+      },
+      "ext": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Restrict to these extensions (no dots), e.g. ['rs','toml']. Added to --name as alternatives. May be comma-joined."
+      },
+      "hidden": {
+        "type": "boolean",
+        "description": "Include dot-entries (names starting with '.'). Default: skipped."
+      },
+      "follow": {
+        "type": "boolean",
+        "description": "Follow symlinks while traversing."
+      },
+      "min-lines": { "type": "integer", "description": "Only include files with at least N lines." },
+      "max-lines": { "type": "integer", "description": "Only include files with at most N lines." },
+      "min-words": { "type": "integer", "description": "Only include files with at least N words." },
+      "max-words": { "type": "integer", "description": "Only include files with at most N words." },
+      "min-chars": { "type": "integer", "description": "Only include files with at least N characters." },
+      "max-chars": { "type": "integer", "description": "Only include files with at most N characters." },
+      "min-files-per-folder": {
+        "type": "integer",
+        "description": "Only include folders that directly contain at least N matching files."
+      },
+      "max-files-per-folder": {
+        "type": "integer",
+        "description": "Only include folders that directly contain at most N matching files."
+      },
+      "sort": {
+        "type": "string",
+        "enum": ["path", "name", "lines", "words", "chars", "ext"],
+        "description": "Sort key. Default 'path'. In --flat the sort is global; in --tree it orders entries within each folder."
+      },
+      "desc": {
+        "type": "boolean",
+        "description": "Sort descending instead of ascending."
+      },
+      "tree": {
+        "type": "boolean",
+        "description": "Output mode: indented file tree with per-file counts and per-folder subtotals. This is the default mode."
+      },
+      "flat": {
+        "type": "boolean",
+        "description": "Output mode: one matching file per line with its counts. Mutually exclusive with the other modes."
+      },
+      "summary": {
+        "type": "boolean",
+        "description": "Output mode: aggregate counts only, grouped by --group. Mutually exclusive with the other modes."
+      },
+      "group": {
+        "type": "string",
+        "enum": ["ext", "dir", "none"],
+        "description": "Grouping for --summary: by extension (default), by immediate directory, or a single grand total."
+      },
+      "json": {
+        "type": "boolean",
+        "description": "Emit a structured JSON result instead of text."
+      }
+    },
+    "required": []
+  }
+}

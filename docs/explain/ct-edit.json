@@ -1,0 +1,51 @@
+{
+  "name": "ct-edit",
+  "description": "Find/replace across files chosen by ct-search-style predicates, framed as a self-checking edit. It computes every replacement first, classifies the total against --expect into a SUCCESS/ERROR verdict, and writes ONLY when the verdict is SUCCESS and --dry-run is not set; otherwise nothing is written. Replacements preserve every untouched byte (line terminators, indentation, surrounding text). --find is substring->glob->regex promoted and matched per line; with a regex --find, $1/${name} expand in --replace (use $$ for literal $), with a literal or glob --find the replacement is literal. Only regular UTF-8 text files are edited. Not subject to the ct-test command allowlist (it runs no programs); safety is via --dry-run, --expect, and your VCS. With --json emits {tool, verdict, dry_run, applied, replacements, files_changed, sites:[{path,line,before,after}]}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct edit ...` or `ct-edit ...`.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "base": {
+        "type": "string",
+        "description": "Root to edit. A file edits just that file; a directory is descended. Default '.'.",
+        "default": "."
+      },
+      "name": {
+        "type": "string",
+        "description": "Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name."
+      },
+      "hidden": {
+        "type": "boolean",
+        "description": "Include dot-entries (names starting with '.'). Default: skipped."
+      },
+      "follow": {
+        "type": "boolean",
+        "description": "Follow symlinks while traversing."
+      },
+      "find": {
+        "type": "string",
+        "description": "Pattern to find (substring->glob->regex promoted), matched per line. Required."
+      },
+      "replace": {
+        "type": "string",
+        "description": "Replacement text. With a regex --find, $1/${name} expand (use $$ for literal $); with a literal or glob --find, the replacement is literal. Required."
+      },
+      "expect": {
+        "type": "string",
+        "description": "Verdict expectation over the total replacement count; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). The edit is written only if the verdict is SUCCESS."
+      },
+      "dry-run": {
+        "type": "boolean",
+        "description": "Compute and show the change and verdict, but write nothing."
+      },
+      "quiet": {
+        "type": "boolean",
+        "description": "Suppress the per-site diff; print only the summary line."
+      },
+      "json": {
+        "type": "boolean",
+        "description": "Emit a structured JSON result instead of text."
+      }
+    },
+    "required": ["find", "replace"]
+  }
+}

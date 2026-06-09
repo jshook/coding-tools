@@ -1,0 +1,305 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Jonathan Shook
+
+//! `ct-patch` — structured, format-preserving edits for JSON / JSONC / JSONL / YAML.
+//!
+//! Address a node by path and `--set`, `--add`, `--delete`, or `--move-*` it;
+//! array elements can be selected by index or by an object predicate
+//! (`[key=value]`). For JSON/JSONC/JSONL, edits are **byte-range splices** against
+//! the parsed tree, so everything outside the changed node — comments,
+//! indentation, key order, blank lines, trailing commas — is preserved exactly.
+//! YAML uses the pure-Rust `yaml-edit` backend (comment-preserving; structural
+//! edits may relocate an adjacent comment). Like `ct-edit`, it is framed by
+//! `--expect` and previewable with `--dry-run`, and writes only when the verdict
+//! holds. Reachable directly or as `ct patch`. The canonical reference is
+//! `docs/explain/ct-patch.md`; `docs/explain/ct-patch.json` is the MCP tool-use
+//! definition. Both are embedded below.
+
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use clap::Parser;
+use coding_tools::explain::Format;
+use coding_tools::patch::{
+    MoveTo, Op, apply_doc, apply_jsonl, apply_yaml, normalize_value, parse_path, split_assign,
+};
+use coding_tools::verdict::{Expect, Verdict};
+use coding_tools::walk::{self, EntryType};
+use serde_json::json;
+
+/// Agent documentation, embedded from the canonical `docs/explain` payloads.
+const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-patch.md");
+const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-patch.json");
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "ct-patch",
+    version,
+    about = "Set/add/delete/move nodes by path in JSON/JSONC/JSONL/YAML, preserving comments and formatting.",
+    long_about = "ct-patch makes structured edits to JSON, JSONC, JSONL, and YAML files (also reachable \
+                  as `ct patch`): address a node by path (keys, [N] indices, or [key=value] predicates) \
+                  and --set, --add, --delete, or --move-*. JSON-family edits are byte-range splices so \
+                  everything outside the changed node is preserved; YAML uses the pure-Rust yaml-edit \
+                  backend. Gated by --expect and previewable with --dry-run. See `ct-patch --explain` \
+                  for agent-oriented documentation."
+)]
+struct Cli {
+    /// Root to patch; a file patches just that file, a directory is descended.
+    #[arg(long, default_value = ".")]
+    base: PathBuf,
+
+    /// Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored.
+    #[arg(long)]
+    name: Option<String>,
+
+    /// Include dot-entries (names starting with '.'); default skips them.
+    #[arg(long)]
+    hidden: bool,
+
+    /// Follow symlinks while traversing.
+    #[arg(long)]
+    follow: bool,
+
+    /// Set PATH to VALUE (repeatable). VALUE is parsed as JSON, or taken as a string if it is not valid JSON.
+    #[arg(long, value_name = "PATH=VALUE")]
+    set: Vec<String>,
+
+    /// Delete the node at PATH (repeatable).
+    #[arg(long, value_name = "PATH")]
+    delete: Vec<String>,
+
+    /// Append VALUE to the array at PATH, no index needed (repeatable). VALUE is parsed as JSON or taken as a string.
+    #[arg(long, value_name = "PATH=VALUE")]
+    add: Vec<String>,
+
+    /// Move the array element selected by PATH to the front of its list (repeatable).
+    #[arg(long, value_name = "PATH")]
+    move_first: Vec<String>,
+
+    /// Move the array element selected by PATH to the end of its list (repeatable).
+    #[arg(long, value_name = "PATH")]
+    move_last: Vec<String>,
+
+    /// Move the array element selected by PATH one position earlier (repeatable).
+    #[arg(long, value_name = "PATH")]
+    move_up: Vec<String>,
+
+    /// Move the array element selected by PATH one position later (repeatable).
+    #[arg(long, value_name = "PATH")]
+    move_down: Vec<String>,
+
+    /// Force the document format instead of detecting it from the file extension.
+    #[arg(long, value_enum)]
+    format: Option<DocFormat>,
+
+    /// Verdict expectation over the total number of changes: any|none|N|=N|+N|-N (default: any).
+    #[arg(long)]
+    expect: Option<String>,
+
+    /// Show what would change and the verdict, but write nothing.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Suppress the per-file lines; print only the summary.
+    #[arg(long)]
+    quiet: bool,
+
+    /// Emit a structured JSON result instead of text.
+    #[arg(long)]
+    json: bool,
+
+    /// Print agent usage docs (md or json) and exit.
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
+    explain: Option<Format>,
+}
+
+/// Document format. JSON, JSONC, and JSONL parse through the same lenient
+/// `jsonc-parser` tree; YAML uses the pure-Rust `yaml-edit` backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum DocFormat {
+    Json,
+    Jsonc,
+    Jsonl,
+    Yaml,
+}
+
+impl DocFormat {
+    /// Detect a format from a file extension.
+    fn from_ext(ext: &str) -> Option<DocFormat> {
+        match ext.to_ascii_lowercase().as_str() {
+            "json" => Some(DocFormat::Json),
+            "jsonc" => Some(DocFormat::Jsonc),
+            "jsonl" | "ndjson" => Some(DocFormat::Jsonl),
+            "yaml" | "yml" => Some(DocFormat::Yaml),
+            _ => None,
+        }
+    }
+}
+
+fn run(cli: Cli) -> Result<ExitCode, String> {
+    let mut ops: Vec<Op> = Vec::new();
+    for spec in &cli.set {
+        let (p, v) =
+            split_assign(spec).ok_or_else(|| format!("--set needs PATH=VALUE, got '{spec}'"))?;
+        ops.push(Op::Set {
+            path: parse_path(p)?,
+            raw: p.to_string(),
+            value: normalize_value(v),
+        });
+    }
+    for spec in &cli.add {
+        let (p, v) =
+            split_assign(spec).ok_or_else(|| format!("--add needs PATH=VALUE, got '{spec}'"))?;
+        ops.push(Op::Add {
+            path: parse_path(p)?,
+            raw: p.to_string(),
+            value: normalize_value(v),
+        });
+    }
+    for (specs, to) in [
+        (&cli.move_first, MoveTo::First),
+        (&cli.move_last, MoveTo::Last),
+        (&cli.move_up, MoveTo::Up),
+        (&cli.move_down, MoveTo::Down),
+    ] {
+        for spec in specs {
+            ops.push(Op::Move {
+                path: parse_path(spec)?,
+                raw: spec.to_string(),
+                to,
+            });
+        }
+    }
+    for spec in &cli.delete {
+        ops.push(Op::Delete {
+            path: parse_path(spec)?,
+            raw: spec.to_string(),
+        });
+    }
+    if ops.is_empty() {
+        return Err(
+            "nothing to do: supply at least one --set, --add, --move-*, or --delete".to_string(),
+        );
+    }
+
+    let expect = match &cli.expect {
+        Some(s) => Expect::parse(s).map_err(|e| format!("invalid --expect: {e}"))?,
+        None => Expect::default(),
+    };
+    let names = match &cli.name {
+        Some(spec) => Some(
+            coding_tools::pattern::compile_name_set(spec)
+                .map_err(|e| format!("invalid --name pattern: {e}"))?,
+        ),
+        None => None,
+    };
+    let selector = walk::Selector {
+        base: cli.base.clone(),
+        names,
+        types: vec![EntryType::F],
+        size: None,
+        hidden: cli.hidden,
+        follow: cli.follow,
+    };
+
+    let mut total_changes = 0usize;
+    let mut changed_files: Vec<(PathBuf, String, usize)> = Vec::new();
+
+    for entry in selector.walk() {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let fmt = match cli.format.or_else(|| {
+            entry
+                .path()
+                .extension()
+                .and_then(|e| DocFormat::from_ext(&e.to_string_lossy()))
+        }) {
+            Some(f) => f,
+            None => continue, // not a recognised structured file
+        };
+        let content = match std::fs::read_to_string(entry.path()) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let path = entry.path().display().to_string();
+        let (patched, changes) = match fmt {
+            DocFormat::Jsonl => apply_jsonl(&content, &ops),
+            DocFormat::Yaml => apply_yaml(&content, &ops),
+            _ => apply_doc(&content, &ops),
+        }
+        .map_err(|e| format!("{path}: {e}"))?;
+        total_changes += changes;
+        if patched != content {
+            changed_files.push((entry.path().to_path_buf(), patched, changes));
+        }
+    }
+
+    let verdict = expect.eval(total_changes as u64);
+    let applied = verdict == Verdict::Success && !cli.dry_run;
+    if applied {
+        for (path, content, _) in &changed_files {
+            std::fs::write(path, content)
+                .map_err(|e| format!("writing {}: {e}", path.display()))?;
+        }
+    }
+
+    if cli.json {
+        let files: Vec<_> = changed_files
+            .iter()
+            .map(|(p, _, n)| json!({ "path": p.display().to_string(), "changes": n }))
+            .collect();
+        let obj = json!({
+            "tool": "ct-patch",
+            "verdict": verdict.label(),
+            "dry_run": cli.dry_run,
+            "applied": applied,
+            "changes": total_changes,
+            "files_changed": changed_files.len(),
+            "files": files,
+        });
+        println!("{obj}");
+    } else {
+        if !cli.quiet {
+            for (path, _, n) in &changed_files {
+                println!("{}: {n} change(s)", path.display());
+            }
+        }
+        let status = if applied {
+            "applied"
+        } else if cli.dry_run {
+            "dry-run, not written"
+        } else {
+            "verdict ERROR, not written"
+        };
+        println!(
+            "{total_changes} change(s) in {} file(s) -> {} ({status})",
+            changed_files.len(),
+            verdict.label(),
+        );
+    }
+
+    Ok(verdict.exit_code())
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+
+    if let Some(fmt) = cli.explain {
+        let body = match fmt {
+            Format::Md => EXPLAIN_MD,
+            Format::Json => EXPLAIN_JSON,
+        };
+        print!("{body}");
+        return ExitCode::SUCCESS;
+    }
+
+    match run(cli) {
+        Ok(code) => code,
+        Err(msg) => {
+            eprintln!("ct-patch: {msg}");
+            ExitCode::from(2)
+        }
+    }
+}

@@ -1,0 +1,85 @@
+{
+  "name": "ct-test",
+  "description": "Run a command as a framed experiment: pose a question, classify the result from stdout/stderr pattern matches, and emit a templated verdict. Pass/fail is decided by what the command prints, not only its exit code. ct-test is fail-closed; {RESULT} resolves in order: (1) any err-match hit => ERROR (decisive, never overridden); (2) else any ok-match hit => SUCCESS (a supplied --ok-match is a REQUIRED proof of success — a clean exit does not substitute for it); (3) else the run is inconclusive and --otherwise decides (success|error|exit), defaulting to error when an --ok-match was supplied, otherwise exit. The -stdout/-stderr matcher variants search only that one stream (e.g. cargo test writes 'test result: ok' to stdout, so --ok-match-stderr would miss it). On ERROR a one-line reason explaining which rule fired is printed to stderr and is available as the {REASON} emit token. --focus distils the captured output to the lines matching a pattern (with --context around each), printed to stderr and available as {FOCUS}. Exit status is 0 when RESULT is SUCCESS, 1 when ERROR, 2 on a usage or runtime error. ct-test runs only a fixed, immutable built-in set of read-only commands (cat ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc), so it is a ready conditional wrapper around the read-only ct-* tools; a command not on it is refused with exit 2 and nothing runs, and there is no run-time way to extend the list. Gating is by program name (basename of cmd, or 'sh' under --shell; since 'sh' is not on the list, --shell is currently unavailable). Pattern arguments use substring->glob->regex promotion and are searched unanchored. Invoke as `ct test ...` or `ct-test ...`.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string",
+        "description": "The question this experiment answers; printed as a '== ... ==' banner unless --quiet."
+      },
+      "cmd": {
+        "type": "string",
+        "description": "Program to run. With --shell it is interpreted as a shell command line; otherwise trailing args (after --) are passed through to it."
+      },
+      "shell": {
+        "type": "boolean",
+        "description": "Interpret --cmd as a shell line via `sh -c`, enabling pipes and redirection."
+      },
+      "stdin": {
+        "type": "string",
+        "description": "Literal text written to the child's standard input."
+      },
+      "err-match": {
+        "type": "string",
+        "description": "Pattern that, if found in stdout OR stderr, forces RESULT=ERROR. Synonym for supplying both err-match-stdout and err-match-stderr."
+      },
+      "err-match-stdout": {
+        "type": "string",
+        "description": "Pattern that, if found in stdout, forces RESULT=ERROR."
+      },
+      "err-match-stderr": {
+        "type": "string",
+        "description": "Pattern that, if found in stderr, forces RESULT=ERROR."
+      },
+      "ok-match": {
+        "type": "string",
+        "description": "Pattern that, if found in stdout OR stderr, indicates RESULT=SUCCESS. Synonym for supplying both ok-match-stdout and ok-match-stderr."
+      },
+      "ok-match-stdout": {
+        "type": "string",
+        "description": "Pattern that, if found in stdout, indicates RESULT=SUCCESS."
+      },
+      "ok-match-stderr": {
+        "type": "string",
+        "description": "Pattern that, if found in stderr, indicates RESULT=SUCCESS."
+      },
+      "otherwise": {
+        "type": "string",
+        "enum": ["success", "error", "exit"],
+        "description": "Verdict when neither an --ok-match nor an --err-match matched (the inconclusive case). Default: error if any --ok-match was supplied, else exit (follow the exit code)."
+      },
+      "focus": {
+        "type": "string",
+        "description": "Distil the captured output to the lines matching this pattern, with --context lines around each (overlapping windows merge, line-numbered). Printed to stderr and available as the {FOCUS} emit token."
+      },
+      "context": {
+        "type": "integer",
+        "description": "Lines of context shown around each --focus match. Default: 2.",
+        "default": 2
+      },
+      "emit": {
+        "type": "string",
+        "description": "Template written to stdout after the command finishes (alias: emit-stdout). Tokens: {RESULT} {CODE} {QUESTION} {CMD} {STDOUT} {STDERR} {REASON} {FOCUS}."
+      },
+      "emit-stderr": {
+        "type": "string",
+        "description": "Template written to stderr after the command finishes. Same tokens as emit."
+      },
+      "show-output": {
+        "type": "boolean",
+        "description": "Also pass the child's stdout/stderr through verbatim."
+      },
+      "quiet": {
+        "type": "boolean",
+        "description": "Suppress the question banner."
+      },
+      "args": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Arguments passed through to --cmd (supplied after `--`). Ignored when --shell is used."
+      }
+    },
+    "required": ["cmd"]
+  }
+}

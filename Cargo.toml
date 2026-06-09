@@ -1,26 +1,56 @@
 [package]
-name = "coding_tools"
+name = "coding-tools"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 license = "Apache-2.0"
-description = "A suite of declarative command-line tools for project comprehension, search, and framed testing."
+description = "Declarative, agent-friendly CLI tools behind one 'ct' command: search, view, verifiable edits, and framed command tests."
+readme = "README.md"
+authors = ["Jonathan Shook <jshook@gmail.com>"]
+keywords = ["cli", "search", "grep", "refactor", "agent"]
+categories = ["command-line-utilities", "development-tools"]
+default-run = "ct"
+exclude = [".idea/"]
+# repository = "https://github.com/<owner>/coding-tools"  # set before publishing
 
+# The crate (`use coding_tools::…`) keeps its underscore name; only the published
+# package is hyphenated, per Rust convention.
 [lib]
 name = "coding_tools"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ctsearch"
-path = "src/bin/ctsearch.rs"
+name = "ct"
+path = "src/bin/ct.rs"
 
 [[bin]]
-name = "cttest"
-path = "src/bin/cttest.rs"
+name = "ct-search"
+path = "src/bin/ct-search.rs"
+
+[[bin]]
+name = "ct-test"
+path = "src/bin/ct-test.rs"
+
+[[bin]]
+name = "ct-view"
+path = "src/bin/ct-view.rs"
+
+[[bin]]
+name = "ct-edit"
+path = "src/bin/ct-edit.rs"
+
+[[bin]]
+name = "ct-patch"
+path = "src/bin/ct-patch.rs"
+
+[[bin]]
+name = "ct-tree"
+path = "src/bin/ct-tree.rs"
 
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 regex = "1.12.3"
 walkdir = "2.5.0"
-
-[dev-dependencies]
 serde_json = "1.0.150"
+jsonc-parser = "0.26"
+yaml-edit = "0.2.1"

@@ -1,6 +1,6 @@
 {
-  "name": "ctsearch",
-  "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. Exit status is 0 if anything matched, 1 if not, 2 on error. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex.",
+  "name": "ct-search",
+  "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. Invoke as `ct search ...` or `ct-search ...`.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -38,6 +38,22 @@
         "type": "integer",
         "description": "Stop after this many matches."
       },
+      "question": {
+        "type": "string",
+        "description": "Question this search answers, framing it as a test; printed as a '== ... ==' banner unless quiet."
+      },
+      "expect": {
+        "type": "string",
+        "description": "Verdict expectation over the match count; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). 'none' inverts a search into a negative assertion that passes when nothing matches."
+      },
+      "emit": {
+        "type": "string",
+        "description": "Template written to stdout after the search (alias: emit-stdout). Tokens: {RESULT} {QUESTION} {COUNT} {LINES} {BASE} {MATCHES}."
+      },
+      "emit-stderr": {
+        "type": "string",
+        "description": "Template written to stderr after the search. Same tokens as emit."
+      },
       "list": {
         "type": "boolean",
         "description": "Output mode: print one matching path per line. This is the default mode."
@@ -52,7 +68,7 @@
       },
       "quiet": {
         "type": "boolean",
-        "description": "Output mode: print nothing; report via exit status only. Mutually exclusive with the other output modes."
+        "description": "Output mode: print no per-match output and no --question banner; report via exit status (and --emit, which still fires). Mutually exclusive with the other output modes."
       }
     },
     "required": []

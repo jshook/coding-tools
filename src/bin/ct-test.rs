@@ -1,0 +1,459 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Jonathan Shook
+
+//! `ct-test` — framed experiment runner.
+//!
+//! Runs a command, classifies the outcome from stdout/stderr pattern matches,
+//! and emits a templated verdict; reachable directly or as `ct test`. The
+//! canonical, self-contained reference is `docs/explain/ct-test.md` — the same
+//! text this tool emits for `--explain md`; `docs/explain/ct-test.json` is the
+//! MCP tool-use definition emitted for `--explain json`. Both are embedded
+//! below.
+
+use std::io::Write;
+use std::process::{Command, ExitCode, ExitStatus, Stdio};
+
+use clap::Parser;
+use coding_tools::allowlist;
+use coding_tools::explain::Format;
+use coding_tools::pattern;
+use coding_tools::template;
+use coding_tools::testrun::focus_block;
+use coding_tools::verdict::Verdict;
+
+/// Agent documentation, embedded from the canonical `docs/explain` payloads.
+const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-test.md");
+const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-test.json");
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "ct-test",
+    version,
+    about = "Run a command as a framed experiment and emit a templated SUCCESS/ERROR verdict.",
+    long_about = "ct-test frames a command with the question it answers, classifies the result from \
+                  what the command prints (not only its exit code), and emits a templated verdict \
+                  (also reachable as `ct test`). See `ct-test --explain` for agent-oriented \
+                  documentation."
+)]
+struct Cli {
+    /// Question this experiment answers; printed as a "== ... ==" banner.
+    #[arg(long)]
+    question: Option<String>,
+
+    /// Program to run (or, with --shell, a shell command line).
+    #[arg(long)]
+    cmd: Option<String>,
+
+    /// Interpret --cmd as a shell line via `sh -c` (enables pipes/redirection).
+    #[arg(long)]
+    shell: bool,
+
+    /// Literal text written to the child's standard input.
+    #[arg(long)]
+    stdin: Option<String>,
+
+    /// Match in stdout OR stderr forces ERROR (synonym for the -stdout/-stderr pair).
+    #[arg(long)]
+    err_match: Option<String>,
+
+    /// Match in stdout forces ERROR.
+    #[arg(long)]
+    err_match_stdout: Option<String>,
+
+    /// Match in stderr forces ERROR.
+    #[arg(long)]
+    err_match_stderr: Option<String>,
+
+    /// Match in stdout OR stderr indicates SUCCESS (synonym for the -stdout/-stderr pair).
+    #[arg(long)]
+    ok_match: Option<String>,
+
+    /// Match in stdout indicates SUCCESS.
+    #[arg(long)]
+    ok_match_stdout: Option<String>,
+
+    /// Match in stderr indicates SUCCESS.
+    #[arg(long)]
+    ok_match_stderr: Option<String>,
+
+    /// Verdict when neither an --ok-match nor an --err-match matched: success, error, or exit (follow the exit code). Default: error if any --ok-match was given, else exit.
+    #[arg(long, value_enum)]
+    otherwise: Option<Otherwise>,
+
+    /// Distil captured output to lines matching this pattern (with --context around each), printed to stderr and available as {FOCUS}.
+    #[arg(long)]
+    focus: Option<String>,
+
+    /// Lines of context shown around each --focus match.
+    #[arg(long, default_value_t = 2)]
+    context: usize,
+
+    /// Template written to stdout after running. Tokens: {RESULT} {CODE} {QUESTION} {CMD} {STDOUT} {STDERR} {REASON} {FOCUS}.
+    #[arg(long, alias = "emit-stdout")]
+    emit: Option<String>,
+
+    /// Template written to stderr after running (same tokens as --emit).
+    #[arg(long)]
+    emit_stderr: Option<String>,
+
+    /// Also pass the child's stdout/stderr through verbatim.
+    #[arg(long)]
+    show_output: bool,
+
+    /// Suppress the question banner.
+    #[arg(long)]
+    quiet: bool,
+
+    /// Print agent usage docs (md or json) and exit.
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
+    explain: Option<Format>,
+
+    /// Arguments passed through to --cmd (after `--`); ignored with --shell.
+    #[arg(last = true)]
+    args: Vec<String>,
+}
+
+/// Render an exit status as a token for `{CODE}`.
+fn code_token(status: &ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return code.to_string();
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(sig) = status.signal() {
+            return format!("signal:{sig}");
+        }
+    }
+    "unknown".to_string()
+}
+
+/// What an *inconclusive* run resolves to — neither an `--ok-match` nor an
+/// `--err-match` fired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Otherwise {
+    /// Treat an inconclusive run as `SUCCESS`.
+    Success,
+    /// Treat an inconclusive run as `ERROR` (fail-closed).
+    Error,
+    /// Follow the child's exit status (`0` ⇒ `SUCCESS`).
+    Exit,
+}
+
+impl Otherwise {
+    fn label(self) -> &'static str {
+        match self {
+            Otherwise::Success => "success",
+            Otherwise::Error => "error",
+            Otherwise::Exit => "exit",
+        }
+    }
+}
+
+/// Resolve the [`Verdict`] **and a one-line reason** from the matchers and the
+/// child's exit status.
+///
+/// `ct-test` is *fail-closed*: it reports `SUCCESS` only when success is
+/// positively established. The precedence is
+///
+/// 1. any `--err-match*` hits → `ERROR` (a failure signal is decisive);
+/// 2. else any `--ok-match*` hits → `SUCCESS` (positive proof);
+/// 3. else *inconclusive* → the [`Otherwise`] policy from `--otherwise`, whose
+///    default is `error` when an `--ok-match` was required (so an absent proof is
+///    a failure even on a clean exit) and `exit` otherwise.
+///
+/// The reason names which rule fired and, for an unmet `--ok-match`, which stream
+/// was searched — so a stream mismatch (e.g. success on stdout, `--ok-match-stderr`)
+/// is diagnosable rather than a silent red.
+fn classify_result(
+    cli: &Cli,
+    stdout: &str,
+    stderr: &str,
+    status: &ExitStatus,
+) -> Result<(Verdict, String), String> {
+    let hit = |pat: &str, hay: &str| -> Result<bool, String> {
+        Ok(pattern::compile(pat)
+            .map_err(|e| format!("invalid pattern '{pat}': {e}"))?
+            .is_match(hay))
+    };
+    let check = |p: &str, in_out: bool, in_err: bool| -> Result<bool, String> {
+        Ok((in_out && hit(p, stdout)?) || (in_err && hit(p, stderr)?))
+    };
+    let stream = |in_out: bool, in_err: bool| match (in_out, in_err) {
+        (true, true) => "stdout/stderr",
+        (true, false) => "stdout",
+        (false, true) => "stderr",
+        _ => "nothing",
+    };
+
+    // (pattern, search stdout, search stderr, option name)
+    let err_specs = [
+        (cli.err_match.as_deref(), true, true, "--err-match"),
+        (
+            cli.err_match_stdout.as_deref(),
+            true,
+            false,
+            "--err-match-stdout",
+        ),
+        (
+            cli.err_match_stderr.as_deref(),
+            false,
+            true,
+            "--err-match-stderr",
+        ),
+    ];
+    let ok_specs = [
+        (cli.ok_match.as_deref(), true, true, "--ok-match"),
+        (
+            cli.ok_match_stdout.as_deref(),
+            true,
+            false,
+            "--ok-match-stdout",
+        ),
+        (
+            cli.ok_match_stderr.as_deref(),
+            false,
+            true,
+            "--ok-match-stderr",
+        ),
+    ];
+    let err_specified = err_specs.iter().any(|(p, ..)| p.is_some());
+    let ok_specified = ok_specs.iter().any(|(p, ..)| p.is_some());
+
+    // 1. A failure signal is decisive.
+    for (pat, in_out, in_err, name) in err_specs {
+        if let Some(p) = pat
+            && check(p, in_out, in_err)?
+        {
+            return Ok((
+                Verdict::Error,
+                format!("{name} '{p}' matched {}", stream(in_out, in_err)),
+            ));
+        }
+    }
+
+    // 2. A positive proof is decisive.
+    let mut ok_misses: Vec<String> = Vec::new();
+    for (pat, in_out, in_err, name) in ok_specs {
+        if let Some(p) = pat {
+            if check(p, in_out, in_err)? {
+                return Ok((
+                    Verdict::Success,
+                    format!("{name} '{p}' matched {}", stream(in_out, in_err)),
+                ));
+            }
+            ok_misses.push(format!(
+                "{name} '{p}' not found in {}",
+                stream(in_out, in_err)
+            ));
+        }
+    }
+
+    // 3. Inconclusive: the caller's --otherwise policy decides. The default is
+    //    fail-closed when a success proof was required, else follow the exit code.
+    let policy = cli.otherwise.unwrap_or(if ok_specified {
+        Otherwise::Error
+    } else {
+        Otherwise::Exit
+    });
+    let basis = if !ok_misses.is_empty() {
+        ok_misses.join("; ")
+    } else if err_specified {
+        "no --err-match matched".to_string()
+    } else {
+        "no match assertions".to_string()
+    };
+    let note = match cli.otherwise {
+        Some(_) => format!(" (--otherwise={})", policy.label()),
+        None => String::new(),
+    };
+    let reason = format!("{basis}; exit={}{note}", code_token(status));
+    let verdict = match policy {
+        Otherwise::Success => Verdict::Success,
+        Otherwise::Error => Verdict::Error,
+        Otherwise::Exit => {
+            if status.success() {
+                Verdict::Success
+            } else {
+                Verdict::Error
+            }
+        }
+    };
+    Ok((verdict, reason))
+}
+
+/// The command line as a single display string for the `{CMD}` token.
+fn cmd_display(cli: &Cli) -> String {
+    let mut parts = vec![cli.cmd.clone().unwrap_or_default()];
+    parts.extend(cli.args.iter().cloned());
+    parts.join(" ")
+}
+
+/// The refusal shown when a command is not on the fixed allowlist: what was
+/// blocked and the full set of commands `ct-test` is permitted to run.
+fn deny_message(name: &str) -> String {
+    let allowed = allowlist::BUILTIN.join(" ");
+    format!(
+        "ct-test: '{name}' is not on the allowlist, so nothing was run.\n\
+         \n\
+         ct-test runs only this fixed set of read-only commands:\n  \
+         {allowed}\n\
+         \n\
+         The list is immutable; ct-test does not run other commands. (Under \
+         --shell the gated name is 'sh', which is not on the list.)\n"
+    )
+}
+
+/// Resolve the program to launch. A bare `ct-*` name is resolved to a sibling of
+/// this executable first, so `ct-test` wraps the suite's read-only tools (which
+/// share its install directory) without requiring them on `PATH` — the same
+/// resolution the `ct` umbrella uses. Anything else is launched by name via `PATH`.
+fn resolve_program(cmd: &str, name: &str) -> std::ffi::OsString {
+    if name.starts_with("ct-")
+        && !cmd.contains('/')
+        && let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return candidate.into_os_string();
+        }
+    }
+    std::ffi::OsString::from(cmd)
+}
+
+fn run(cli: Cli) -> Result<ExitCode, String> {
+    let cmd_str = cli
+        .cmd
+        .as_deref()
+        .ok_or("missing required option --cmd")?
+        .to_string();
+
+    let name = allowlist::gated_name(&cmd_str, cli.shell);
+    if !allowlist::is_allowed(&name) {
+        eprint!("{}", deny_message(&name));
+        return Ok(ExitCode::from(2));
+    }
+
+    if !cli.quiet
+        && let Some(q) = &cli.question
+    {
+        println!("== {q} ==");
+    }
+
+    let mut command = if cli.shell {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(&cmd_str);
+        if !cli.args.is_empty() {
+            // Provide $0 then the positional parameters for the shell snippet.
+            c.arg("sh").args(&cli.args);
+        }
+        c
+    } else {
+        let mut c = Command::new(resolve_program(&cmd_str, &name));
+        c.args(&cli.args);
+        c
+    };
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("failed to launch '{cmd_str}': {e}"))?;
+
+    if let Some(input) = &cli.stdin {
+        child
+            .stdin
+            .take()
+            .expect("stdin was piped")
+            .write_all(input.as_bytes())
+            .map_err(|e| format!("writing to child stdin: {e}"))?;
+    } else {
+        drop(child.stdin.take());
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("waiting for command: {e}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    if cli.show_output {
+        std::io::stdout().write_all(&output.stdout).ok();
+        std::io::stderr().write_all(&output.stderr).ok();
+    }
+
+    let (verdict, reason) = classify_result(&cli, &stdout, &stderr, &output.status)?;
+    let code = code_token(&output.status);
+    let cmdline = cmd_display(&cli);
+
+    // Distil the captured output to the lines that matter, if asked.
+    let focus = match &cli.focus {
+        Some(pat) => {
+            let re = pattern::compile(pat).map_err(|e| format!("invalid --focus pattern: {e}"))?;
+            let mut blocks = Vec::new();
+            if let Some(b) = focus_block(&stdout, &re, cli.context) {
+                blocks.push(format!("stdout (focus):\n{b}"));
+            }
+            if let Some(b) = focus_block(&stderr, &re, cli.context) {
+                blocks.push(format!("stderr (focus):\n{b}"));
+            }
+            blocks.join("\n")
+        }
+        None => String::new(),
+    };
+
+    let tokens = [
+        ("RESULT", verdict.label()),
+        ("CODE", code.as_str()),
+        ("QUESTION", cli.question.as_deref().unwrap_or("")),
+        ("CMD", cmdline.as_str()),
+        ("STDOUT", stdout.trim_end_matches('\n')),
+        ("STDERR", stderr.trim_end_matches('\n')),
+        ("REASON", reason.as_str()),
+        ("FOCUS", focus.as_str()),
+    ];
+
+    // On ERROR, always surface the reason so a verdict is never an unexplained
+    // red — in particular, an unmet --ok-match on the wrong stream is diagnosable.
+    // (`--quiet` governs only the question banner, not diagnostics.)
+    if verdict == Verdict::Error {
+        eprintln!("ct-test: {reason}");
+    }
+    // The focused slice goes to stderr so it never pollutes an --emit on stdout.
+    if !focus.is_empty() {
+        eprintln!("{focus}");
+    }
+
+    if let Some(t) = &cli.emit {
+        println!("{}", template::render(t, &tokens));
+    }
+    if let Some(t) = &cli.emit_stderr {
+        eprintln!("{}", template::render(t, &tokens));
+    }
+
+    Ok(verdict.exit_code())
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+
+    if let Some(fmt) = cli.explain {
+        let body = match fmt {
+            Format::Md => EXPLAIN_MD,
+            Format::Json => EXPLAIN_JSON,
+        };
+        print!("{body}");
+        return ExitCode::SUCCESS;
+    }
+
+    match run(cli) {
+        Ok(code) => code,
+        Err(msg) => {
+            eprintln!("ct-test: {msg}");
+            ExitCode::from(2)
+        }
+    }
+}

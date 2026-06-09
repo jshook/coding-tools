@@ -1,0 +1,513 @@
+{
+  "name": "ct",
+  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search and `ct test` runs ct-test; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "string",
+        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), edit (ct-edit), patch (ct-patch), test (ct-test). Any other ct-* tool on PATH also works.",
+        "enum": [
+          "search",
+          "view",
+          "tree",
+          "edit",
+          "patch",
+          "test"
+        ]
+      },
+      "args": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Arguments passed through verbatim to ct-<command> (e.g. [\"--name\", \"*.rs\", \"--grep\", \"TODO\"])."
+      }
+    },
+    "required": [
+      "command"
+    ]
+  },
+  "tools": [
+    {
+      "name": "ct-search",
+      "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. Invoke as `ct search ...` or `ct-search ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string",
+            "description": "Search root, relative or absolute, independent of the current working directory.",
+            "default": "."
+          },
+          "name": {
+            "type": "string",
+            "description": "File-name pattern. '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name (e.g. '*.java|*.kt')."
+          },
+          "type": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "f",
+                "d",
+                "l"
+              ]
+            },
+            "description": "Restrict to entry kinds: f=regular file, d=directory, l=symlink. May be repeated or comma-joined."
+          },
+          "grep": {
+            "type": "string",
+            "description": "Content pattern, substring->glob->regex promoted and searched unanchored against file contents. Implies regular files."
+          },
+          "size": {
+            "type": "string",
+            "description": "Size predicate [+|-]N[k|m|g]: +N larger than, -N smaller than, N at least N. Applies to regular files."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Include dot-entries (names starting with '.'). Default: skipped."
+          },
+          "follow": {
+            "type": "boolean",
+            "description": "Follow symlinks while traversing."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Stop after this many matches."
+          },
+          "question": {
+            "type": "string",
+            "description": "Question this search answers, framing it as a test; printed as a '== ... ==' banner unless quiet."
+          },
+          "expect": {
+            "type": "string",
+            "description": "Verdict expectation over the match count; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). 'none' inverts a search into a negative assertion that passes when nothing matches."
+          },
+          "emit": {
+            "type": "string",
+            "description": "Template written to stdout after the search (alias: emit-stdout). Tokens: {RESULT} {QUESTION} {COUNT} {LINES} {BASE} {MATCHES}."
+          },
+          "emit-stderr": {
+            "type": "string",
+            "description": "Template written to stderr after the search. Same tokens as emit."
+          },
+          "list": {
+            "type": "boolean",
+            "description": "Output mode: print one matching path per line. This is the default mode."
+          },
+          "summary": {
+            "type": "boolean",
+            "description": "Output mode: print counts only. Mutually exclusive with the other output modes."
+          },
+          "detail": {
+            "type": "boolean",
+            "description": "Output mode: print matches plus, for --grep, each hit as path:line:text. Mutually exclusive with the other output modes."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Output mode: print no per-match output and no --question banner; report via exit status (and --emit, which still fires). Mutually exclusive with the other output modes."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ct-view",
+      "description": "Show one file's lines by range, or the regions around a pattern with context, instead of dumping the whole file. --range A:B (1-based inclusive; also A:, :B, A) prints a span; --match PATTERN prints the windows around matching lines with --context lines on each side (overlapping windows merge, like grep -C). Read-only, no allow-gate. With --json, emits {tool, path, total_lines, shown, lines:[{n,text}], matched?}. Exit status: 0 shown, 1 if --match matched nothing, 2 on a read or usage error. --match uses substring->glob->regex promotion, searched unanchored per line. Invoke as `ct view ...` or `ct-view ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file to view (positional, required)."
+          },
+          "range": {
+            "type": "string",
+            "description": "Line range A:B (1-based, inclusive); also A: (to end), :B (from start), or A (one line)."
+          },
+          "match": {
+            "type": "string",
+            "description": "Show only lines matching this pattern (substring->glob->regex promoted, searched unanchored), with --context lines around each hit."
+          },
+          "context": {
+            "type": "integer",
+            "description": "Lines of context shown around each --match hit. Default: 2.",
+            "default": 2
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Cap the number of lines emitted."
+          },
+          "plain": {
+            "type": "boolean",
+            "description": "Suppress the line-number gutter in text output."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result instead of text."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "ct-tree",
+      "description": "Walk a directory for chosen file types and report the effective file tree with per-file line, word, and character counts. Select files with --base/--name/--ext (--ext is a comma list of extensions added to --name as alternatives), filter with metric predicates (--min-lines/--max-lines/--min-words/--max-words/--min-chars/--max-chars) and per-folder predicates (--min-files-per-folder/--max-files-per-folder, counting matching files in a file's immediate directory), sort by path|name|lines|words|chars|ext (--desc for descending), and choose a summarisation level: --tree (indented tree with per-file counts and per-folder subtotals; default), --flat (one file per line: lines words chars path; best for ranked lists), or --summary (aggregates grouped by --group ext|dir|none). --json emits {tool, base, files:[{path,ext,lines,words,chars}], by_ext, totals}. Exit: 0 if any file is in the report, 1 if none, 2 on error. Read-only. Invoke as `ct tree ...` or `ct-tree ...`. Example: all *.rs files over 5000 lines sorted by line count descending = --ext rs --min-lines 5001 --flat --sort lines --desc.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string",
+            "description": "Root directory to walk, relative or absolute. Default '.'.",
+            "default": "."
+          },
+          "name": {
+            "type": "string",
+            "description": "File-name pattern; '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name."
+          },
+          "ext": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Restrict to these extensions (no dots), e.g. ['rs','toml']. Added to --name as alternatives. May be comma-joined."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Include dot-entries (names starting with '.'). Default: skipped."
+          },
+          "follow": {
+            "type": "boolean",
+            "description": "Follow symlinks while traversing."
+          },
+          "min-lines": {
+            "type": "integer",
+            "description": "Only include files with at least N lines."
+          },
+          "max-lines": {
+            "type": "integer",
+            "description": "Only include files with at most N lines."
+          },
+          "min-words": {
+            "type": "integer",
+            "description": "Only include files with at least N words."
+          },
+          "max-words": {
+            "type": "integer",
+            "description": "Only include files with at most N words."
+          },
+          "min-chars": {
+            "type": "integer",
+            "description": "Only include files with at least N characters."
+          },
+          "max-chars": {
+            "type": "integer",
+            "description": "Only include files with at most N characters."
+          },
+          "min-files-per-folder": {
+            "type": "integer",
+            "description": "Only include folders that directly contain at least N matching files."
+          },
+          "max-files-per-folder": {
+            "type": "integer",
+            "description": "Only include folders that directly contain at most N matching files."
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "path",
+              "name",
+              "lines",
+              "words",
+              "chars",
+              "ext"
+            ],
+            "description": "Sort key. Default 'path'. In --flat the sort is global; in --tree it orders entries within each folder."
+          },
+          "desc": {
+            "type": "boolean",
+            "description": "Sort descending instead of ascending."
+          },
+          "tree": {
+            "type": "boolean",
+            "description": "Output mode: indented file tree with per-file counts and per-folder subtotals. This is the default mode."
+          },
+          "flat": {
+            "type": "boolean",
+            "description": "Output mode: one matching file per line with its counts. Mutually exclusive with the other modes."
+          },
+          "summary": {
+            "type": "boolean",
+            "description": "Output mode: aggregate counts only, grouped by --group. Mutually exclusive with the other modes."
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "ext",
+              "dir",
+              "none"
+            ],
+            "description": "Grouping for --summary: by extension (default), by immediate directory, or a single grand total."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result instead of text."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ct-edit",
+      "description": "Find/replace across files chosen by ct-search-style predicates, framed as a self-checking edit. It computes every replacement first, classifies the total against --expect into a SUCCESS/ERROR verdict, and writes ONLY when the verdict is SUCCESS and --dry-run is not set; otherwise nothing is written. Replacements preserve every untouched byte (line terminators, indentation, surrounding text). --find is substring->glob->regex promoted and matched per line; with a regex --find, $1/${name} expand in --replace (use $$ for literal $), with a literal or glob --find the replacement is literal. Only regular UTF-8 text files are edited. Not subject to the ct-test command allowlist (it runs no programs); safety is via --dry-run, --expect, and your VCS. With --json emits {tool, verdict, dry_run, applied, replacements, files_changed, sites:[{path,line,before,after}]}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct edit ...` or `ct-edit ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string",
+            "description": "Root to edit. A file edits just that file; a directory is descended. Default '.'.",
+            "default": "."
+          },
+          "name": {
+            "type": "string",
+            "description": "Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Include dot-entries (names starting with '.'). Default: skipped."
+          },
+          "follow": {
+            "type": "boolean",
+            "description": "Follow symlinks while traversing."
+          },
+          "find": {
+            "type": "string",
+            "description": "Pattern to find (substring->glob->regex promoted), matched per line. Required."
+          },
+          "replace": {
+            "type": "string",
+            "description": "Replacement text. With a regex --find, $1/${name} expand (use $$ for literal $); with a literal or glob --find, the replacement is literal. Required."
+          },
+          "expect": {
+            "type": "string",
+            "description": "Verdict expectation over the total replacement count; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). The edit is written only if the verdict is SUCCESS."
+          },
+          "dry-run": {
+            "type": "boolean",
+            "description": "Compute and show the change and verdict, but write nothing."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress the per-site diff; print only the summary line."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result instead of text."
+          }
+        },
+        "required": [
+          "find",
+          "replace"
+        ]
+      }
+    },
+    {
+      "name": "ct-patch",
+      "description": "Make structured, format-preserving edits to JSON/JSONC/JSONL/YAML files: address a node by path and --set, --add, --delete, or --move-* it. For JSON/JSONC/JSONL, edits are byte-range splices against the parsed tree, so everything outside the changed node (comments, indentation, key order, blank lines, trailing commas) is preserved exactly; YAML uses the pure-Rust yaml-edit backend (comment-preserving, though a structural edit may relocate an adjacent comment). Format is detected from the extension (.json, .jsonc, .jsonl/.ndjson, .yaml/.yml) or forced with --format; for JSONL each op applies to every non-blank line. Paths are dot-separated keys with [N] array indices or [key=value] object predicates (leading dot optional, e.g. .servers[name=web].port). --set VALUE is parsed as JSON if possible else taken as a string (missing object keys are created and an index equal to the array length appends). --add appends VALUE to the array at PATH (no index needed). --delete removes the node and its separating comma (unresolved path is a no-op). --move-first/--move-last/--move-up/--move-down relocate the array element selected by PATH within its list. YAML currently supports --set (replace existing) and --delete only (both comment-preserving); --add, --move-*, and array-index/predicate paths are JSON-family-only for now and error clearly on YAML. The verdict is --expect applied to the total number of changes (default any); the edit is written only when the verdict is SUCCESS and --dry-run is not set. Not subject to the ct-test allowlist (it runs no programs). With --json emits {tool, verdict, dry_run, applied, changes, files_changed, files:[{path,changes}]}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct patch ...` or `ct-patch ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string",
+            "description": "Root to patch. A file patches just that file; a directory is descended. Default '.'.",
+            "default": "."
+          },
+          "name": {
+            "type": "string",
+            "description": "Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Include dot-entries (names starting with '.'). Default: skipped."
+          },
+          "follow": {
+            "type": "boolean",
+            "description": "Follow symlinks while traversing."
+          },
+          "set": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "PATH=VALUE operations (repeatable). VALUE is parsed as JSON if possible, otherwise taken as a string. Missing object keys are created; an index equal to the array length appends. PATH may use [key=value] to select an array element. For YAML, --set replaces an existing key only."
+          },
+          "add": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "PATH=VALUE operations (repeatable): append VALUE to the array at PATH, without computing an index. VALUE is parsed as JSON or taken as a string. JSON family only."
+          },
+          "delete": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "PATH operations (repeatable): remove the node at PATH, taking its separating comma. PATH may use [key=value] to select an array element. An unresolved path is a no-op."
+          },
+          "move-first": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "PATH operations (repeatable): move the array element selected by PATH (by index or [key=value]) to the front of its list. JSON family only."
+          },
+          "move-last": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "PATH operations (repeatable): move the selected array element to the end of its list. JSON family only."
+          },
+          "move-up": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "PATH operations (repeatable): move the selected array element one position earlier. JSON family only."
+          },
+          "move-down": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "PATH operations (repeatable): move the selected array element one position later. JSON family only."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "jsonc",
+              "jsonl",
+              "yaml"
+            ],
+            "description": "Force the document format instead of detecting from the file extension."
+          },
+          "expect": {
+            "type": "string",
+            "description": "Verdict expectation over the total number of changes; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). The edit is written only if the verdict is SUCCESS."
+          },
+          "dry-run": {
+            "type": "boolean",
+            "description": "Compute and report the changes and verdict, but write nothing."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress the per-file lines; print only the summary."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result instead of text."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ct-test",
+      "description": "Run a command as a framed experiment: pose a question, classify the result from stdout/stderr pattern matches, and emit a templated verdict. Pass/fail is decided by what the command prints, not only its exit code. ct-test is fail-closed; {RESULT} resolves in order: (1) any err-match hit => ERROR (decisive, never overridden); (2) else any ok-match hit => SUCCESS (a supplied --ok-match is a REQUIRED proof of success — a clean exit does not substitute for it); (3) else the run is inconclusive and --otherwise decides (success|error|exit), defaulting to error when an --ok-match was supplied, otherwise exit. The -stdout/-stderr matcher variants search only that one stream (e.g. cargo test writes 'test result: ok' to stdout, so --ok-match-stderr would miss it). On ERROR a one-line reason explaining which rule fired is printed to stderr and is available as the {REASON} emit token. --focus distils the captured output to the lines matching a pattern (with --context around each), printed to stderr and available as {FOCUS}. Exit status is 0 when RESULT is SUCCESS, 1 when ERROR, 2 on a usage or runtime error. ct-test runs only a fixed, immutable built-in set of read-only commands (cat ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc), so it is a ready conditional wrapper around the read-only ct-* tools; a command not on it is refused with exit 2 and nothing runs, and there is no run-time way to extend the list. Gating is by program name (basename of cmd, or 'sh' under --shell; since 'sh' is not on the list, --shell is currently unavailable). Pattern arguments use substring->glob->regex promotion and are searched unanchored. Invoke as `ct test ...` or `ct-test ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "The question this experiment answers; printed as a '== ... ==' banner unless --quiet."
+          },
+          "cmd": {
+            "type": "string",
+            "description": "Program to run. With --shell it is interpreted as a shell command line; otherwise trailing args (after --) are passed through to it."
+          },
+          "shell": {
+            "type": "boolean",
+            "description": "Interpret --cmd as a shell line via `sh -c`, enabling pipes and redirection."
+          },
+          "stdin": {
+            "type": "string",
+            "description": "Literal text written to the child's standard input."
+          },
+          "err-match": {
+            "type": "string",
+            "description": "Pattern that, if found in stdout OR stderr, forces RESULT=ERROR. Synonym for supplying both err-match-stdout and err-match-stderr."
+          },
+          "err-match-stdout": {
+            "type": "string",
+            "description": "Pattern that, if found in stdout, forces RESULT=ERROR."
+          },
+          "err-match-stderr": {
+            "type": "string",
+            "description": "Pattern that, if found in stderr, forces RESULT=ERROR."
+          },
+          "ok-match": {
+            "type": "string",
+            "description": "Pattern that, if found in stdout OR stderr, indicates RESULT=SUCCESS. Synonym for supplying both ok-match-stdout and ok-match-stderr."
+          },
+          "ok-match-stdout": {
+            "type": "string",
+            "description": "Pattern that, if found in stdout, indicates RESULT=SUCCESS."
+          },
+          "ok-match-stderr": {
+            "type": "string",
+            "description": "Pattern that, if found in stderr, indicates RESULT=SUCCESS."
+          },
+          "otherwise": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error",
+              "exit"
+            ],
+            "description": "Verdict when neither an --ok-match nor an --err-match matched (the inconclusive case). Default: error if any --ok-match was supplied, else exit (follow the exit code)."
+          },
+          "focus": {
+            "type": "string",
+            "description": "Distil the captured output to the lines matching this pattern, with --context lines around each (overlapping windows merge, line-numbered). Printed to stderr and available as the {FOCUS} emit token."
+          },
+          "context": {
+            "type": "integer",
+            "description": "Lines of context shown around each --focus match. Default: 2.",
+            "default": 2
+          },
+          "emit": {
+            "type": "string",
+            "description": "Template written to stdout after the command finishes (alias: emit-stdout). Tokens: {RESULT} {CODE} {QUESTION} {CMD} {STDOUT} {STDERR} {REASON} {FOCUS}."
+          },
+          "emit-stderr": {
+            "type": "string",
+            "description": "Template written to stderr after the command finishes. Same tokens as emit."
+          },
+          "show-output": {
+            "type": "boolean",
+            "description": "Also pass the child's stdout/stderr through verbatim."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress the question banner."
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Arguments passed through to --cmd (supplied after `--`). Ignored when --shell is used."
+          }
+        },
+        "required": [
+          "cmd"
+        ]
+      }
+    }
+  ]
+}

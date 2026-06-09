@@ -39,6 +39,16 @@ const REGEX_META: [char; 10] = ['^', '$', '(', ')', '|', '+', '{', '}', '\\', '.
 /// A pattern is [`Regex`](PatternKind::Regex) only when it both carries explicit
 /// regex metacharacters *and* compiles, so an invalid-as-regex string such as
 /// `*.java` (leading quantifier) falls back to [`Glob`](PatternKind::Glob).
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::pattern::{classify, PatternKind};
+///
+/// assert_eq!(classify("ERROR:"), PatternKind::Literal); // no metacharacters
+/// assert_eq!(classify("*.java"), PatternKind::Glob);     // a leading `*` is not a valid regex
+/// assert_eq!(classify(r"\d+"), PatternKind::Regex);      // valid regex with metacharacters
+/// ```
 pub fn classify(pat: &str) -> PatternKind {
     let has_glob = pat.chars().any(|c| GLOB_META.contains(&c));
     let has_regex_meta = pat.chars().any(|c| REGEX_META.contains(&c));
@@ -57,6 +67,15 @@ pub fn classify(pat: &str) -> PatternKind {
 /// semantics; `[ … ]` character classes are passed through (with a leading `!`
 /// rewritten to the regex negation `^`); every other regex metacharacter is
 /// escaped to a literal.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::pattern::glob_to_regex;
+///
+/// assert_eq!(glob_to_regex("*.rs"), r"[^/]*\.rs");
+/// assert_eq!(glob_to_regex("data_[0-9]"), "data_[0-9]");
+/// ```
 pub fn glob_to_regex(glob: &str) -> String {
     let mut out = String::new();
     let mut chars = glob.chars().peekable();
@@ -88,6 +107,17 @@ pub fn glob_to_regex(glob: &str) -> String {
 }
 
 /// Produce the regex *source* a raw pattern promotes to, without anchoring.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::pattern::promote;
+///
+/// assert_eq!(promote("a.b"), "a.b"); // valid regex: used as written
+/// assert_eq!(promote("a+b"), "a+b"); // valid regex
+/// assert_eq!(promote("*.rs"), r"[^/]*\.rs"); // glob -> regex
+/// assert_eq!(promote("v1.0"), "v1.0"); // '.' is a regex metachar, kept as-is
+/// ```
 pub fn promote(pat: &str) -> String {
     match classify(pat) {
         PatternKind::Literal => regex::escape(pat),
@@ -96,14 +126,34 @@ pub fn promote(pat: &str) -> String {
     }
 }
 
-/// Compile a pattern for *content / unanchored* matching (e.g. `ctsearch --grep`
-/// or any `cttest` matcher): the result matches anywhere in the haystack.
+/// Compile a pattern for *content / unanchored* matching (e.g. `ct-search --grep`
+/// or any `ct-test` matcher): the result matches anywhere in the haystack.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::pattern::compile;
+///
+/// let re = compile("ERROR:").unwrap();
+/// assert!(re.is_match("first line\nERROR: bad input\n"));
+/// assert!(!re.is_match("all good here"));
+/// ```
 pub fn compile(pat: &str) -> Result<Regex, regex::Error> {
     Regex::new(&promote(pat))
 }
 
 /// Compile a pattern for *whole-name* matching: anchored to the full string, so
 /// `*.java` means "the name ends in `.java`", not merely "contains".
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::pattern::compile_anchored;
+///
+/// let re = compile_anchored("*.rs").unwrap();
+/// assert!(re.is_match("main.rs"));
+/// assert!(!re.is_match("main.rs.bak")); // anchored: must end in .rs
+/// ```
 pub fn compile_anchored(pat: &str) -> Result<Regex, regex::Error> {
     Regex::new(&format!("^(?:{})$", promote(pat)))
 }
@@ -111,6 +161,18 @@ pub fn compile_anchored(pat: &str) -> Result<Regex, regex::Error> {
 /// Compile a `'|'`-separated set of whole-name alternatives, each promoted and
 /// anchored. An entry name matches the set when it matches *any* alternative,
 /// mirroring `find`'s `-name a -o -name b`.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::pattern::compile_name_set;
+///
+/// let set = compile_name_set("*.rs|*.toml").unwrap();
+/// let matches = |name: &str| set.iter().any(|r| r.is_match(name));
+/// assert!(matches("lib.rs"));
+/// assert!(matches("Cargo.toml"));
+/// assert!(!matches("README.md"));
+/// ```
 pub fn compile_name_set(spec: &str) -> Result<Vec<Regex>, regex::Error> {
     spec.split('|')
         .filter(|s| !s.is_empty())
