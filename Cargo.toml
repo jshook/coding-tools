@@ -10,8 +10,10 @@ authors = ["Jonathan Shook <jshook@gmail.com>"]
 keywords = ["cli", "search", "grep", "refactor", "agent"]
 categories = ["command-line-utilities", "development-tools"]
 default-run = "ct"
-exclude = [".idea/"]
-# repository = "https://github.com/<owner>/coding-tools"  # set before publishing
+exclude = [".idea/", ".github/"]
+repository = "https://github.com/jshook/coding-tools"
+homepage = "https://github.com/jshook/coding-tools"
+documentation = "https://docs.rs/coding-tools"
 
 # The crate (`use coding_tools::…`) keeps its underscore name; only the published
 # package is hyphenated, per Rust convention.
@@ -54,3 +56,8 @@ walkdir = "2.5.0"
 serde_json = "1.0.150"
 jsonc-parser = "0.26"
 yaml-edit = "0.2.1"
+
+# Release artifacts are distributed as standalone binaries; strip symbols to keep
+# them small. Does not affect dev/test builds.
+[profile.release]
+strip = true
