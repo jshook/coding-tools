@@ -57,6 +57,10 @@ serde_json = "1.0.150"
 jsonc-parser = "0.26"
 yaml-edit = "0.2.1"
 
+# Unix only: process-group kill for `--timeout` on the child-running tools.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Release artifacts are distributed as standalone binaries; strip symbols to keep
 # them small. Does not affect dev/test builds.
 [profile.release]

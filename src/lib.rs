@@ -18,8 +18,13 @@
 //!   search/edit/patch as a pass/fail test.
 //! * [`template`] — the `{TOKEN}` substitution engine behind every `--emit`
 //!   verdict template.
-//! * [`allowlist`] — `ct-test`'s fixed, read-only command allow-gate.
+//! * [`allowlist`] — the fixed command allow-gates behind `ct-test` and
+//!   `ct-each`.
 //! * [`explain`] — the `--explain` agent-documentation format selector.
+//! * [`pulse`] — the `--timeout` watchdog and `--heartbeat` liveness pulse
+//!   every tool carries.
+//! * [`supervise`] — bounded, captured child execution for the dispatching
+//!   tools (`ct-test`, `ct-each`), including suite sibling resolution.
 //!
 //! Per-command surfaces (the pure logic each `ct-*` tool is built on):
 //!
@@ -34,6 +39,8 @@ pub mod edit;
 pub mod explain;
 pub mod patch;
 pub mod pattern;
+pub mod pulse;
+pub mod supervise;
 pub mod template;
 pub mod testrun;
 pub mod tree;
