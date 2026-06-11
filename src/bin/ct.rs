@@ -56,6 +56,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "each",
         "Run a command template once per item, no shell, with an aggregate --expect verdict (ct-each)",
     ),
+    (
+        "outline",
+        "Report the declarations in a file or tree: kind, name, start:end span (ct-outline)",
+    ),
 ];
 
 /// The `ct --help` / usage text.

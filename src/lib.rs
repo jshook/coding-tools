@@ -28,6 +28,8 @@
 //!
 //! Per-command surfaces (the pure logic each `ct-*` tool is built on):
 //!
+//! * [`outline`] — `ct-outline`'s heuristic per-language declaration
+//!   detection.
 //! * [`view`] — `ct-view`'s range parsing and context-window merging.
 //! * [`tree`] — `ct-tree`'s line/word/character counts and grouping.
 //! * [`edit`] — `ct-edit`'s line-scoped, byte-preserving replacement engine.
@@ -37,6 +39,7 @@
 pub mod allowlist;
 pub mod edit;
 pub mod explain;
+pub mod outline;
 pub mod patch;
 pub mod pattern;
 pub mod pulse;

@@ -53,6 +53,10 @@ path = "src/bin/ct-tree.rs"
 name = "ct-each"
 path = "src/bin/ct-each.rs"
 
+[[bin]]
+name = "ct-outline"
+path = "src/bin/ct-outline.rs"
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 regex = "1.12.3"

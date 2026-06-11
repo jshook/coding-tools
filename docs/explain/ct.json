@@ -751,6 +751,103 @@
           "command"
         ]
       }
+    },
+    {
+      "name": "ct-outline",
+      "description": "Report the declarations in a file or tree — kind, name, and start:end line span — so the next read can be a bounded ct-view --range instead of a whole-file dump. Detection is heuristic (per-language rule packs: line patterns plus a block heuristic — braces for Rust, indentation for Python, heading levels for Markdown); it is a comprehension aid, not a parser: start lines are exact, end lines are best-effort and render as 'start:?' (JSON \"end\": null) when underivable — the code wins when they disagree. Shipped languages: Rust (.rs: mod struct enum trait impl fn macro type const static), Python (.py: class, def/async def), Markdown (.md: h1..h6, fenced code blocks ignored); js/ts, java, go, sh are planned. Unrecognised extensions are skipped in directory walks and are an error (exit 2) when named directly. Targeting uses the suite's walker vocabulary (--base file-or-dir, --name, --ext, --hidden, --follow). Filter entries with --match (anchored to the whole declaration name, like --name — use 'Verdict*' for prefix semantics), --kind (per-language keyword list), and --depth (1 = top-level only); filters AND together. Tree output keeps a matched entry's ancestors visible marked '(context)', but only matched entries count toward {COUNT}/--expect and only matched entries appear in --flat (path:start:end:kind:name) and --json output. Framed verdict: --question banner, --expect over the matched-entry count (any|none|N|=N|+N|-N, default any), --emit templates with {RESULT} {QUESTION} {COUNT} {BASE} {MATCHES}; exit 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Read-only — on the ct-test allowlist and ct-each's default gate. Invoke as `ct outline ...` or `ct-outline ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string",
+            "description": "A file outlines just that file; a directory is descended. Default '.'.",
+            "default": "."
+          },
+          "name": {
+            "type": "string",
+            "description": "Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name."
+          },
+          "ext": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Restrict to these extensions (no dots), e.g. ['rs','py']. Added to --name as alternatives. May be comma-joined."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Include dot-entries (names starting with '.'). Default: skipped."
+          },
+          "follow": {
+            "type": "boolean",
+            "description": "Follow symlinks while traversing."
+          },
+          "match": {
+            "type": "string",
+            "description": "Keep entries whose name matches (substring->glob->regex promoted, anchored to the whole declaration name). Use a glob like 'Verdict*' for prefix semantics."
+          },
+          "kind": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keep entries of these kinds (comma-joined or repeated), e.g. ['fn','struct']. Kinds are the source language's own keywords (Rust: mod struct enum trait impl fn macro type const static; Python: class def; Markdown: h1..h6)."
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Keep entries nested at most N levels deep (1 = top-level only)."
+          },
+          "flat": {
+            "type": "boolean",
+            "description": "One grep-friendly row per matched entry: path:start:end:kind:name (end is '?' when unknown). Default is an indented per-file tree with '(context)' ancestors."
+          },
+          "question": {
+            "type": "string",
+            "description": "Question this outline answers, framing it as a test; printed as a '== ... ==' banner unless quiet."
+          },
+          "expect": {
+            "type": "string",
+            "description": "Verdict expectation over the matched-entry count; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N)."
+          },
+          "emit": {
+            "type": "string",
+            "description": "Template written to stdout after the outline (alias: emit-stdout). Tokens: {RESULT} {QUESTION} {COUNT} {BASE} {MATCHES}."
+          },
+          "emit-stderr": {
+            "type": "string",
+            "description": "Template written to stderr after the outline. Same tokens as emit."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Print no outline and no banner; report via exit status (and --emit, which still fires)."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result {tool, verdict, base, count, files:[{path, entries:[{kind,name,start,end,depth}]}]} instead of text; overrides the text modes and --emit."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if the run exceeds SECS seconds (fractional allowed)."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
+          }
+        },
+        "required": []
+      }
     }
   ]
 }
