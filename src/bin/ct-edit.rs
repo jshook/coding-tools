@@ -18,6 +18,7 @@ use clap::Parser;
 use coding_tools::edit::{Site, edit_content};
 use coding_tools::explain::Format;
 use coding_tools::pattern::{self, PatternKind};
+use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::verdict::{Expect, Verdict};
 use coding_tools::walk::{self, EntryType};
 use serde_json::json;
@@ -77,12 +78,21 @@ struct Cli {
     #[arg(long)]
     json: bool,
 
+    /// Abort with exit 2 if the scan exceeds SECS seconds (fractional allowed). Never interrupts the write phase: once a SUCCESS verdict starts writing, every write completes.
+    #[arg(long, value_name = "SECS")]
+    timeout: Option<f64>,
+
+    #[command(flatten)]
+    heartbeat: HeartbeatOpts,
+
     /// Print agent usage docs (md or json) and exit.
     #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
     explain: Option<Format>,
 }
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
+    let watchdog = pulse::watchdog("ct-edit", cli.timeout)?;
+    let _pulse = cli.heartbeat.start("ct-edit", PulseState::new())?;
     let re = pattern::compile(&cli.find).map_err(|e| format!("invalid --find pattern: {e}"))?;
     let literal = !matches!(pattern::classify(&cli.find), PatternKind::Regex);
     let names = match &cli.name {
@@ -130,7 +140,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     }
 
     let verdict = expect.eval(replacements as u64);
-    // Write only when the expectation held and this is not a preview.
+    // Write only when the expectation held and this is not a preview. The
+    // timeout bound ends here: a write phase, once begun, always completes.
+    if let Some(w) = &watchdog {
+        w.disarm();
+    }
     let applied = verdict == Verdict::Success && !cli.dry_run;
     if applied {
         for (path, content) in &changed {

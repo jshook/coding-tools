@@ -23,6 +23,7 @@ use coding_tools::explain::Format;
 use coding_tools::patch::{
     MoveTo, Op, apply_doc, apply_jsonl, apply_yaml, normalize_value, parse_path, split_assign,
 };
+use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::verdict::{Expect, Verdict};
 use coding_tools::walk::{self, EntryType};
 use serde_json::json;
@@ -108,6 +109,13 @@ struct Cli {
     #[arg(long)]
     json: bool,
 
+    /// Abort with exit 2 if the scan exceeds SECS seconds (fractional allowed). Never interrupts the write phase: once a SUCCESS verdict starts writing, every write completes.
+    #[arg(long, value_name = "SECS")]
+    timeout: Option<f64>,
+
+    #[command(flatten)]
+    heartbeat: HeartbeatOpts,
+
     /// Print agent usage docs (md or json) and exit.
     #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
     explain: Option<Format>,
@@ -137,6 +145,8 @@ impl DocFormat {
 }
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
+    let watchdog = pulse::watchdog("ct-patch", cli.timeout)?;
+    let _pulse = cli.heartbeat.start("ct-patch", PulseState::new())?;
     let mut ops: Vec<Op> = Vec::new();
     for spec in &cli.set {
         let (p, v) =
@@ -237,6 +247,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     }
 
     let verdict = expect.eval(total_changes as u64);
+    // The timeout bound ends here: a write phase, once begun, always completes.
+    if let Some(w) = &watchdog {
+        w.disarm();
+    }
     let applied = verdict == Verdict::Success && !cli.dry_run;
     if applied {
         for (path, content, _) in &changed_files {

@@ -142,6 +142,17 @@ with one predictable rule — write the simplest thing that expresses your inten
 Examples: `ERROR:` → literal; `*.java` → glob (a leading `*` is not a valid
 regex); `^ERROR`, `foo|bar`, `\d+` → regex.
 
+## Run bounds and liveness
+
+Every suite tool is bounded and observable the same way:
+
+| Option             | Argument   | Effect                                                            |
+| ------------------ | ---------- | ----------------------------------------------------------------- |
+| `--timeout`        | `SECS`     | Abort the run (exit `2`, with a one-line message) if it exceeds SECS seconds (fractional allowed). |
+| `--heartbeat`      | `SECS`     | Print a liveness pulse every SECS seconds while the run is in progress. |
+| `--heartbeat-emit` | `TEMPLATE` | Pulse template. Tokens: `{ELAPSED}` (whole seconds so far) `{TOOL}`. Default: `[{ELAPSED}s]`. |
+| `--heartbeat-to`   | `stderr\|stdout` | Stream for pulses. Default: `stderr`.                       |
+
 ## Exit status
 
 The exit status follows the **verdict** = `--expect` applied to the match count:

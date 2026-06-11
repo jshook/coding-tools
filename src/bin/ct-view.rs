@@ -16,6 +16,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use coding_tools::explain::Format;
 use coding_tools::pattern;
+use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::view::{expand_and_merge, parse_range, segments};
 use serde_json::json;
 
@@ -53,6 +54,13 @@ struct Cli {
     #[arg(long)]
     limit: Option<usize>,
 
+    /// Abort with exit 2 if the view exceeds SECS seconds (fractional allowed).
+    #[arg(long, value_name = "SECS")]
+    timeout: Option<f64>,
+
+    #[command(flatten)]
+    heartbeat: HeartbeatOpts,
+
     /// Suppress the line-number gutter in text output.
     #[arg(long)]
     plain: bool,
@@ -67,6 +75,8 @@ struct Cli {
 }
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
+    let _watchdog = pulse::watchdog("ct-view", cli.timeout)?;
+    let _pulse = cli.heartbeat.start("ct-view", PulseState::new())?;
     let content = std::fs::read_to_string(&cli.path)
         .map_err(|e| format!("read {}: {e}", cli.path.display()))?;
     let lines: Vec<&str> = content.lines().collect();

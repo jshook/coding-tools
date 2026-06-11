@@ -113,6 +113,26 @@
           "quiet": {
             "type": "boolean",
             "description": "Output mode: print no per-match output and no --question banner; report via exit status (and --emit, which still fires). Mutually exclusive with the other output modes."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if the search exceeds SECS seconds (fractional allowed)."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
           }
         },
         "required": []
@@ -152,6 +172,26 @@
           "json": {
             "type": "boolean",
             "description": "Emit a structured JSON result instead of text."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if the view exceeds SECS seconds (fractional allowed)."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
           }
         },
         "required": [
@@ -261,6 +301,26 @@
           "json": {
             "type": "boolean",
             "description": "Emit a structured JSON result instead of text."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if the report exceeds SECS seconds (fractional allowed)."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
           }
         },
         "required": []
@@ -312,6 +372,26 @@
           "json": {
             "type": "boolean",
             "description": "Emit a structured JSON result instead of text."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if the scan exceeds SECS seconds (fractional allowed). Never interrupts the write phase: once a SUCCESS verdict starts writing, every write completes."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
           }
         },
         "required": [
@@ -417,6 +497,26 @@
           "json": {
             "type": "boolean",
             "description": "Emit a structured JSON result instead of text."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if the scan exceeds SECS seconds (fractional allowed). Never interrupts the write phase: once a SUCCESS verdict starts writing, every write completes."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
           }
         },
         "required": []

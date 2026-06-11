@@ -127,6 +127,21 @@ is not set. Like `ct-edit`, `ct-patch` runs no external programs, so it is not
 subject to the `ct-test` allowlist; safety comes from `--dry-run`, `--expect`, and
 your VCS.
 
+## Run bounds and liveness
+
+Every suite tool is bounded and observable the same way:
+
+| Option             | Argument   | Effect                                                            |
+| ------------------ | ---------- | ----------------------------------------------------------------- |
+| `--timeout`        | `SECS`     | Abort the scan (exit `2`, with a one-line message) if it exceeds SECS seconds (fractional allowed). |
+| `--heartbeat`      | `SECS`     | Print a liveness pulse every SECS seconds while the run is in progress. |
+| `--heartbeat-emit` | `TEMPLATE` | Pulse template. Tokens: `{ELAPSED}` (whole seconds so far) `{TOOL}`. Default: `[{ELAPSED}s]`. |
+| `--heartbeat-to`   | `stderr\|stdout` | Stream for pulses. Default: `stderr`.                       |
+
+The timeout bound covers the scan/compute phase only: once a `SUCCESS` verdict
+begins writing, every write completes — a timeout can never leave a file
+half-written.
+
 ## Exit status
 
 | Code | Meaning                                                       |

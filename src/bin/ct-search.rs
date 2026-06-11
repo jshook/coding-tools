@@ -14,6 +14,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use coding_tools::explain::Format;
+use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::verdict::Expect;
 use coding_tools::walk::{self, EntryType};
 use coding_tools::{pattern, template};
@@ -68,6 +69,13 @@ struct Cli {
     /// Stop after N matches.
     #[arg(long)]
     limit: Option<usize>,
+
+    /// Abort with exit 2 if the search exceeds SECS seconds (fractional allowed).
+    #[arg(long, value_name = "SECS")]
+    timeout: Option<f64>,
+
+    #[command(flatten)]
+    heartbeat: HeartbeatOpts,
 
     /// Question this search answers, framing it as a test; printed as a "== ... ==" banner unless --quiet.
     #[arg(long)]
@@ -133,6 +141,8 @@ impl Mode {
 }
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
+    let _watchdog = pulse::watchdog("ct-search", cli.timeout)?;
+    let _pulse = cli.heartbeat.start("ct-search", PulseState::new())?;
     let names = match &cli.name {
         Some(spec) => Some(
             pattern::compile_name_set(spec).map_err(|e| format!("invalid --name pattern: {e}"))?,

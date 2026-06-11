@@ -17,6 +17,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use coding_tools::explain::Format;
+use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::tree::{metrics, parent_dir, within};
 use coding_tools::walk::{self, EntryType};
 use serde_json::json;
@@ -110,6 +111,13 @@ struct Cli {
     /// Emit a structured JSON result instead of text.
     #[arg(long)]
     json: bool,
+
+    /// Abort with exit 2 if the report exceeds SECS seconds (fractional allowed).
+    #[arg(long, value_name = "SECS")]
+    timeout: Option<f64>,
+
+    #[command(flatten)]
+    heartbeat: HeartbeatOpts,
 
     /// Print agent usage docs (md or json) and exit.
     #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
@@ -420,6 +428,8 @@ fn render_json(cli: &Cli, rows: &[FileRow]) {
 }
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
+    let _watchdog = pulse::watchdog("ct-tree", cli.timeout)?;
+    let _pulse = cli.heartbeat.start("ct-tree", PulseState::new())?;
     // --ext is sugar for additional name alternatives.
     let mut name_spec = cli.name.clone().unwrap_or_default();
     for e in &cli.ext {
