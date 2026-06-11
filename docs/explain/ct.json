@@ -1,19 +1,25 @@
 {
   "name": "ct",
-  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search and `ct test` runs ct-test; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
+  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, `ct deps` runs ct-deps, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
   "input_schema": {
     "type": "object",
     "properties": {
       "command": {
         "type": "string",
-        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), edit (ct-edit), patch (ct-patch), test (ct-test). Any other ct-* tool on PATH also works.",
+        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), edit (ct-edit), patch (ct-patch), test (ct-test), each (ct-each), outline (ct-outline), rules (ct-rules), check (ct-check), deps (ct-deps), await (ct-await). Any other ct-* tool on PATH also works.",
         "enum": [
           "search",
           "view",
           "tree",
           "edit",
           "patch",
-          "test"
+          "test",
+          "each",
+          "outline",
+          "rules",
+          "check",
+          "deps",
+          "await"
         ]
       },
       "args": {
@@ -418,7 +424,7 @@
     },
     {
       "name": "ct-test",
-      "description": "Run a command as a framed experiment: pose a question, classify the result from stdout/stderr pattern matches, and emit a templated verdict. Pass/fail is decided by what the command prints, not only its exit code. ct-test is fail-closed; {RESULT} resolves in order: (1) any err-match hit => ERROR (decisive, never overridden); (2) else any ok-match hit => SUCCESS (a supplied --ok-match is a REQUIRED proof of success — a clean exit does not substitute for it); (3) else the run is inconclusive and --otherwise decides (success|error|exit), defaulting to error when an --ok-match was supplied, otherwise exit. The -stdout/-stderr matcher variants search only that one stream (e.g. cargo test writes 'test result: ok' to stdout, so --ok-match-stderr would miss it). On ERROR a one-line reason explaining which rule fired is printed to stderr and is available as the {REASON} emit token. --focus distils the captured output to the lines matching a pattern (with --context around each), printed to stderr and available as {FOCUS}. Exit status is 0 when RESULT is SUCCESS, 1 when ERROR, 2 on a usage or runtime error. ct-test runs only a fixed, immutable built-in set of read-only commands (cat ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc), so it is a ready conditional wrapper around the read-only ct-* tools; a command not on it is refused with exit 2 and nothing runs, and there is no run-time way to extend the list. Gating is by program name (basename of cmd, or 'sh' under --shell; since 'sh' is not on the list, --shell is currently unavailable). Pattern arguments use substring->glob->regex promotion and are searched unanchored. Invoke as `ct test ...` or `ct-test ...`.",
+      "description": "Run a command as a framed experiment: pose a question, classify the result from stdout/stderr pattern matches, and emit a templated verdict. Pass/fail is decided by what the command prints, not only its exit code. ct-test is fail-closed; {RESULT} resolves in order: (0) the run timed out (--timeout) => ERROR (decisive — the experiment did not complete, so no match in partial output can establish success; {CODE} becomes 'timeout'); (1) any err-match hit => ERROR (decisive, never overridden); (2) else any ok-match hit => SUCCESS (a supplied --ok-match is a REQUIRED proof of success — a clean exit does not substitute for it); (3) else the run is inconclusive and --otherwise decides (success|error|exit), defaulting to error when an --ok-match was supplied, otherwise exit. The -stdout/-stderr matcher variants search only that one stream (e.g. cargo test writes 'test result: ok' to stdout, so --ok-match-stderr would miss it). On ERROR a one-line reason explaining which rule fired is printed to stderr and is available as the {REASON} emit token. --focus distils the captured output to the lines matching a pattern (with --context around each), printed to stderr and available as {FOCUS}; --capture-tail N bounds the {STDOUT}/{STDERR} emit tokens to the last N lines (matchers and --focus still see everything). --timeout SECS kills the command's whole process group after SECS seconds (fractional allowed). --heartbeat SECS prints a minimal liveness pulse while the command runs ([{ELAPSED}s] by default, customisable with --heartbeat-emit, routed to stderr or stdout by --heartbeat-to). Exit status is 0 when RESULT is SUCCESS, 1 when ERROR, 2 on a usage or runtime error. ct-test runs only a fixed, immutable built-in set of read-only commands (cat ct-check ct-deps ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc), so it is a ready conditional wrapper around the read-only ct-* tools; a command not on it is refused with exit 2 and nothing runs, and there is no run-time way to extend the list. Gating is by program name (the basename of cmd). There is no shell mode: the command is always launched directly, never through sh, so the match predicates and --focus replace the usual '| grep' post-processing (use ct-each for dispatch over many items). Pattern arguments use substring->glob->regex promotion and are searched unanchored. Invoke as `ct test ...` or `ct-test ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -428,15 +434,31 @@
           },
           "cmd": {
             "type": "string",
-            "description": "Program to run. With --shell it is interpreted as a shell command line; otherwise trailing args (after --) are passed through to it."
-          },
-          "shell": {
-            "type": "boolean",
-            "description": "Interpret --cmd as a shell line via `sh -c`, enabling pipes and redirection."
+            "description": "Program to run (must be on the fixed read-only allowlist). Trailing args (after --) are passed through to it. Always launched directly — there is no shell mode."
           },
           "stdin": {
             "type": "string",
             "description": "Literal text written to the child's standard input."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Kill the command's process group after SECS seconds (fractional allowed). Decisive: the verdict is ERROR and {CODE} becomes 'timeout'."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the command runs."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL} {QUESTION} {CMD}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
           },
           "err-match": {
             "type": "string",
@@ -480,6 +502,10 @@
             "description": "Lines of context shown around each --focus match. Default: 2.",
             "default": 2
           },
+          "capture-tail": {
+            "type": "integer",
+            "description": "Keep only the last N lines of each captured stream in the {STDOUT}/{STDERR} emit tokens, with an elision marker. Matchers and --focus still see the full streams."
+          },
           "emit": {
             "type": "string",
             "description": "Template written to stdout after the command finishes (alias: emit-stdout). Tokens: {RESULT} {CODE} {QUESTION} {CMD} {STDOUT} {STDERR} {REASON} {FOCUS}."
@@ -501,7 +527,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Arguments passed through to --cmd (supplied after `--`). Ignored when --shell is used."
+            "description": "Arguments passed through to --cmd (supplied after `--`)."
           }
         },
         "required": [

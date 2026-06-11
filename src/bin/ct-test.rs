@@ -4,19 +4,22 @@
 //! `ct-test` — framed experiment runner.
 //!
 //! Runs a command, classifies the outcome from stdout/stderr pattern matches,
-//! and emits a templated verdict; reachable directly or as `ct test`. The
-//! canonical, self-contained reference is `docs/explain/ct-test.md` — the same
-//! text this tool emits for `--explain md`; `docs/explain/ct-test.json` is the
-//! MCP tool-use definition emitted for `--explain json`. Both are embedded
-//! below.
+//! and emits a templated verdict; reachable directly or as `ct test`. The run
+//! is bounded by `--timeout` (the child's process group is killed and the
+//! verdict is `ERROR`) and observable via `--heartbeat`. There is no shell
+//! mode: the command is always launched directly. The canonical,
+//! self-contained reference is `docs/explain/ct-test.md` — the same text this
+//! tool emits for `--explain md`; `docs/explain/ct-test.json` is the MCP
+//! tool-use definition emitted for `--explain json`. Both are embedded below.
 
-use std::io::Write;
-use std::process::{Command, ExitCode, ExitStatus, Stdio};
+use std::process::{Command, ExitCode, ExitStatus};
 
 use clap::Parser;
 use coding_tools::allowlist;
 use coding_tools::explain::Format;
 use coding_tools::pattern;
+use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
+use coding_tools::supervise::{self, Outcome};
 use coding_tools::template;
 use coding_tools::testrun::focus_block;
 use coding_tools::verdict::Verdict;
@@ -32,25 +35,28 @@ const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-test.json");
     about = "Run a command as a framed experiment and emit a templated SUCCESS/ERROR verdict.",
     long_about = "ct-test frames a command with the question it answers, classifies the result from \
                   what the command prints (not only its exit code), and emits a templated verdict \
-                  (also reachable as `ct test`). See `ct-test --explain` for agent-oriented \
-                  documentation."
+                  (also reachable as `ct test`). The command is always launched directly — there is \
+                  no shell mode. See `ct-test --explain` for agent-oriented documentation."
 )]
 struct Cli {
     /// Question this experiment answers; printed as a "== ... ==" banner.
     #[arg(long)]
     question: Option<String>,
 
-    /// Program to run (or, with --shell, a shell command line).
+    /// Program to run (must be on the fixed read-only allowlist).
     #[arg(long)]
     cmd: Option<String>,
-
-    /// Interpret --cmd as a shell line via `sh -c` (enables pipes/redirection).
-    #[arg(long)]
-    shell: bool,
 
     /// Literal text written to the child's standard input.
     #[arg(long)]
     stdin: Option<String>,
+
+    /// Kill the command and classify ERROR if it runs longer than SECS seconds (fractional allowed); {CODE} becomes "timeout".
+    #[arg(long, value_name = "SECS")]
+    timeout: Option<f64>,
+
+    #[command(flatten)]
+    heartbeat: HeartbeatOpts,
 
     /// Match in stdout OR stderr forces ERROR (synonym for the -stdout/-stderr pair).
     #[arg(long)]
@@ -88,6 +94,10 @@ struct Cli {
     #[arg(long, default_value_t = 2)]
     context: usize,
 
+    /// Keep only the last N lines of each captured stream in the {STDOUT}/{STDERR} emit tokens (matchers and --focus still see everything).
+    #[arg(long, value_name = "N")]
+    capture_tail: Option<usize>,
+
     /// Template written to stdout after running. Tokens: {RESULT} {CODE} {QUESTION} {CMD} {STDOUT} {STDERR} {REASON} {FOCUS}.
     #[arg(long, alias = "emit-stdout")]
     emit: Option<String>,
@@ -108,13 +118,17 @@ struct Cli {
     #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
     explain: Option<Format>,
 
-    /// Arguments passed through to --cmd (after `--`); ignored with --shell.
+    /// Arguments passed through to --cmd (after `--`).
     #[arg(last = true)]
     args: Vec<String>,
 }
 
-/// Render an exit status as a token for `{CODE}`.
-fn code_token(status: &ExitStatus) -> String {
+/// Render an exit status as a token for `{CODE}` (`timeout` when the run was
+/// killed by `--timeout`).
+fn code_token(status: Option<&ExitStatus>) -> String {
+    let Some(status) = status else {
+        return "timeout".to_string();
+    };
     if let Some(code) = status.code() {
         return code.to_string();
     }
@@ -156,6 +170,7 @@ impl Otherwise {
 /// `ct-test` is *fail-closed*: it reports `SUCCESS` only when success is
 /// positively established. The precedence is
 ///
+/// 0. the run timed out → `ERROR` (decisive — partial output proves nothing);
 /// 1. any `--err-match*` hits → `ERROR` (a failure signal is decisive);
 /// 2. else any `--ok-match*` hits → `SUCCESS` (positive proof);
 /// 3. else *inconclusive* → the [`Otherwise`] policy from `--otherwise`, whose
@@ -165,12 +180,19 @@ impl Otherwise {
 /// The reason names which rule fired and, for an unmet `--ok-match`, which stream
 /// was searched — so a stream mismatch (e.g. success on stdout, `--ok-match-stderr`)
 /// is diagnosable rather than a silent red.
-fn classify_result(
-    cli: &Cli,
-    stdout: &str,
-    stderr: &str,
-    status: &ExitStatus,
-) -> Result<(Verdict, String), String> {
+fn classify_result(cli: &Cli, outcome: &Outcome) -> Result<(Verdict, String), String> {
+    // 0. A timeout is decisive: the experiment did not complete, so no match in
+    //    its partial output can establish success.
+    if outcome.timed_out {
+        let label = pulse::limit_label(pulse::secs("--timeout", cli.timeout.unwrap_or(0.0))?);
+        return Ok((
+            Verdict::Error,
+            format!("timed out after {label}; the command's process group was killed"),
+        ));
+    }
+    let status = outcome.status.as_ref().expect("not timed out");
+    let (stdout, stderr) = (outcome.stdout.as_str(), outcome.stderr.as_str());
+
     let hit = |pat: &str, hay: &str| -> Result<bool, String> {
         Ok(pattern::compile(pat)
             .map_err(|e| format!("invalid pattern '{pat}': {e}"))?
@@ -267,7 +289,7 @@ fn classify_result(
         Some(_) => format!(" (--otherwise={})", policy.label()),
         None => String::new(),
     };
-    let reason = format!("{basis}; exit={}{note}", code_token(status));
+    let reason = format!("{basis}; exit={}{note}", code_token(Some(status)));
     let verdict = match policy {
         Otherwise::Success => Verdict::Success,
         Otherwise::Error => Verdict::Error,
@@ -299,27 +321,22 @@ fn deny_message(name: &str) -> String {
          ct-test runs only this fixed set of read-only commands:\n  \
          {allowed}\n\
          \n\
-         The list is immutable; ct-test does not run other commands. (Under \
-         --shell the gated name is 'sh', which is not on the list.)\n"
+         The list is immutable; ct-test does not run other commands, and there \
+         is no shell mode.\n"
     )
 }
 
-/// Resolve the program to launch. A bare `ct-*` name is resolved to a sibling of
-/// this executable first, so `ct-test` wraps the suite's read-only tools (which
-/// share its install directory) without requiring them on `PATH` — the same
-/// resolution the `ct` umbrella uses. Anything else is launched by name via `PATH`.
-fn resolve_program(cmd: &str, name: &str) -> std::ffi::OsString {
-    if name.starts_with("ct-")
-        && !cmd.contains('/')
-        && let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return candidate.into_os_string();
-        }
+/// The last `n` lines of `text`, with an elision marker when lines were cut.
+/// Bounds the `{STDOUT}`/`{STDERR}` emit tokens under `--capture-tail`.
+fn tail_lines(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= n {
+        return text.to_string();
     }
-    std::ffi::OsString::from(cmd)
+    let omitted = lines.len() - n;
+    let mut out = format!("(... {omitted} earlier line(s) omitted)\n");
+    out.push_str(&lines[omitted..].join("\n"));
+    out
 }
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
@@ -329,11 +346,14 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         .ok_or("missing required option --cmd")?
         .to_string();
 
-    let name = allowlist::gated_name(&cmd_str, cli.shell);
+    let name = allowlist::gated_name(&cmd_str);
     if !allowlist::is_allowed(&name) {
         eprint!("{}", deny_message(&name));
         return Ok(ExitCode::from(2));
     }
+
+    let timeout = cli.timeout.map(|v| pulse::secs("--timeout", v)).transpose()?;
+    let cmdline = cmd_display(&cli);
 
     if !cli.quiet
         && let Some(q) = &cli.question
@@ -341,63 +361,38 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         println!("== {q} ==");
     }
 
-    let mut command = if cli.shell {
-        let mut c = Command::new("sh");
-        c.arg("-c").arg(&cmd_str);
-        if !cli.args.is_empty() {
-            // Provide $0 then the positional parameters for the shell snippet.
-            c.arg("sh").args(&cli.args);
-        }
-        c
-    } else {
-        let mut c = Command::new(resolve_program(&cmd_str, &name));
-        c.args(&cli.args);
-        c
-    };
-    command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let mut command = Command::new(supervise::resolve_program(&cmd_str, &name));
+    command.args(&cli.args);
 
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("failed to launch '{cmd_str}': {e}"))?;
+    // The pulse runs exactly as long as the child does, so no heartbeat line
+    // can land after the verdict output.
+    let state = PulseState::new();
+    state.set("QUESTION", cli.question.as_deref().unwrap_or(""));
+    state.set("CMD", &cmdline);
+    let pulse_guard = cli.heartbeat.start("ct-test", state)?;
 
-    if let Some(input) = &cli.stdin {
-        child
-            .stdin
-            .take()
-            .expect("stdin was piped")
-            .write_all(input.as_bytes())
-            .map_err(|e| format!("writing to child stdin: {e}"))?;
-    } else {
-        drop(child.stdin.take());
-    }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("waiting for command: {e}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let outcome = supervise::run_captured(command, cli.stdin.as_deref(), timeout)
+        .map_err(|e| format!("'{cmd_str}': {e}"))?;
+    drop(pulse_guard);
 
     if cli.show_output {
-        std::io::stdout().write_all(&output.stdout).ok();
-        std::io::stderr().write_all(&output.stderr).ok();
+        use std::io::Write;
+        std::io::stdout().write_all(outcome.stdout.as_bytes()).ok();
+        std::io::stderr().write_all(outcome.stderr.as_bytes()).ok();
     }
 
-    let (verdict, reason) = classify_result(&cli, &stdout, &stderr, &output.status)?;
-    let code = code_token(&output.status);
-    let cmdline = cmd_display(&cli);
+    let (verdict, reason) = classify_result(&cli, &outcome)?;
+    let code = code_token(outcome.status.as_ref());
 
     // Distil the captured output to the lines that matter, if asked.
     let focus = match &cli.focus {
         Some(pat) => {
             let re = pattern::compile(pat).map_err(|e| format!("invalid --focus pattern: {e}"))?;
             let mut blocks = Vec::new();
-            if let Some(b) = focus_block(&stdout, &re, cli.context) {
+            if let Some(b) = focus_block(&outcome.stdout, &re, cli.context) {
                 blocks.push(format!("stdout (focus):\n{b}"));
             }
-            if let Some(b) = focus_block(&stderr, &re, cli.context) {
+            if let Some(b) = focus_block(&outcome.stderr, &re, cli.context) {
                 blocks.push(format!("stderr (focus):\n{b}"));
             }
             blocks.join("\n")
@@ -405,13 +400,24 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         None => String::new(),
     };
 
+    // Matchers and --focus saw the full streams; only the emit tokens are
+    // bounded by --capture-tail.
+    let stdout_token = match cli.capture_tail {
+        Some(n) => tail_lines(outcome.stdout.trim_end_matches('\n'), n),
+        None => outcome.stdout.trim_end_matches('\n').to_string(),
+    };
+    let stderr_token = match cli.capture_tail {
+        Some(n) => tail_lines(outcome.stderr.trim_end_matches('\n'), n),
+        None => outcome.stderr.trim_end_matches('\n').to_string(),
+    };
+
     let tokens = [
         ("RESULT", verdict.label()),
         ("CODE", code.as_str()),
         ("QUESTION", cli.question.as_deref().unwrap_or("")),
         ("CMD", cmdline.as_str()),
-        ("STDOUT", stdout.trim_end_matches('\n')),
-        ("STDERR", stderr.trim_end_matches('\n')),
+        ("STDOUT", stdout_token.as_str()),
+        ("STDERR", stderr_token.as_str()),
         ("REASON", reason.as_str()),
         ("FOCUS", focus.as_str()),
     ];
@@ -455,5 +461,20 @@ fn main() -> ExitCode {
             eprintln!("ct-test: {msg}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tail_lines_keeps_last_n_with_marker() {
+        let text = "a\nb\nc\nd";
+        assert_eq!(tail_lines(text, 4), text);
+        assert_eq!(
+            tail_lines(text, 2),
+            "(... 2 earlier line(s) omitted)\nc\nd"
+        );
     }
 }

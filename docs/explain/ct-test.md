@@ -53,20 +53,22 @@ Because `ct-test` runs an arbitrary program, it runs **only** commands on a fixe
 compiled-in list of read-only commands:
 
 ```
-cat ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc
+cat ct-check ct-deps ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc
 ```
 
-The suite's read-only `ct-search`/`ct-tree`/`ct-view` are included — so `ct-test` is
-a ready **conditional wrapper** around them (see *Composing with the suite*); the
-umbrella `ct` and the mutating `ct-test`/`ct-edit`/`ct-patch` are not, since they
-can change state. **The list is static and immutable** — there is deliberately no
-flag or file to extend it, so an agent driving `ct-test` cannot grant itself new
-commands.
+The suite's read-only `ct-search`/`ct-outline`/`ct-tree`/`ct-view`/`ct-check` are
+included — so `ct-test` is a ready **conditional wrapper** around them (see
+*Composing with the suite*); the umbrella `ct` and the dispatching/mutating
+`ct-each`/`ct-edit`/`ct-patch`/`ct-rules` are not, since they can change state.
+**The list is static and immutable** — there is deliberately no flag or file to
+extend it, so an agent driving `ct-test` cannot grant itself new commands.
 
 Gating is by **program name** — the file-name component of `--cmd` (so `ls`,
-`/bin/ls`, and `./ls` all gate on `ls`), or `sh` under `--shell`. Since `sh` is not
-on the list, `--shell` command lines are not currently runnable. It guards against
-unintended side effects; it is not a sandbox and does not inspect arguments.
+`/bin/ls`, and `./ls` all gate on `ls`). There is **no shell mode**: the command
+is always launched directly with its arguments, never through `sh`, so pipes and
+redirection syntax have no meaning here (the match predicates and `--focus`
+replace the usual `| grep` post-processing). The gate guards against unintended
+side effects; it is not a sandbox and does not inspect arguments.
 
 A command that is not on the list is **refused** (exit `2`, nothing is run), and
 `ct-test` prints the full set of permitted commands.
@@ -99,9 +101,20 @@ own options **before** the `--`; everything after `--` goes to the wrapped tool.
 | Option       | Argument | Meaning                                                                 |
 | ------------ | -------- | ----------------------------------------------------------------------- |
 | `--question` | `TEXT`   | The question this experiment answers; printed as a `== … ==` banner.    |
-| `--cmd`      | `PROG`   | Program to run (must be on the allowlist). Trailing `-- ARGS…` are passed through to it. |
-| `--shell`    | —        | Interpret `--cmd` as a shell line via `sh -c`. Gated on `sh`, which is not on the allowlist, so this is currently unavailable. |
+| `--cmd`      | `PROG`   | Program to run (must be on the allowlist). Trailing `-- ARGS…` are passed through to it. Always launched directly — there is no shell mode. |
 | `--stdin`    | `TEXT`   | Literal text written to the child's standard input.                     |
+
+## Run bounds and liveness
+
+| Option             | Argument   | Effect                                                            |
+| ------------------ | ---------- | ----------------------------------------------------------------- |
+| `--timeout`        | `SECS`     | Kill the command's process group after SECS seconds (fractional allowed). A timeout is decisive: the verdict is `ERROR`, `{CODE}` becomes `timeout`, and `{REASON}` says so — partial output proves nothing, so no match can override it. |
+| `--heartbeat`      | `SECS`     | Print a liveness pulse every SECS seconds while the command runs. |
+| `--heartbeat-emit` | `TEMPLATE` | Pulse template. Tokens: `{ELAPSED}` (whole seconds so far) `{TOOL}` `{QUESTION}` `{CMD}`. Default: `[{ELAPSED}s]`. |
+| `--heartbeat-to`   | `stderr\|stdout` | Stream for pulses. Default: `stderr`.                       |
+
+The heartbeat is minimal by default — one `[12s]` line per interval — and stops
+when the command finishes, so a pulse never lands after the verdict output.
 
 ## Classifying the result
 
@@ -132,6 +145,8 @@ when neither an `--ok-match` nor an `--err-match` matched (see below).
 `ct-test` is **fail-closed**: it reports `SUCCESS` only when success is positively
 established. `{RESULT}` resolves in this order:
 
+0. The run **timed out** (`--timeout`) → `ERROR`. *(Decisive: the experiment did
+   not complete, so no match in its partial output can establish success.)*
 1. **Any** `--err-match*` hits → `ERROR`. *(A failure signal is decisive and is
    never overridden — not by an exit code, not by `--otherwise`.)*
 2. Else **any** `--ok-match*` hits → `SUCCESS`. *(A supplied `--ok-match` is a
@@ -162,7 +177,7 @@ Emit templates are printed **after** the command finishes. Tokens substituted:
 | Token        | Expands to                                          |
 | ------------ | --------------------------------------------------- |
 | `{RESULT}`   | `SUCCESS` or `ERROR`                                |
-| `{CODE}`     | the child's exit code (or `signal:N`)               |
+| `{CODE}`     | the child's exit code (or `signal:N`; `timeout` when `--timeout` fired) |
 | `{QUESTION}` | the `--question` text                               |
 | `{CMD}`      | the command line that was run                       |
 | `{STDOUT}`   | captured standard output (trailing newline trimmed) |
@@ -177,6 +192,7 @@ Emit templates are printed **after** the command finishes. Tokens substituted:
 | `--show-output` | —          | Also pass the child's stdout/stderr through verbatim. |
 | `--focus`       | `PATTERN`  | Distil the captured output to the lines matching `PATTERN`, with `--context` lines around each (overlapping windows merge, separated by `--`, line-numbered). Printed to **stderr** and available as `{FOCUS}`. |
 | `--context`     | `N`        | Lines of context around each `--focus` match. Default `2`. |
+| `--capture-tail`| `N`        | Keep only the last `N` lines of each captured stream in the `{STDOUT}`/`{STDERR}` tokens (an elision marker notes what was cut). Matchers and `--focus` still see the full streams. |
 | `--quiet`       | —          | Suppress the `== question ==` banner.                |
 
 `--focus` turns a noisy command into just the lines that matter — e.g. run a build
