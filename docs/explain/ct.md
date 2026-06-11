@@ -34,6 +34,12 @@ ct --version
 | `ct edit`   | `ct-edit`   | Find/replace across files, gated by `--expect` and `--dry-run`.     |
 | `ct patch`  | `ct-patch`  | Set/delete nodes by path in JSON/JSONC/JSONL, preserving formatting. |
 | `ct test`   | `ct-test`   | Run a command as a framed experiment with a templated verdict.      |
+| `ct each`   | `ct-each`   | Run a command template once per item (no shell), with an aggregate `--expect` verdict. |
+| `ct outline`| `ct-outline`| Report the declarations in a file or tree: kind, name, `start:end` span.   |
+| `ct rules`  | `ct-rules`  | Record, promote, remove, and list the project's invariant rules (`.ct/rules.jsonc`). |
+| `ct check`  | `ct-check`  | Verify the recorded invariants; five lanes, one exit status. Read-only.    |
+| `ct deps`   | `ct-deps`   | Assert crate-graph invariants: deny crates, forbid `A=>B` paths, no duplicates. |
+| `ct await`  | `ct-await`  | Poll a read-only probe until it succeeds, aborts, or the bound expires.    |
 
 Dispatch is **generic**: `ct <name>` runs `ct-<name>`, so any `ct-*` tool you add
 to your `PATH` is reachable through `ct` without changing `ct` itself. An unknown
@@ -81,8 +87,12 @@ ct search --base src --name '*.rs' --grep 'dbg!\(' \
   --question "Are all debug prints removed?" --expect none \
   --emit '{QUESTION} -> {RESULT}'
 
-# Run a framed experiment via the umbrella.
-ct test --question "Does seq count?" --cmd seq --emit '{RESULT}' -- 1 3
+# Run a framed experiment via the umbrella (cat is on ct-test's allowlist).
+ct test --question "Is the config free of deprecated keys?" \
+  --cmd cat -- config.toml --err-match 'old_key' --emit '{RESULT}'
+
+# Dispatch one check over several items (no shell loop).
+ct each --items Parser Lexer -- ct-search --base src --grep '{ITEM}' --quiet
 
 # Per-tool and whole-suite agent definitions.
 ct search --explain json     # one tool

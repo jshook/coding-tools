@@ -26,6 +26,12 @@ can call by its full name.
 | `ct-edit`   | Find/replace across selected files, gated by an `--expect` verdict and previewable with `--dry-run`. | [explain/ct-edit.md](../explain/ct-edit.md) |
 | `ct-patch`  | Set/delete nodes by path in JSON/JSONC/JSONL, preserving comments and formatting. | [explain/ct-patch.md](../explain/ct-patch.md) |
 | `ct-test`   | Run a command as a framed experiment — pose a question, classify the result from output, emit a templated verdict. | [explain/ct-test.md](../explain/ct-test.md) |
+| `ct-each`   | Run a command template once per item — no shell — with per-item verdicts and an aggregate `--expect`. | [explain/ct-each.md](../explain/ct-each.md) |
+| `ct-outline`| Report the declarations in a file or tree — kind, name, `start:end` span — for bounded reads. | [explain/ct-outline.md](../explain/ct-outline.md) |
+| `ct-rules`  | Record, promote, remove, and list the project's invariant rules (`.ct/rules.jsonc`); writes the store, on no gate. | [explain/ct-rules.md](../explain/ct-rules.md) |
+| `ct-check`  | Verify the recorded invariants — five lanes (`SUCCESS`/`ERROR`/`WARN`/`PENDING`/`BROKEN`), one exit status; purely read-only. | [explain/ct-check.md](../explain/ct-check.md) |
+| `ct-deps`   | Assert crate-graph invariants over hermetic `cargo metadata` — deny crates, forbid `A=>B` paths, duplicates — with evidence. | [explain/ct-deps.md](../explain/ct-deps.md) |
+| `ct-await`  | Poll a gated read-only probe until success, an abort pattern, or the required bound — observe work you don't execute. | [explain/ct-await.md](../explain/ct-await.md) |
 
 Each tool's page is the **canonical, self-contained reference** for that tool —
 the same text the tool emits from `<tool> --explain` — so it never drifts from
@@ -50,6 +56,15 @@ These hold for every tool; each tool's page documents them in full.
   via `--expect` (`any`/`none`/`N`/`=N`/`+N`/`-N`) — so "find nothing" can be the
   passing condition. This is the unification point: a search and a
   command-experiment are framed and consumed the same way.
+* **Run bounds and liveness.** Every leaf tool takes `--timeout SECS`
+  (fractional allowed) and `--heartbeat SECS` with `--heartbeat-emit` /
+  `--heartbeat-to`. For the self-contained tools a timeout aborts the run with
+  exit `2` (the mutating tools never interrupt a write phase once it begins);
+  for the dispatching tools (`ct-test`, `ct-each`) it kills the child's process
+  group and folds into the verdict (`ERROR`, `{CODE}` = `timeout`). The
+  heartbeat is minimal by default (`[{ELAPSED}s]`, to stderr) and
+  token-customisable. There is **no shell mode anywhere**: every dispatch is a
+  direct argv launch, gated by a fixed, immutable command list.
 * **`--explain [md|json]`.** Every tool describes itself for agents: `md`
   (default) emits an [llms.txt](https://llmstxt.org/)-style Markdown guide;
   `json` emits a [Model Context Protocol](https://modelcontextprotocol.io) /

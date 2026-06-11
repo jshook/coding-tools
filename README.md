@@ -6,7 +6,7 @@ self-describing command, and every tool is framed the same way — so what you l
 from one transfers to the next, and an agent can discover and drive them uniformly.
 
 ```sh
-cargo install coding-tools     # installs ct, ct-search, ct-view, ct-edit, ct-test
+cargo install coding-tools     # installs ct and every ct-* tool below
 ```
 
 ## Tools
@@ -22,6 +22,12 @@ full name.
 | `ct edit`   | `ct-edit`   | Find/replace across files, gated by an `--expect` verdict and `--dry-run`.    |
 | `ct patch`  | `ct-patch`  | Set/delete nodes by path in JSON/JSONC/JSONL, preserving comments and layout. |
 | `ct test`   | `ct-test`   | Run a command as a framed experiment; classify the result from its output.    |
+| `ct each`   | `ct-each`   | Run a command template once per item (no shell); aggregate `--expect` verdict. |
+| `ct outline`| `ct-outline`| Report a file's declarations — kind, name, `start:end` span — for bounded reads. |
+| `ct rules`  | `ct-rules`  | Record the project's invariants in `.ct/rules.jsonc` — verified at the moment they're written. |
+| `ct check`  | `ct-check`  | Re-verify every recorded invariant; five lanes, one exit status. Read-only.   |
+| `ct deps`   | `ct-deps`   | Assert crate-graph invariants — deny crates, forbid `A=>B` paths, duplicates — with evidence paths. |
+| `ct await`  | `ct-await`  | Wait, boundedly, for an external outcome via a read-only probe.               |
 
 ## Why
 
@@ -37,7 +43,13 @@ less supervision:
 - **Preview before write.** `ct-edit --dry-run` shows the diff and verdict without
   touching disk; edits preserve every untouched byte (indentation, terminators).
 - **Read-only by default where it matters.** `ct-test` runs only a fixed, immutable
-  allowlist of read-only commands.
+  allowlist of read-only commands; `ct-each` adds the suite's own gated mutating
+  tools only behind an explicit `--mutating` flag. There is **no shell mode
+  anywhere** — every dispatch is a direct argv launch.
+- **Bounded and observable.** Every tool takes `--timeout` (self-bounding for the
+  read-only/mutating tools, a child process-group kill folded into the verdict for
+  `ct-test`/`ct-each`) and `--heartbeat`, a minimal templated liveness pulse for
+  long runs.
 - **Machine-readable.** Every tool takes `--json` for structured results, and
   `--explain [md|json]` prints its own documentation / tool-use definition. The
   umbrella's `ct --explain json` is a one-call manifest of the whole suite.
@@ -71,6 +83,10 @@ ct edit --base src --name '*.rs' --find 'old_api(' --replace 'new_api(' --expect
 # Frame a read-only check as a test.
 ct test --question "Is the config free of deprecated keys?" \
   --cmd cat -- config.toml --err-match 'old_key' --emit 'result: {RESULT}'
+
+# Dispatch one check over several items — what used to need a bash for-loop.
+ct each --items Parser Lexer Emitter -- \
+  ct-search --base src --grep '{ITEM}::new' --quiet
 ```
 
 The canonical reference for each tool is its `--explain md` output, mirrored under
