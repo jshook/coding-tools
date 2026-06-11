@@ -1036,6 +1036,86 @@
         },
         "required": []
       }
+    },
+    {
+      "name": "ct-deps",
+      "description": "Assert crate-graph invariants over the resolved dependency graph, with every violation carrying its evidence. The graph comes from one `cargo metadata --format-version 1 --locked --offline` invocation (hermetic by construction: the lockfile is read, never written; the network is never touched; a workspace that cannot resolve offline is exit 2, never a silent pass). Assertions (at least one required): --deny NAME (violation when a crate named NAME is reachable from any workspace member; evidence = the shortest dependency path), --forbid 'A=>B' (violation when any package named A reaches a package named B — the workspace-layering form; A absent from the graph is exit 2, a defective assertion rather than a clean pass; evidence = the path), --duplicates (violation per crate resolving at more than one version; evidence = the version list). --edges normal,build,dev restricts which dependency-edge kinds are traversed (default all three; --edges normal asks about the shipped artifact only). Output: one line per violation (check: subject: evidence) plus a summary; --quiet for exit-status only; --json emits {tool, verdict, count, violations:[{check,subject,evidence}]}; --emit/--emit-stderr templates take {RESULT} {COUNT} {VIOLATIONS} {QUESTION}. --timeout SECS bounds the cargo child (process-group kill, exit 2). Read-only: on the ct-test allowlist, admissible in ct-each dispatch and ct-rules probes (the native form of crate-graph rules, no expect adapter needed). Exit: 0 every assertion holds, 1 violations found, 2 usage/runtime error. Invoke as `ct deps ...` or `ct-deps ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "deny": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Violation if this crate appears anywhere reachable from the workspace (repeatable). Evidence: the shortest dependency path."
+          },
+          "forbid": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Violation if package A reaches package B, written 'A=>B' (repeatable). A must exist in the graph (else exit 2). The workspace-layering assertion."
+          },
+          "duplicates": {
+            "type": "boolean",
+            "description": "Violation for every crate that resolves at more than one version, with the version list as evidence."
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "build",
+                "dev"
+              ]
+            },
+            "description": "Dependency-edge kinds traversed (comma-joined or repeated). Default: all three. 'normal' alone asks about the shipped artifact only."
+          },
+          "question": {
+            "type": "string",
+            "description": "Question this check answers; printed as a '== ... ==' banner unless --quiet."
+          },
+          "emit": {
+            "type": "string",
+            "description": "Template written to stdout after the check (alias: emit-stdout). Tokens: {RESULT} {COUNT} {VIOLATIONS} {QUESTION}."
+          },
+          "emit-stderr": {
+            "type": "string",
+            "description": "Template written to stderr. Same tokens as emit."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Print no violation lines or summary; report via exit status (and --emit, which still fires)."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result {tool, verdict, count, violations:[{check,subject,evidence}]} instead of text."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Kill the underlying cargo metadata invocation (process group) and abort with exit 2 after SECS seconds (fractional allowed)."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
+          }
+        },
+        "required": []
+      }
     }
   ]
 }

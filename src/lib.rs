@@ -31,6 +31,7 @@
 //!
 //! Per-command surfaces (the pure logic each `ct-*` tool is built on):
 //!
+//! * [`deps`] — `ct-deps`'s crate-graph queries over `cargo metadata`.
 //! * [`outline`] — `ct-outline`'s heuristic per-language declaration
 //!   detection.
 //! * [`view`] — `ct-view`'s range parsing and context-window merging.
@@ -40,6 +41,7 @@
 //! * [`testrun`] — `ct-test`'s `--focus` output distiller.
 
 pub mod allowlist;
+pub mod deps;
 pub mod edit;
 pub mod explain;
 pub mod outline;

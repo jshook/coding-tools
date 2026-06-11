@@ -22,6 +22,7 @@ const TOOLS: &[&str] = &[
     "ct-outline",
     "ct-rules",
     "ct-check",
+    "ct-deps",
 ];
 
 /// Leaf tools whose definitions the `ct` manifest must mirror exactly.
@@ -36,6 +37,7 @@ const LEAVES: &[&str] = &[
     "ct-outline",
     "ct-rules",
     "ct-check",
+    "ct-deps",
 ];
 
 fn explain_path(tool: &str, ext: &str) -> PathBuf {

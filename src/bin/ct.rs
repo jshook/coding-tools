@@ -68,6 +68,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "check",
         "Verify the project's recorded invariants from .ct/rules.jsonc (ct-check)",
     ),
+    (
+        "deps",
+        "Assert crate-graph invariants: deny crates, forbid A=>B paths, no duplicates (ct-deps)",
+    ),
 ];
 
 /// The `ct --help` / usage text.
