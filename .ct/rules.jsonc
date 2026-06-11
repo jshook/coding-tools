@@ -1,0 +1,64 @@
+// ct rule store — the project's recorded invariants (its "living surface").
+// Each rule is a read-only probe answering a question, with the why behind it.
+// Managed by `ct rules` (add/promote/remove/def); verified by `ct check`.
+// Docs: ct-rules --explain | ct-check --explain
+{
+  "defs": {
+  },
+  "rules": [
+    {
+      "id": "license-headers",
+      "question": "Does every Rust source file carry the SPDX license header?",
+      "why": "headers are a publish requirement for this crate",
+      "tags": ["hygiene","license"],
+      "added": "2026-06-10",
+      "probe": ["ct-each","--base","src","--name","*.rs","--quiet","--","ct-search","--base","{ITEM}","--grep","SPDX-License-Identifier: Apache-2.0","--quiet"]
+    },
+
+    {
+      "id": "no-debug-prints",
+      "question": "Are src and tests free of dbg! debug prints?",
+      "why": "debug output must never ship in release binaries",
+      "tags": ["hygiene"],
+      "added": "2026-06-10",
+      "probe": ["ct-search","--base","src","--name","*.rs","--grep","dbg!\\(","--expect","none","--detail"]
+    },
+
+    {
+      "id": "verdict-defined-once",
+      "question": "Is the Verdict enum defined exactly once?",
+      "why": "a duplicate Verdict shadowing the real one would split the exit contract",
+      "tags": ["structure"],
+      "added": "2026-06-10",
+      "probe": ["ct-outline","--base","src","--ext","rs","--match","Verdict","--kind","enum","--expect","=1","--quiet"]
+    },
+
+    {
+      "id": "explain-docs-complete",
+      "question": "Does every tool have both explain payloads (md+json)?",
+      "why": "the --explain contract requires both formats per tool",
+      "tags": ["docs"],
+      "added": "2026-06-10",
+      "probe": ["ct-tree","--base","docs/explain","--ext","md,json","--min-lines","1","--summary"]
+    },
+
+    {
+      "id": "no-duplicate-deps",
+      "question": "Is the dependency tree free of duplicate crate versions?",
+      "why": "duplicate versions bloat the binary and split trait impls",
+      "tags": ["deps"],
+      "expect": "empty",
+      "added": "2026-06-11",
+      "probe": ["cargo","tree","-d"]
+    },
+
+    {
+      "id": "no-openssl",
+      "question": "Is the dependency tree free of openssl and native-tls?",
+      "why": "musl cross-builds require pure-Rust TLS; this crate must stay C-free",
+      "tags": ["deps","portability"],
+      "added": "2026-06-11",
+      "probe": ["ct-deps","--deny","openssl","--deny","native-tls","--quiet"]
+    }
+  ]
+}
