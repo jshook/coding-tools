@@ -848,6 +848,194 @@
         },
         "required": []
       }
+    },
+    {
+      "name": "ct-rules",
+      "description": "Say what the rules are: the specification and storage interface of the project's invariant surface (.ct/rules.jsonc; the verifying side is ct-check). Verbs (exactly one per invocation): --init scaffolds a commented store under .ct/ (the suite's home for project-local state; discovered by walking upward to the nearest .ct, --file overrides); --add ID records a rule — the probe after `--` is gate-validated and RUN immediately, and must hold (a violated candidate is refused exit 1 with the probe's own violation output; a broken probe is refused exit 2) unless --pending parks it as an aspiration that ct-check reports separately and never enforces; --promote ID re-runs a pending rule's probe and clears the pending flag once it holds; --remove ID deletes by exact id (duplicate ids are always refused — ids are history); --def NAME=VALUE sets named vocabulary (VALUE parsed as JSON, e.g. a list, else taken as a string) that rules reference as {def:NAME} inside probe argvs; --list prints defs and rules; --prompt TEXT (with --add) retains the verbatim human request behind the rule as provenance — the confirmation tells the user it was retained — and --flatten strips every retained prompt in one pass, leaving only the mechanical definitions; the store itself is human-friendly JSONC (a standing header comment re-established on every write, one field per line per rule, blank lines between rules); --hook cargo writes tests/ct_invariants.rs, a plain reviewed-in-git shim that makes `cargo test` run `ct check --quiet` and fail loudly (including when the ct binary is missing; a shim ct-rules did not generate is never overwritten). Probes observe and never change anything: the gate is compiled-in and immutable — the suite's read-only tools (ct-search ct-outline ct-tree ct-view ct-deps, ct-test, ct-each without --mutating) plus the bridge (cargo metadata / cargo tree hermetic, cargo deny check offline unless --network, rust-analyzer search|symbols search-only); never the mutating tools, ct-check (no self-recursion), ct-rules itself, shells, or unlisted externals. --add options: --question (required), --why (printed whenever the rule fails), --tag, --severity warn (violations report but never redden the exit), --expect empty | --expect-ok PATTERN | --expect-err PATTERN (outcome adapters for bridge tools; ct-test matcher semantics), --network, --timeout SECS, --pending. All store mutations are comment-preserving (the suite's own patch machinery). ct-rules writes only the store and the hook shim, and is on no allow-gate. Exit: 0 success; 1 refused on the merits (candidate/promotion does not hold); 2 usage or store error. Invoke as `ct rules ...` or `ct-rules ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "The rule store. Default: the nearest .ct/rules.jsonc walking upward (created by --init or the first --add when absent)."
+          },
+          "init": {
+            "type": "boolean",
+            "description": "Create .ct/rules.jsonc (commented scaffold) if it does not exist."
+          },
+          "add": {
+            "type": "string",
+            "description": "Record a rule with this id; the probe (after `--`) is gate-validated and run now, and must hold unless --pending."
+          },
+          "pending": {
+            "type": "boolean",
+            "description": "With --add: record an aspiration that does not yet hold; reported as PENDING by ct-check, never enforced, until --promote."
+          },
+          "question": {
+            "type": "string",
+            "description": "With --add (required): the question this rule answers."
+          },
+          "why": {
+            "type": "string",
+            "description": "With --add: why this invariant exists; printed whenever the rule fails."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "With --add: the verbatim human request behind this rule, retained in the store as provenance so the intent can be revisited (the confirmation tells the user it was retained). Never read by verification; strip all prompts with --flatten."
+          },
+          "tag": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With --add: tags for ct-check --tag selection (comma-joined or repeated)."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "fail",
+              "warn"
+            ],
+            "description": "With --add: fail (default) or warn (violations report as WARN but never redden the exit)."
+          },
+          "expect": {
+            "type": "string",
+            "enum": [
+              "exit",
+              "empty"
+            ],
+            "description": "With --add: outcome adapter for bridge probes — exit (default, suite contract) or empty (holds iff exit 0 and no stdout)."
+          },
+          "expect-ok": {
+            "type": "string",
+            "description": "With --add: matcher adapter — the rule holds when this pattern (substring->glob->regex promoted) appears in the probe's output."
+          },
+          "expect-err": {
+            "type": "string",
+            "description": "With --add: matcher adapter — a violation when this pattern appears in the probe's output (decisive over expect-ok)."
+          },
+          "network": {
+            "type": "boolean",
+            "description": "With --add: permit network access where the bridge entry deems it meaningful (currently cargo deny check); everything else stays hermetic."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "With --add: per-rule probe bound in seconds (fractional allowed), recorded in the store."
+          },
+          "promote": {
+            "type": "string",
+            "description": "Re-run this pending rule's probe; if it now holds, clear the pending flag (enforce it)."
+          },
+          "remove": {
+            "type": "string",
+            "description": "Remove the rule with this exact id."
+          },
+          "def": {
+            "type": "string",
+            "description": "Set a def: NAME=VALUE. VALUE is parsed as JSON (e.g. [\"A\",\"B\"]) or taken as a string; rules reference defs as {def:NAME}."
+          },
+          "list": {
+            "type": "boolean",
+            "description": "Print defs and rules without changing anything."
+          },
+          "flatten": {
+            "type": "boolean",
+            "description": "Strip the retained \"prompt\" prose from every rule in one pass (naming the rules touched), leaving only the mechanical definitions."
+          },
+          "hook": {
+            "type": "string",
+            "enum": [
+              "cargo"
+            ],
+            "description": "Write the build hook: for cargo, a tests/ct_invariants.rs shim making `cargo test` enforce the rule store."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress informational output."
+          },
+          "probe": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With --add: the probe argv (after `--`), run directly — never through a shell. Must pass the compiled-in gate."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ct-check",
+      "description": "Verify the project's recorded invariants: load the rule store (.ct/rules.jsonc, discovered by walking upward to the nearest .ct directory, git-style), run every selected rule's probe in store order, and report each rule in one of five lanes — SUCCESS (zero violations), ERROR (violations, severity fail => exit 1), WARN (violations, severity warn => reported, never reddens the exit), PENDING (an aspiration recorded with --pending: current state reported, never enforced), BROKEN (the probe itself is defective: exited 2, died, timed out, or its binary is missing; any broken rule => the whole run exits 2 — a defective store is a maintenance signal). Probes are argv vectors (never a shell), gated to a compiled-in, immutable set: the suite's read-only tools (ct-search ct-outline ct-tree ct-view ct-deps, ct-test, ct-each without --mutating) plus the bridge of known read-only Rust-tool invocations (cargo metadata / cargo tree with hermetic flags enforced, cargo deny check offline unless the rule carries network:true, rust-analyzer search|symbols search-only). The store is validated before anything runs (malformed entries, duplicate ids, unknown {def:NAME} references, non-gated probes => exit 2 naming the rule). Bridge probes are read through the rule's expect adapter: exit (default), empty (holds iff exit 0 and no stdout), or ct-test-style ok-match/err-match patterns. ct-check is purely read-only (writes nothing, ever; ct-rules is the writing surface) and is itself on the suite's read-only allowlist, so ct-test/ct-each can wrap it — but a rule's probe may not run ct-check (no self-recursion). A red lane is never unexplained: the reason, the rule's why, and the head of the probe's violation output go to stderr. Exit: 0 all enforced rules hold, 1 any enforced violation, 2 usage/store error or any BROKEN rule. Invoke as `ct check ...` or `ct-check ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "The rule store. Default: the nearest .ct/rules.jsonc walking upward from the current directory."
+          },
+          "id": {
+            "type": "string",
+            "description": "Select rules whose id matches (substring->glob->regex promoted, anchored to the whole id)."
+          },
+          "tag": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Select rules carrying any of these tags (comma-joined or repeated)."
+          },
+          "fail-fast": {
+            "type": "boolean",
+            "description": "Stop after the first enforced violation; remaining rules are reported as SKIPPED."
+          },
+          "list": {
+            "type": "boolean",
+            "description": "Print the selected rules (id, pending/warn flags, question, tags); run nothing."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress per-rule lines and the default summary (stderr diagnostics remain)."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit one structured result {tool, verdict, store, ok, violated, warned, pending, broken, skipped, total, rules:[{id,question,lane,code,reason,why}]} instead of text; overrides the emit templates."
+          },
+          "emit-each": {
+            "type": "string",
+            "description": "Per-rule template written to stdout. Tokens: {RESULT} {ID} {QUESTION} {CODE} {WHY} {CMD}."
+          },
+          "emit": {
+            "type": "string",
+            "description": "Summary template written to stdout (alias: emit-stdout). Tokens: {RESULT} {OK} {ERRORS} {WARNED} {PENDING} {BROKEN} {SKIPPED} {TOTAL} {REASON}."
+          },
+          "emit-stderr": {
+            "type": "string",
+            "description": "Summary template written to stderr. Same tokens as emit."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Default per-rule probe bound in seconds (fractional allowed); a rule's own timeout field overrides it. A timed-out probe is BROKEN."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while rules run."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL} {ID} {DONE} {TOTAL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
+          }
+        },
+        "required": []
+      }
     }
   ]
 }

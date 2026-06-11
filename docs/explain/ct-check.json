@@ -1,0 +1,68 @@
+{
+  "name": "ct-check",
+  "description": "Verify the project's recorded invariants: load the rule store (.ct/rules.jsonc, discovered by walking upward to the nearest .ct directory, git-style), run every selected rule's probe in store order, and report each rule in one of five lanes — SUCCESS (zero violations), ERROR (violations, severity fail => exit 1), WARN (violations, severity warn => reported, never reddens the exit), PENDING (an aspiration recorded with --pending: current state reported, never enforced), BROKEN (the probe itself is defective: exited 2, died, timed out, or its binary is missing; any broken rule => the whole run exits 2 — a defective store is a maintenance signal). Probes are argv vectors (never a shell), gated to a compiled-in, immutable set: the suite's read-only tools (ct-search ct-outline ct-tree ct-view ct-deps, ct-test, ct-each without --mutating) plus the bridge of known read-only Rust-tool invocations (cargo metadata / cargo tree with hermetic flags enforced, cargo deny check offline unless the rule carries network:true, rust-analyzer search|symbols search-only). The store is validated before anything runs (malformed entries, duplicate ids, unknown {def:NAME} references, non-gated probes => exit 2 naming the rule). Bridge probes are read through the rule's expect adapter: exit (default), empty (holds iff exit 0 and no stdout), or ct-test-style ok-match/err-match patterns. ct-check is purely read-only (writes nothing, ever; ct-rules is the writing surface) and is itself on the suite's read-only allowlist, so ct-test/ct-each can wrap it — but a rule's probe may not run ct-check (no self-recursion). A red lane is never unexplained: the reason, the rule's why, and the head of the probe's violation output go to stderr. Exit: 0 all enforced rules hold, 1 any enforced violation, 2 usage/store error or any BROKEN rule. Invoke as `ct check ...` or `ct-check ...`.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "file": {
+        "type": "string",
+        "description": "The rule store. Default: the nearest .ct/rules.jsonc walking upward from the current directory."
+      },
+      "id": {
+        "type": "string",
+        "description": "Select rules whose id matches (substring->glob->regex promoted, anchored to the whole id)."
+      },
+      "tag": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Select rules carrying any of these tags (comma-joined or repeated)."
+      },
+      "fail-fast": {
+        "type": "boolean",
+        "description": "Stop after the first enforced violation; remaining rules are reported as SKIPPED."
+      },
+      "list": {
+        "type": "boolean",
+        "description": "Print the selected rules (id, pending/warn flags, question, tags); run nothing."
+      },
+      "quiet": {
+        "type": "boolean",
+        "description": "Suppress per-rule lines and the default summary (stderr diagnostics remain)."
+      },
+      "json": {
+        "type": "boolean",
+        "description": "Emit one structured result {tool, verdict, store, ok, violated, warned, pending, broken, skipped, total, rules:[{id,question,lane,code,reason,why}]} instead of text; overrides the emit templates."
+      },
+      "emit-each": {
+        "type": "string",
+        "description": "Per-rule template written to stdout. Tokens: {RESULT} {ID} {QUESTION} {CODE} {WHY} {CMD}."
+      },
+      "emit": {
+        "type": "string",
+        "description": "Summary template written to stdout (alias: emit-stdout). Tokens: {RESULT} {OK} {ERRORS} {WARNED} {PENDING} {BROKEN} {SKIPPED} {TOTAL} {REASON}."
+      },
+      "emit-stderr": {
+        "type": "string",
+        "description": "Summary template written to stderr. Same tokens as emit."
+      },
+      "timeout": {
+        "type": "number",
+        "description": "Default per-rule probe bound in seconds (fractional allowed); a rule's own timeout field overrides it. A timed-out probe is BROKEN."
+      },
+      "heartbeat": {
+        "type": "number",
+        "description": "Print a liveness pulse every SECS seconds (fractional allowed) while rules run."
+      },
+      "heartbeat-emit": {
+        "type": "string",
+        "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL} {ID} {DONE} {TOTAL}. Default: \"[{ELAPSED}s]\"."
+      },
+      "heartbeat-to": {
+        "type": "string",
+        "enum": ["stderr", "stdout"],
+        "description": "Stream heartbeat pulses are written to. Default: stderr."
+      }
+    },
+    "required": []
+  }
+}

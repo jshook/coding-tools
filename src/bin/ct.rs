@@ -60,6 +60,14 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "outline",
         "Report the declarations in a file or tree: kind, name, start:end span (ct-outline)",
     ),
+    (
+        "rules",
+        "Record, promote, remove, and list the project's invariant rules (ct-rules)",
+    ),
+    (
+        "check",
+        "Verify the project's recorded invariants from .ct/rules.jsonc (ct-check)",
+    ),
 ];
 
 /// The `ct --help` / usage text.

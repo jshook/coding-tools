@@ -20,6 +20,8 @@ const TOOLS: &[&str] = &[
     "ct-test",
     "ct-each",
     "ct-outline",
+    "ct-rules",
+    "ct-check",
 ];
 
 /// Leaf tools whose definitions the `ct` manifest must mirror exactly.
@@ -32,6 +34,8 @@ const LEAVES: &[&str] = &[
     "ct-test",
     "ct-each",
     "ct-outline",
+    "ct-rules",
+    "ct-check",
 ];
 
 fn explain_path(tool: &str, ext: &str) -> PathBuf {

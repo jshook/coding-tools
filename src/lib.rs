@@ -23,6 +23,9 @@
 //! * [`explain`] — the `--explain` agent-documentation format selector.
 //! * [`pulse`] — the `--timeout` watchdog and `--heartbeat` liveness pulse
 //!   every tool carries.
+//! * [`rules`] — the `.ct/rules.jsonc` invariant surface shared by
+//!   `ct-rules` and `ct-check`: store model, defs, probe gate, the external
+//!   bridge, and outcome adapters.
 //! * [`supervise`] — bounded, captured child execution for the dispatching
 //!   tools (`ct-test`, `ct-each`), including suite sibling resolution.
 //!
@@ -43,6 +46,7 @@ pub mod outline;
 pub mod patch;
 pub mod pattern;
 pub mod pulse;
+pub mod rules;
 pub mod supervise;
 pub mod template;
 pub mod testrun;
