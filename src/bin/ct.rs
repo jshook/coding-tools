@@ -72,6 +72,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "deps",
         "Assert crate-graph invariants: deny crates, forbid A=>B paths, no duplicates (ct-deps)",
     ),
+    (
+        "await",
+        "Poll a read-only probe until it succeeds, aborts, or times out (ct-await)",
+    ),
 ];
 
 /// The `ct --help` / usage text.
