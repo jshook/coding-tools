@@ -49,6 +49,10 @@ path = "src/bin/ct-patch.rs"
 name = "ct-tree"
 path = "src/bin/ct-tree.rs"
 
+[[bin]]
+name = "ct-each"
+path = "src/bin/ct-each.rs"
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 regex = "1.12.3"

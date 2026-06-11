@@ -52,6 +52,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "test",
         "Run a command as a framed experiment with a templated verdict (ct-test)",
     ),
+    (
+        "each",
+        "Run a command template once per item, no shell, with an aggregate --expect verdict (ct-each)",
+    ),
 ];
 
 /// The `ct --help` / usage text.
