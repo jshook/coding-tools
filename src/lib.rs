@@ -20,6 +20,8 @@
 //!   verdict template.
 //! * [`payload`] — the `file:` / `text:` value schemes every payload-typed
 //!   option resolves through.
+//! * [`block`] — line-anchored literal block matching (and the nearest-miss
+//!   diagnostic) behind multi-line patterns in `ct-search`/`ct-view`/`ct-edit`.
 //! * [`allowlist`] — the fixed command allow-gates behind `ct-test` and
 //!   `ct-each`.
 //! * [`explain`] — the `--explain` agent-documentation format selector.
@@ -43,6 +45,7 @@
 //! * [`testrun`] — `ct-test`'s `--focus` output distiller.
 
 pub mod allowlist;
+pub mod block;
 pub mod deps;
 pub mod edit;
 pub mod explain;
