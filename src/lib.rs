@@ -22,6 +22,9 @@
 //!   option resolves through.
 //! * [`block`] — line-anchored literal block matching (and the nearest-miss
 //!   diagnostic) behind multi-line patterns in `ct-search`/`ct-view`/`ct-edit`.
+//! * [`blockdoc`] — the `.ctb` block-document parser behind `ct-edit --script`.
+//! * [`editscript`] — the `--script` batch engine: compiled edits simulated
+//!   in memory under the prepare/confirm/write standard.
 //! * [`allowlist`] — the fixed command allow-gates behind `ct-test` and
 //!   `ct-each`.
 //! * [`explain`] — the `--explain` agent-documentation format selector.
@@ -46,8 +49,10 @@
 
 pub mod allowlist;
 pub mod block;
+pub mod blockdoc;
 pub mod deps;
 pub mod edit;
+pub mod editscript;
 pub mod explain;
 pub mod outline;
 pub mod patch;
