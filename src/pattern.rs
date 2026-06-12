@@ -28,6 +28,78 @@ pub enum PatternKind {
     Regex,
 }
 
+/// An explicit `--mode` choice that switches promotion off for every pattern
+/// argument in an invocation: the stated interpretation is used as-is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Mode {
+    /// Match the pattern text verbatim.
+    Literal,
+    /// Interpret the pattern as a shell-style glob.
+    Glob,
+    /// Interpret the pattern as a regular expression, exactly as written.
+    Regex,
+}
+
+impl Mode {
+    /// The [`PatternKind`] this explicit mode pins a pattern to.
+    pub fn kind(self) -> PatternKind {
+        match self {
+            Mode::Literal => PatternKind::Literal,
+            Mode::Glob => PatternKind::Glob,
+            Mode::Regex => PatternKind::Regex,
+        }
+    }
+}
+
+/// [`classify`] under an optional explicit mode: a stated [`Mode`] pins the
+/// kind; absent, promotion decides.
+pub fn classify_with(pat: &str, mode: Option<Mode>) -> PatternKind {
+    match mode {
+        Some(m) => m.kind(),
+        None => classify(pat),
+    }
+}
+
+/// [`promote`] under an optional explicit mode.
+pub fn promote_with(pat: &str, mode: Option<Mode>) -> String {
+    match classify_with(pat, mode) {
+        PatternKind::Literal => regex::escape(pat),
+        PatternKind::Glob => glob_to_regex(pat),
+        PatternKind::Regex => pat.to_string(),
+    }
+}
+
+/// [`compile`] under an optional explicit mode.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::pattern::{compile_with, Mode};
+///
+/// // 'todo!(' promotes to an invalid-paren regex without a mode; pinned
+/// // literal, it matches its own text.
+/// let re = compile_with("todo!(\"x\")", Some(Mode::Literal)).unwrap();
+/// assert!(re.is_match("    todo!(\"x\") , here"));
+/// ```
+pub fn compile_with(pat: &str, mode: Option<Mode>) -> Result<Regex, regex::Error> {
+    Regex::new(&promote_with(pat, mode))
+}
+
+/// [`compile_anchored`] under an optional explicit mode.
+pub fn compile_anchored_with(pat: &str, mode: Option<Mode>) -> Result<Regex, regex::Error> {
+    Regex::new(&format!("^(?:{})$", promote_with(pat, mode)))
+}
+
+/// [`compile_name_set`] under an optional explicit mode. With a stated mode of
+/// `literal`, the `'|'` separator is still a set separator (the alternatives
+/// themselves are matched verbatim).
+pub fn compile_name_set_with(spec: &str, mode: Option<Mode>) -> Result<Vec<Regex>, regex::Error> {
+    spec.split('|')
+        .filter(|s| !s.is_empty())
+        .map(|alt| compile_anchored_with(alt, mode))
+        .collect()
+}
+
 /// Glob metacharacters that, on their own, signal a glob pattern.
 const GLOB_META: [char; 3] = ['*', '?', '['];
 
@@ -227,5 +299,28 @@ mod tests {
         let re = compile("SimpleMFD|knn_entries").unwrap();
         assert!(re.is_match("...knn_entries..."));
         assert!(!re.is_match("nothing relevant"));
+    }
+
+    #[test]
+    fn explicit_mode_overrides_promotion() {
+        // Verbatim code anchor: promotion would try (and fail) regex; literal
+        // mode matches its own text.
+        let code = r#"WireSource::Port(_) => todo!("x"),"#;
+        let re = compile_with(code, Some(Mode::Literal)).unwrap();
+        assert!(re.is_match(&format!("    {code}\n")));
+
+        // Pinned regex: '.' stays a metacharacter even in a plain string.
+        let re = compile_with("a.c", Some(Mode::Regex)).unwrap();
+        assert!(re.is_match("abc"));
+        // Pinned literal: '.' is just a dot.
+        let re = compile_with("a.c", Some(Mode::Literal)).unwrap();
+        assert!(!re.is_match("abc"));
+        assert!(re.is_match("a.c"));
+    }
+
+    #[test]
+    fn absent_mode_keeps_promotion() {
+        assert_eq!(classify_with("*.rs", None), PatternKind::Glob);
+        assert_eq!(classify_with("*.rs", Some(Mode::Literal)), PatternKind::Literal);
     }
 }

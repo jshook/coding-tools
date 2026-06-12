@@ -18,6 +18,8 @@
 //!   search/edit/patch as a pass/fail test.
 //! * [`template`] — the `{TOKEN}` substitution engine behind every `--emit`
 //!   verdict template.
+//! * [`payload`] — the `file:` / `text:` value schemes every payload-typed
+//!   option resolves through.
 //! * [`allowlist`] — the fixed command allow-gates behind `ct-test` and
 //!   `ct-each`.
 //! * [`explain`] — the `--explain` agent-documentation format selector.
@@ -47,6 +49,7 @@ pub mod explain;
 pub mod outline;
 pub mod patch;
 pub mod pattern;
+pub mod payload;
 pub mod pulse;
 pub mod rules;
 pub mod supervise;
