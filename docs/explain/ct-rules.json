@@ -26,25 +26,33 @@
       },
       "why": {
         "type": "string",
-        "description": "With --add: why this invariant exists; printed whenever the rule fails."
+        "description": "With --add: why this invariant exists; printed whenever the rule fails. Accepts file:PATH / text:VALUE payloads."
       },
       "prompt": {
         "type": "string",
-        "description": "With --add: the verbatim human request behind this rule, retained in the store as provenance so the intent can be revisited (the confirmation tells the user it was retained). Never read by verification; strip all prompts with --flatten."
+        "description": "With --add: the verbatim human request behind this rule, retained in the store as provenance so the intent can be revisited (the confirmation tells the user it was retained). Never read by verification; strip all prompts with --flatten. Accepts file:PATH / text:VALUE payloads."
       },
       "tag": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "With --add: tags for ct-check --tag selection (comma-joined or repeated)."
       },
       "severity": {
         "type": "string",
-        "enum": ["fail", "warn"],
+        "enum": [
+          "fail",
+          "warn"
+        ],
         "description": "With --add: fail (default) or warn (violations report as WARN but never redden the exit)."
       },
       "expect": {
         "type": "string",
-        "enum": ["exit", "empty"],
+        "enum": [
+          "exit",
+          "empty"
+        ],
         "description": "With --add: outcome adapter for bridge probes — exit (default, suite contract) or empty (holds iff exit 0 and no stdout)."
       },
       "expect-ok": {
@@ -85,7 +93,9 @@
       },
       "hook": {
         "type": "string",
-        "enum": ["cargo"],
+        "enum": [
+          "cargo"
+        ],
         "description": "Write the build hook: for cargo, a tests/ct_invariants.rs shim making `cargo test` enforce the rule store."
       },
       "quiet": {
@@ -94,7 +104,9 @@
       },
       "probe": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "With --add: the probe argv (after `--`), run directly — never through a shell. Must pass the compiled-in gate."
       }
     },

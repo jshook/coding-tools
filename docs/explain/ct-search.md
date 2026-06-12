@@ -55,7 +55,8 @@ An entry matches only when **all** supplied predicates hold.
 | `--base`     | `DIR`     | Search root, relative or absolute, regardless of the CWD at launch. Default: `.`            |
 | `--name`     | `PATTERN` | Match the entry's file name. `\|`-separated alternatives; each is promoted (see *Pattern matching*) and anchored to the whole name. |
 | `--type`     | `KINDS`   | Restrict to entry kinds: `f` (file), `d` (directory), `l` (symlink). Repeatable or comma-joined (`--type f,l`). |
-| `--grep`     | `PATTERN` | Match file **contents** (promoted; searched unanchored). Implies regular files.             |
+| `--grep`     | `PATTERN` | Match file **contents** (promoted; searched unanchored). Implies regular files. Accepts `file:PATH` / `text:VALUE`; a multi-line payload matches as a line-anchored literal **block**. |
+| `--mode`     | `literal\|glob\|regex` | Pin how patterns are interpreted — promotion **off** for every pattern in the invocation. State `literal` when the pattern is verbatim code. |
 | `--size`     | `EXPR`    | Size predicate `[+\|-]N[k\|m\|g]`: `+N` larger than, `-N` smaller than, `N` at least N. Applies to regular files. |
 | `--hidden`   | —         | Include dot-entries (names starting with `.`). Default: skipped, and dot-directories are not descended into. |
 | `--follow`   | —         | Follow symlinks while traversing.                                                           |
@@ -141,6 +142,30 @@ with one predictable rule — write the simplest thing that expresses your inten
 
 Examples: `ERROR:` → literal; `*.java` → glob (a leading `*` is not a valid
 regex); `^ERROR`, `foo|bar`, `\d+` → regex.
+
+`--mode literal|glob|regex` switches promotion **off** and pins the stated
+interpretation — the right tool when the pattern is verbatim code whose `(`
+`!` `?` would otherwise promote to a regex and miss its own text.
+
+### Payload schemes and block matching
+
+`--grep` is payload-typed: `file:PATH` reads the pattern verbatim from a
+file (never promoted; literal by default), `text:VALUE` escapes a value
+that genuinely begins with `file:`/`text:`; everything else is unaffected
+(`http://…`, `std::fmt`). A **multi-line** pattern matches as a
+line-anchored literal block: K lines match K consecutive source lines
+byte-for-byte, whitespace significant. Each block occurrence counts as a
+matching "line" at its start line; under `--detail`, a block that matched
+nothing reports its **nearest miss** to stderr (best-aligned candidate and
+the first diverging line).
+
+```sh
+# Does this exact arm group exist anywhere, and where?
+ct search --base src --name '*.rs' --grep file:arm.block --detail
+
+# After an edit: assert the new block is present exactly once.
+ct search --base src --grep file:new.block --expect =1
+```
 
 ## Run bounds and liveness
 

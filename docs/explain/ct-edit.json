@@ -1,6 +1,6 @@
 {
   "name": "ct-edit",
-  "description": "Find/replace across files chosen by ct-search-style predicates, framed as a self-checking edit. It computes every replacement first, classifies the total against --expect into a SUCCESS/ERROR verdict, and writes ONLY when the verdict is SUCCESS and --dry-run is not set; otherwise nothing is written. Replacements preserve every untouched byte (line terminators, indentation, surrounding text). --find is substring->glob->regex promoted and matched per line; with a regex --find, $1/${name} expand in --replace (use $$ for literal $), with a literal or glob --find the replacement is literal. Only regular UTF-8 text files are edited. Not subject to the ct-test command allowlist (it runs no programs); safety is via --dry-run, --expect, and your VCS. With --json emits {tool, verdict, dry_run, applied, replacements, files_changed, sites:[{path,line,before,after}]}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct edit ...` or `ct-edit ...`.",
+  "description": "Find/replace across files chosen by ct-search-style predicates, framed as a self-checking edit. It computes every replacement first, classifies the total against --expect into a SUCCESS/ERROR verdict, and writes ONLY when the verdict is SUCCESS and --dry-run is not set; otherwise nothing is written. Replacements preserve every untouched byte (line terminators, indentation, surrounding text). --find/--replace accept payload schemes: file:PATH reads the value verbatim from a file (never promoted; literal by default), text:VALUE escapes the prefix. A single-line --find is substring->glob->regex promoted and matched per line (--mode literal|glob|regex pins the interpretation, promotion off — state literal for verbatim code anchors); a MULTI-LINE find payload matches as a line-anchored literal block (K lines match K consecutive source lines byte-for-byte; the replace payload's lines replace the block, an empty replace deletes it; a failed block reports its nearest miss: best-aligned candidate and first diverging line). With a regex --find, $1/${name} expand in --replace (use $$ for literal $); otherwise the replacement is literal. --script PATH runs a .ctb batch of edits atomically under the prepare/confirm/write standard: '#% edit expect=\"=1\" mode=literal file=...' opens an edit (expect defaults to =1 in scripts), '#% find' / '#% replace' carry verbatim payloads, '#% end' closes; the whole script is simulated in memory first (cascade: each edit sees earlier edits' output; --no-cascade matches pristine and rejects overlap), every changed file is pre-flighted for writability, and nothing is written unless EVERY edit passes — no flag permits a partial write. Only regular UTF-8 text files are edited. Not subject to the ct-test command allowlist (it runs no programs); safety is via --dry-run, --expect, atomicity, and your VCS. With --json emits {tool, verdict, dry_run, applied, replacements, files_changed, sites:[{path,line,before,after}]}; script runs emit per-edit results {ordinal, expect, mode, replacements, verdict, sites, nearest_miss?}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct edit ...` or `ct-edit ...`.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -23,15 +23,33 @@
       },
       "find": {
         "type": "string",
-        "description": "Pattern to find (substring->glob->regex promoted), matched per line. Required."
+        "description": "Pattern to find (substring->glob->regex promoted), matched per line. Accepts file:PATH / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block. Required unless script is given."
       },
       "replace": {
         "type": "string",
-        "description": "Replacement text. With a regex --find, $1/${name} expand (use $$ for literal $); with a literal or glob --find, the replacement is literal. Required."
+        "description": "Replacement text. With a regex --find, $1/${name} expand (use $$ for literal $); otherwise literal. Accepts file:PATH / text:VALUE; for a block find, an empty payload deletes the matched lines. Required unless script is given."
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["literal", "glob", "regex"],
+        "description": "Pin how --find (and --name) is interpreted; promotion off. Use literal for verbatim code anchors."
+      },
+      "script": {
+        "type": "string",
+        "description": "Run a .ctb edit script: a batch of find/replace blocks simulated and judged in full before any write; nothing is written unless every edit passes."
+      },
+      "fence": {
+        "type": "string",
+        "description": "Directive prefix for script lines. Default '#%'; change it for payloads containing '#%' at line start.",
+        "default": "#%"
+      },
+      "no-cascade": {
+        "type": "boolean",
+        "description": "Script edits match pristine content instead of cascading; overlapping edits become a usage error."
       },
       "expect": {
         "type": "string",
-        "description": "Verdict expectation over the total replacement count; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). The edit is written only if the verdict is SUCCESS."
+        "description": "Verdict expectation over the total replacement count; default 'any' (in scripts, per-edit expect= defaults to '=1'). One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). The edit is written only if the verdict is SUCCESS."
       },
       "dry-run": {
         "type": "boolean",
@@ -63,6 +81,6 @@
         "description": "Stream heartbeat pulses are written to. Default: stderr."
       }
     },
-    "required": ["find", "replace"]
+    "required": []
   }
 }

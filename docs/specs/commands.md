@@ -44,7 +44,23 @@ These hold for every tool; each tool's page documents them in full.
 * **Pattern promotion (substring → glob → regex).** Any *pattern* argument is
   promoted with one rule: text with no metacharacters is a literal substring;
   glob metacharacters (`*` `?` `[ ]`) that are not a valid regex are treated as
-  a glob; otherwise the pattern is used as a regex.
+  a glob; otherwise the pattern is used as a regex. `--mode literal|glob|regex`
+  pins the interpretation (promotion **off**) — state `literal` when the
+  pattern is verbatim code.
+* **Payload schemes (`file:` / `text:`).** Payload-typed values (patterns,
+  replacements, structured values, stdin text, prose) accept `file:PATH` —
+  the value is the file's contents, verbatim, never promoted — and
+  `text:VALUE`, the escape for a value that genuinely begins with a scheme
+  prefix. Only those two exact prefixes are reserved (`http://…` is
+  unaffected). A **multi-line** pattern payload matches as a line-anchored
+  literal **block** (K lines match K consecutive source lines,
+  byte-for-byte) in `ct-search`/`ct-view`/`ct-edit`, with a *nearest-miss*
+  diagnostic when a block matches nothing.
+* **Prepare/confirm/write.** Every block operation spanning multiple edit
+  sites or files (`ct-edit --script`) is validated *in full, in memory* —
+  matching, expectations, and write pre-flight — before any file changes;
+  nothing is written unless the whole operation is confirmed. There is no
+  flag that permits a partial write. See `docs/specs/blocks.md`.
 * **Exit status.** `0` = success / a match was found; `1` = clean negative (no
   match / the experiment failed); `2` = usage or runtime error. The `0`/`1`
   split makes the tools composable in `&&`/`||` pipelines.

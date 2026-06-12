@@ -102,7 +102,8 @@ own options **before** the `--`; everything after `--` goes to the wrapped tool.
 | ------------ | -------- | ----------------------------------------------------------------------- |
 | `--question` | `TEXT`   | The question this experiment answers; printed as a `== … ==` banner.    |
 | `--cmd`      | `PROG`   | Program to run (must be on the allowlist). Trailing `-- ARGS…` are passed through to it. Always launched directly — there is no shell mode. |
-| `--stdin`    | `TEXT`   | Literal text written to the child's standard input.                     |
+| `--stdin`    | `TEXT`   | Text written to the child's standard input. Accepts `file:PATH` / `text:VALUE` payloads — multi-line input with zero quoting. |
+| `--mode`     | `literal\|glob\|regex` | Pin how matcher patterns (and `--focus`) are interpreted — promotion **off**. State `literal` when a matcher is verbatim code. |
 
 ## Run bounds and liveness
 
@@ -224,6 +225,10 @@ rule — write the simplest thing that expresses your intent:
 
 Examples: `ERROR:` → literal; `WARN*` → glob; `^FATAL`, `ok|done`, `\d+ errors`
 → regex.
+
+`--mode literal|glob|regex` switches promotion **off** for every matcher in
+the invocation — state `literal` when a matcher is verbatim code whose `(`
+`!` `?` would otherwise promote to a regex.
 
 ## Exit status
 

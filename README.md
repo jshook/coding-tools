@@ -42,6 +42,10 @@ less supervision:
   matched, so a wrong-sized change fails loudly instead of applying silently.
 - **Preview before write.** `ct-edit --dry-run` shows the diff and verdict without
   touching disk; edits preserve every untouched byte (indentation, terminators).
+- **Atomic batches.** `ct-edit --script` runs a whole batch of block edits under
+  prepare/confirm/write: every edit is simulated and judged in memory (and every
+  target pre-flighted for writability) before anything is written — one failing
+  anchor means zero writes, never a half-applied batch.
 - **Read-only by default where it matters.** `ct-test` runs only a fixed, immutable
   allowlist of read-only commands; `ct-each` adds the suite's own gated mutating
   tools only behind an explicit `--mutating` flag. There is **no shell mode
@@ -58,7 +62,13 @@ less supervision:
 
 - **Pattern promotion.** Any *pattern* argument is promoted with one rule: no
   metacharacters → literal substring; glob metacharacters (`*` `?` `[ ]`) that are
-  not a valid regex → glob; otherwise → regex.
+  not a valid regex → glob; otherwise → regex. `--mode literal|glob|regex` pins
+  the interpretation (promotion off) for verbatim code anchors.
+- **Payload schemes.** Payload-typed values accept `file:PATH` (the file's
+  contents, verbatim — never promoted) and `text:VALUE` (the escape for literal
+  values starting with a scheme prefix). A multi-line pattern matches as a
+  line-anchored literal **block** in `ct-search`/`ct-view`/`ct-edit`, with a
+  nearest-miss diagnostic when it matches nothing.
 - **Exit status.** `0` = success / verdict `SUCCESS`; `1` = clean negative /
   verdict `ERROR`; `2` = usage or runtime error. The `0`/`1` split composes in
   `&&`/`||` pipelines.
@@ -87,6 +97,15 @@ ct test --question "Is the config free of deprecated keys?" \
 # Dispatch one check over several items — what used to need a bash for-loop.
 ct each --items Parser Lexer Emitter -- \
   ct-search --base src --grep '{ITEM}::new' --quiet
+
+# A verbatim block edit with zero quoting — write the payloads as files.
+ct edit --base src --name '*.rs' \
+  --find file:target/find.block --replace file:target/replace.block \
+  --expect =1 --dry-run
+
+# A batch of structural edits, atomic by construction (.ctb script):
+# everything is verified in memory; one failing anchor means zero writes.
+ct edit --base src --name '*.rs' --script target/edits.ctb
 ```
 
 The canonical reference for each tool is its `--explain md` output, mirrored under

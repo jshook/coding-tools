@@ -51,7 +51,9 @@ and emits templated lines; exit status follows the verdict.
 
 Items come from three combinable sources, in this order:
 
-1. `--items A B C` — explicit items, repeatable;
+1. `--items A B C` — explicit items, repeatable. Items are payload-typed:
+   a `file:PATH` item expands to the file's non-empty lines (an item list
+   without a pipe), and `text:VALUE` is one literal item;
 2. the **walker**: `--base PATH` (with the suite's shared `--name`/`--ext`/
    `--hidden`/`--follow` selectors; `--name`/`--ext` alone imply `--base .`)
    turns every matched file path into an item, in walk order — the natural
@@ -142,6 +144,7 @@ stops before the summary is printed, so a pulse never lands after the verdict.
 | `--items`    | `ITEM…`  | Items to dispatch over, in order (one run per item).                 |
 | `--base`     | `PATH`   | Walker item source: matched file paths become items (a file yields itself; a directory is descended). |
 | `--name`     | `PATTERN`| Walker filter: file-name alternatives, promoted and anchored. Implies `--base .` when `--base` is absent. |
+| `--mode`     | `literal\|glob\|regex` | Pin how `--name`/`--ext` walker patterns are interpreted — promotion **off**. |
 | `--ext`      | `LIST`   | Walker filter: extensions (comma-separated, no dots); combined with `--name` as alternatives. |
 | `--hidden`   | —        | Walker: include dot-entries.                                          |
 | `--follow`   | —        | Walker: follow symlinks.                                              |

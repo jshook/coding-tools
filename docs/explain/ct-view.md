@@ -25,7 +25,8 @@ the equivalent MCP / tool-use definition.
 | ------------- | -------- | ------------------------------------------------------------------------------------------------ |
 | `PATH`        | —        | The file to view (positional, required).                                                         |
 | `--range`     | `SPEC`   | Line range `A:B` (1-based, inclusive); also `A:` (to end), `:B` (from start), or `A` (one line). |
-| `--match`     | `PATTERN`| Show only lines matching the pattern (promoted; see *Pattern matching*), with `--context` around each. |
+| `--match`     | `PATTERN`| Show only lines matching the pattern (promoted; see *Pattern matching*), with `--context` around each. Accepts `file:PATH` / `text:VALUE`; a multi-line payload matches as a line-anchored literal **block**. |
+| `--mode`      | `literal\|glob\|regex` | Pin how `--match` is interpreted — promotion **off**. State `literal` when the pattern is verbatim code. |
 | `--context`, `-C` | `N`  | Lines of context shown around each `--match` hit. Default: `2`.                                  |
 | `--limit`     | `N`      | Cap the number of lines emitted.                                                                 |
 | `--plain`     | —        | Suppress the line-number gutter in text output.                                                  |
@@ -74,6 +75,16 @@ number of `lines` emitted; line gaps are implied by non-consecutive `n`.
 **unanchored** against each line: text with no metacharacters is a literal
 substring; glob metacharacters (`*` `?` `[ ]`) that are not a valid regex are a
 glob; otherwise it is a regex. (See `ct-search --explain` for the full table.)
+`--mode literal|glob|regex` pins the interpretation (promotion off).
+
+`--match` is payload-typed: `file:PATH` reads the pattern verbatim from a
+file (literal by default), `text:VALUE` escapes the prefix. A **multi-line**
+pattern matches as a line-anchored literal block — K lines match K
+consecutive source lines byte-for-byte — and the context window expands
+around the whole matched region; a block that matches nothing reports its
+**nearest miss** to stderr (best-aligned candidate, first diverging line)
+before the clean-negative exit. This is the "show me the block in context
+before editing" step of a block edit.
 
 ## Run bounds and liveness
 

@@ -25,6 +25,15 @@
         "type": "string",
         "description": "End the wait immediately with ERROR when this pattern appears in the probe's output. Decisive over --ok-match and exit status, exactly as in ct-test."
       },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "literal",
+          "glob",
+          "regex"
+        ],
+        "description": "Pin how --ok-match/--err-match patterns are interpreted; promotion off. Use literal for verbatim code anchors."
+      },
       "emit": {
         "type": "string",
         "description": "Template written to stdout when the wait ends (alias: emit-stdout). Tokens: {RESULT} {ELAPSED} {TICKS} {REASON} {QUESTION} {CMD}."

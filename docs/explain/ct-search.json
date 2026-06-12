@@ -1,6 +1,6 @@
 {
   "name": "ct-search",
-  "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. Invoke as `ct search ...` or `ct-search ...`.",
+  "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. --mode literal|glob|regex pins the interpretation (promotion off) for every pattern in the invocation. --grep accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (K lines match K consecutive source lines byte-for-byte; each occurrence counts at its start line; under --detail a block with no match reports its nearest miss to stderr). Invoke as `ct search ...` or `ct-search ...`.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -15,12 +15,28 @@
       },
       "type": {
         "type": "array",
-        "items": { "type": "string", "enum": ["f", "d", "l"] },
+        "items": {
+          "type": "string",
+          "enum": [
+            "f",
+            "d",
+            "l"
+          ]
+        },
         "description": "Restrict to entry kinds: f=regular file, d=directory, l=symlink. May be repeated or comma-joined."
       },
       "grep": {
         "type": "string",
-        "description": "Content pattern, substring->glob->regex promoted and searched unanchored against file contents. Implies regular files."
+        "description": "Content pattern, substring->glob->regex promoted and searched unanchored against file contents. Implies regular files. Accepts file:PATH / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block."
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "literal",
+          "glob",
+          "regex"
+        ],
+        "description": "Pin how patterns are interpreted; promotion off for every pattern in the invocation. Use literal for verbatim code anchors."
       },
       "size": {
         "type": "string",
@@ -84,7 +100,10 @@
       },
       "heartbeat-to": {
         "type": "string",
-        "enum": ["stderr", "stdout"],
+        "enum": [
+          "stderr",
+          "stdout"
+        ],
         "description": "Stream heartbeat pulses are written to. Default: stderr."
       }
     },

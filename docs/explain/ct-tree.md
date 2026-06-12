@@ -27,6 +27,7 @@ the equivalent MCP / tool-use definition.
 | ---------- | --------- | ----------------------------------------------------------------------- |
 | `--base`   | `DIR`     | Root to walk, relative or absolute. Default `.`                         |
 | `--name`   | `PATTERN` | File-name pattern; `\|`-separated alternatives, promoted and anchored.   |
+| `--mode`   | `literal\|glob\|regex` | Pin how `--name`/`--ext` are interpreted — promotion **off**. |
 | `--ext`    | `LIST`    | Restrict to extensions (comma-separated, no dots), e.g. `--ext rs,toml`. Added to `--name` as alternatives. |
 | `--hidden` | —         | Include dot-entries. Default: skipped.                                   |
 | `--follow` | —         | Follow symlinks while traversing.                                        |

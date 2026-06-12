@@ -13,9 +13,20 @@
         "type": "string",
         "description": "File-name pattern; '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name."
       },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "literal",
+          "glob",
+          "regex"
+        ],
+        "description": "Pin how --name/--ext patterns are interpreted; promotion off. Use literal for names whose characters would otherwise promote."
+      },
       "ext": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Restrict to these extensions (no dots), e.g. ['rs','toml']. Added to --name as alternatives. May be comma-joined."
       },
       "hidden": {
@@ -26,12 +37,30 @@
         "type": "boolean",
         "description": "Follow symlinks while traversing."
       },
-      "min-lines": { "type": "integer", "description": "Only include files with at least N lines." },
-      "max-lines": { "type": "integer", "description": "Only include files with at most N lines." },
-      "min-words": { "type": "integer", "description": "Only include files with at least N words." },
-      "max-words": { "type": "integer", "description": "Only include files with at most N words." },
-      "min-chars": { "type": "integer", "description": "Only include files with at least N characters." },
-      "max-chars": { "type": "integer", "description": "Only include files with at most N characters." },
+      "min-lines": {
+        "type": "integer",
+        "description": "Only include files with at least N lines."
+      },
+      "max-lines": {
+        "type": "integer",
+        "description": "Only include files with at most N lines."
+      },
+      "min-words": {
+        "type": "integer",
+        "description": "Only include files with at least N words."
+      },
+      "max-words": {
+        "type": "integer",
+        "description": "Only include files with at most N words."
+      },
+      "min-chars": {
+        "type": "integer",
+        "description": "Only include files with at least N characters."
+      },
+      "max-chars": {
+        "type": "integer",
+        "description": "Only include files with at most N characters."
+      },
       "min-files-per-folder": {
         "type": "integer",
         "description": "Only include folders that directly contain at least N matching files."
@@ -42,7 +71,14 @@
       },
       "sort": {
         "type": "string",
-        "enum": ["path", "name", "lines", "words", "chars", "ext"],
+        "enum": [
+          "path",
+          "name",
+          "lines",
+          "words",
+          "chars",
+          "ext"
+        ],
         "description": "Sort key. Default 'path'. In --flat the sort is global; in --tree it orders entries within each folder."
       },
       "desc": {
@@ -63,7 +99,11 @@
       },
       "group": {
         "type": "string",
-        "enum": ["ext", "dir", "none"],
+        "enum": [
+          "ext",
+          "dir",
+          "none"
+        ],
         "description": "Grouping for --summary: by extension (default), by immediate directory, or a single grand total."
       },
       "json": {
@@ -84,7 +124,10 @@
       },
       "heartbeat-to": {
         "type": "string",
-        "enum": ["stderr", "stdout"],
+        "enum": [
+          "stderr",
+          "stdout"
+        ],
         "description": "Stream heartbeat pulses are written to. Default: stderr."
       }
     },

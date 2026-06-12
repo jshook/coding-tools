@@ -79,6 +79,7 @@ as `--base`.
 | Option    | Argument  | Meaning                                                              |
 | --------- | --------- | -------------------------------------------------------------------- |
 | `--match` | `PATTERN` | Keep entries whose **name** matches. Substring→glob→regex promoted and **anchored to the whole name**, exactly like `--name` — so `--expect` counts stay predictable. Want prefix semantics? Say so: `--match 'Verdict*'`. |
+| `--mode`  | `literal\|glob\|regex` | Pin how `--match`/`--name` are interpreted — promotion **off**. |
 | `--kind`  | `LIST`    | Keep entries of these kinds (comma-separated), e.g. `--kind fn,struct`. Kinds are per-language (see below). |
 | `--depth` | `N`       | Keep entries nested at most `N` levels deep (`1` = top-level only).   |
 

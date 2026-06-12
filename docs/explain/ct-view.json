@@ -1,6 +1,6 @@
 {
   "name": "ct-view",
-  "description": "Show one file's lines by range, or the regions around a pattern with context, instead of dumping the whole file. --range A:B (1-based inclusive; also A:, :B, A) prints a span; --match PATTERN prints the windows around matching lines with --context lines on each side (overlapping windows merge, like grep -C). Read-only, no allow-gate. With --json, emits {tool, path, total_lines, shown, lines:[{n,text}], matched?}. Exit status: 0 shown, 1 if --match matched nothing, 2 on a read or usage error. --match uses substring->glob->regex promotion, searched unanchored per line. Invoke as `ct view ...` or `ct-view ...`.",
+  "description": "Show one file's lines by range, or the regions around a pattern with context, instead of dumping the whole file. --range A:B (1-based inclusive; also A:, :B, A) prints a span; --match PATTERN prints the windows around matching lines with --context lines on each side (overlapping windows merge, like grep -C). Read-only, no allow-gate. With --json, emits {tool, path, total_lines, shown, lines:[{n,text}], matched?}. Exit status: 0 shown, 1 if --match matched nothing, 2 on a read or usage error. --match uses substring->glob->regex promotion, searched unanchored per line; --mode literal|glob|regex pins the interpretation (promotion off). --match accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (context expands around the whole matched region; a block with no match reports its nearest miss to stderr). Invoke as `ct view ...` or `ct-view ...`.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -14,7 +14,16 @@
       },
       "match": {
         "type": "string",
-        "description": "Show only lines matching this pattern (substring->glob->regex promoted, searched unanchored), with --context lines around each hit."
+        "description": "Show only lines matching this pattern (substring->glob->regex promoted, searched unanchored), with --context lines around each hit. Accepts file:PATH / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block."
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "literal",
+          "glob",
+          "regex"
+        ],
+        "description": "Pin how the --match pattern is interpreted; promotion off. Use literal for verbatim code anchors."
       },
       "context": {
         "type": "integer",
@@ -47,10 +56,15 @@
       },
       "heartbeat-to": {
         "type": "string",
-        "enum": ["stderr", "stdout"],
+        "enum": [
+          "stderr",
+          "stdout"
+        ],
         "description": "Stream heartbeat pulses are written to. Default: stderr."
       }
     },
-    "required": ["path"]
+    "required": [
+      "path"
+    ]
   }
 }

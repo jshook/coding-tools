@@ -89,9 +89,11 @@ ct rules --add no-debug-prints --question "..." \
   -- ct-search --base src --grep 'dbg!\(' --expect none --quiet
 ```
 
-The confirmation **says so** ("the originating request is retained in the
-rule's `prompt` field"), so the human can edit or drop it immediately if they
-prefer. `prompt` is provenance only — verification never reads it. When the
+`--prompt` and `--why` accept payload schemes — `file:PATH` reads the prose
+verbatim from a file (multi-line, zero quoting), `text:VALUE` escapes the
+prefix. The confirmation **says so** ("the originating request is retained
+in the rule's `prompt` field"), so the human can edit or drop it immediately
+if they prefer. `prompt` is provenance only — verification never reads it. When the
 prose has served its purpose, `ct rules --flatten` strips every retained
 prompt in one pass (naming the rules it touched), leaving only the
 mechanical definitions.

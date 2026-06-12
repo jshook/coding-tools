@@ -79,6 +79,13 @@ A `--set`/`--add` `VALUE` is parsed as JSON when it can be (`8080`, `true`,
 that looks like JSON, quote it as JSON: `--set .name='"true"'`. Inserted values
 are written compactly; the surrounding document formatting is preserved.
 
+Values are payload-typed: `file:PATH` reads the value **verbatim as a
+string node** — exact bytes, never re-parsed as JSON — which is how a
+multi-line string gets into a document with zero quoting
+(`--set 'tool.notes=file:notes.txt'`); `text:VALUE` escapes a literal value
+that genuinely begins with `file:` or `text:` (it still gets the normal
+JSON-or-string parse).
+
 ### YAML coverage
 
 The YAML backend currently supports `--set` (replace an existing key) and

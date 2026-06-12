@@ -55,6 +55,8 @@ precedence:
 Matchers see only what the probe *prints* — so a probe that surfaces content
 (`cat build.log`, `ct-view`, `ct-search --detail`) pairs with matchers, while
 a self-classifying probe (`ct-search --quiet`, `ct-check --quiet`) needs none.
+`--mode literal|glob|regex` pins how both matchers are interpreted
+(promotion off) — state `literal` when a matcher is verbatim output text.
 
 `--timeout SECS` is **required** — a wait is bounded by design. The bound
 covers everything: a single probe run can never outlive it (process-group

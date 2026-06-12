@@ -15,7 +15,9 @@
       },
       "ext": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Restrict to these extensions (no dots), e.g. ['rs','py']. Added to --name as alternatives. May be comma-joined."
       },
       "hidden": {
@@ -30,9 +32,20 @@
         "type": "string",
         "description": "Keep entries whose name matches (substring->glob->regex promoted, anchored to the whole declaration name). Use a glob like 'Verdict*' for prefix semantics."
       },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "literal",
+          "glob",
+          "regex"
+        ],
+        "description": "Pin how --match/--name patterns are interpreted; promotion off. Use literal for names whose characters would otherwise promote."
+      },
       "kind": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Keep entries of these kinds (comma-joined or repeated), e.g. ['fn','struct']. Kinds are the source language's own keywords (Rust: mod struct enum trait impl fn macro type const static; Python: class def; Markdown: h1..h6)."
       },
       "depth": {
@@ -81,7 +94,10 @@
       },
       "heartbeat-to": {
         "type": "string",
-        "enum": ["stderr", "stdout"],
+        "enum": [
+          "stderr",
+          "stdout"
+        ],
         "description": "Stream heartbeat pulses are written to. Default: stderr."
       }
     },
