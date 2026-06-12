@@ -37,7 +37,7 @@ const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-tree.json");
                   choose a summarisation level (--tree, --flat, --summary). See `ct-tree --explain` \
                   for agent-oriented documentation."
 )]
-#[command(group = clap::ArgGroup::new("mode")
+#[command(group = clap::ArgGroup::new("output_mode")
     .args(["tree", "flat", "summary"])
     .multiple(false))]
 struct Cli {
@@ -48,6 +48,10 @@ struct Cli {
     /// File-name pattern; '|'-separated alternatives, each substring->glob->regex promoted and anchored.
     #[arg(long)]
     name: Option<String>,
+
+    /// Pin how --name/--ext patterns are interpreted (promotion off): literal, glob, or regex.
+    #[arg(long, value_enum)]
+    mode: Option<coding_tools::pattern::Mode>,
 
     /// Restrict to these extensions (comma-separated, no dots), e.g. --ext rs,toml. Combined with --name as alternatives.
     #[arg(long, value_delimiter = ',')]
@@ -446,7 +450,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         None
     } else {
         Some(
-            coding_tools::pattern::compile_name_set(&name_spec)
+            coding_tools::pattern::compile_name_set_with(&name_spec, cli.mode)
                 .map_err(|e| format!("invalid --name/--ext pattern: {e}"))?,
         )
     };

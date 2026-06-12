@@ -20,6 +20,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use coding_tools::explain::Format;
 use coding_tools::patch::{Op, normalize_value, parse_path};
+use coding_tools::payload;
 use coding_tools::pulse;
 use coding_tools::rules::{self, Adapter, ProbeOutcome, Severity};
 use serde_json::json;
@@ -75,11 +76,11 @@ struct Cli {
     #[arg(long)]
     question: Option<String>,
 
-    /// With --add: why this invariant exists; printed whenever it fails.
+    /// With --add: why this invariant exists; printed whenever it fails. Accepts file:PATH / text:VALUE payloads.
     #[arg(long)]
     why: Option<String>,
 
-    /// With --add: the verbatim human request behind this rule, retained in the store so the intent can be revisited; strip all prompts later with --flatten.
+    /// With --add: the verbatim human request behind this rule, retained in the store so the intent can be revisited; strip all prompts later with --flatten. Accepts file:PATH / text:VALUE payloads.
     #[arg(long)]
     prompt: Option<String>,
 
@@ -341,10 +342,10 @@ fn cmd_add(cli: &Cli, id: &str) -> Result<ExitCode, String> {
     let mut fields: Vec<(&str, serde_json::Value)> =
         vec![("id", json!(id)), ("question", json!(question))];
     if let Some(w) = &cli.why {
-        fields.push(("why", json!(w)));
+        fields.push(("why", json!(payload::resolve(w)?.text)));
     }
     if let Some(p) = &cli.prompt {
-        fields.push(("prompt", json!(p)));
+        fields.push(("prompt", json!(payload::resolve(p)?.text)));
     }
     if !cli.tag.is_empty() {
         fields.push(("tags", json!(cli.tag)));

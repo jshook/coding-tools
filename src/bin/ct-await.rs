@@ -63,6 +63,10 @@ struct Cli {
     #[arg(long, value_name = "PATTERN")]
     err_match: Option<String>,
 
+    /// Pin how matcher patterns are interpreted (promotion off): literal, glob, or regex.
+    #[arg(long, value_enum)]
+    mode: Option<pattern::Mode>,
+
     #[command(flatten)]
     heartbeat: HeartbeatOpts,
 
@@ -117,12 +121,18 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     let ok_re = cli
         .ok_match
         .as_deref()
-        .map(|p| pattern::compile(p).map_err(|e| format!("invalid --ok-match pattern: {e}")))
+        .map(|p| {
+            pattern::compile_with(p, cli.mode)
+                .map_err(|e| format!("invalid --ok-match pattern: {e}"))
+        })
         .transpose()?;
     let err_re = cli
         .err_match
         .as_deref()
-        .map(|p| pattern::compile(p).map_err(|e| format!("invalid --err-match pattern: {e}")))
+        .map(|p| {
+            pattern::compile_with(p, cli.mode)
+                .map_err(|e| format!("invalid --err-match pattern: {e}"))
+        })
         .transpose()?;
     let cmdline = cli.probe.join(" ");
 

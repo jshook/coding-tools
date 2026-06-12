@@ -64,6 +64,10 @@ struct Cli {
     #[arg(long = "match")]
     pattern: Option<String>,
 
+    /// Pin how --match/--name patterns are interpreted (promotion off): literal, glob, or regex.
+    #[arg(long, value_enum)]
+    mode: Option<pattern::Mode>,
+
     /// Keep entries of these kinds (comma-separated), e.g. --kind fn,struct. Kinds are per-language keywords.
     #[arg(long, value_delimiter = ',')]
     kind: Vec<String>,
@@ -181,13 +185,14 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         None
     } else {
         Some(
-            pattern::compile_name_set(&name_spec)
+            pattern::compile_name_set_with(&name_spec, cli.mode)
                 .map_err(|e| format!("invalid --name/--ext pattern: {e}"))?,
         )
     };
     let match_re = match &cli.pattern {
         Some(p) => Some(
-            pattern::compile_anchored(p).map_err(|e| format!("invalid --match pattern: {e}"))?,
+            pattern::compile_anchored_with(p, cli.mode)
+                .map_err(|e| format!("invalid --match pattern: {e}"))?,
         ),
         None => None,
     };

@@ -22,8 +22,8 @@ use coding_tools::explain::Format;
 use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::supervise::{self, Outcome};
 use coding_tools::walk::{self, EntryType};
-use coding_tools::{pattern, template};
 use coding_tools::verdict::{Expect, Verdict};
+use coding_tools::{pattern, payload, template};
 use serde_json::json;
 
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
@@ -42,9 +42,13 @@ const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-each.json");
                   `ct-each --explain` for agent-oriented documentation."
 )]
 struct Cli {
-    /// Items to dispatch over, in order (repeatable; one run per item).
+    /// Items to dispatch over, in order (repeatable; one run per item). file:PATH expands to the file's non-empty lines; text:VALUE is one literal item.
     #[arg(long, num_args = 1.., value_name = "ITEM")]
     items: Vec<String>,
+
+    /// Pin how --name/--ext walker patterns are interpreted (promotion off): literal, glob, or regex.
+    #[arg(long, value_enum)]
+    mode: Option<pattern::Mode>,
 
     /// Also read items from standard input, one per line (blank lines skipped), after any walker items.
     #[arg(long)]
@@ -242,7 +246,24 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     if cli.command.is_empty() {
         return Err("missing command: supply one after `--`, e.g. `ct-each --items a b -- ct-view {ITEM}`".to_string());
     }
-    let mut items = cli.items.clone();
+    // Resolve the payload schemes per item: file:PATH expands to the file's
+    // non-empty lines, text:VALUE stays one literal item.
+    let mut items: Vec<String> = Vec::with_capacity(cli.items.len());
+    for raw in &cli.items {
+        let resolved = payload::resolve(raw)?;
+        if resolved.from_file {
+            items.extend(
+                resolved
+                    .text
+                    .lines()
+                    .map(str::trim_end)
+                    .filter(|l| !l.is_empty())
+                    .map(String::from),
+            );
+        } else {
+            items.push(resolved.text);
+        }
+    }
     // Walker item source: matched file paths become items, in walk order.
     if cli.base.is_some() || cli.name.is_some() || !cli.ext.is_empty() {
         let mut name_spec = cli.name.clone().unwrap_or_default();
@@ -260,7 +281,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             None
         } else {
             Some(
-                pattern::compile_name_set(&name_spec)
+                pattern::compile_name_set_with(&name_spec, cli.mode)
                     .map_err(|e| format!("invalid --name/--ext pattern: {e}"))?,
             )
         };

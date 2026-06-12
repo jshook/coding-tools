@@ -18,6 +18,7 @@ use clap::Parser;
 use coding_tools::allowlist;
 use coding_tools::explain::Format;
 use coding_tools::pattern;
+use coding_tools::payload;
 use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::supervise::{self, Outcome};
 use coding_tools::template;
@@ -47,9 +48,13 @@ struct Cli {
     #[arg(long)]
     cmd: Option<String>,
 
-    /// Literal text written to the child's standard input.
+    /// Text written to the child's standard input. Accepts file:PATH / text:VALUE payloads.
     #[arg(long)]
     stdin: Option<String>,
+
+    /// Pin how matcher patterns are interpreted (promotion off): literal, glob, or regex.
+    #[arg(long, value_enum)]
+    mode: Option<pattern::Mode>,
 
     /// Kill the command and classify ERROR if it runs longer than SECS seconds (fractional allowed); {CODE} becomes "timeout".
     #[arg(long, value_name = "SECS")]
@@ -194,7 +199,7 @@ fn classify_result(cli: &Cli, outcome: &Outcome) -> Result<(Verdict, String), St
     let (stdout, stderr) = (outcome.stdout.as_str(), outcome.stderr.as_str());
 
     let hit = |pat: &str, hay: &str| -> Result<bool, String> {
-        Ok(pattern::compile(pat)
+        Ok(pattern::compile_with(pat, cli.mode)
             .map_err(|e| format!("invalid pattern '{pat}': {e}"))?
             .is_match(hay))
     };
@@ -371,7 +376,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     state.set("CMD", &cmdline);
     let pulse_guard = cli.heartbeat.start("ct-test", state)?;
 
-    let outcome = supervise::run_captured(command, cli.stdin.as_deref(), timeout)
+    let stdin_text = match &cli.stdin {
+        Some(raw) => Some(payload::resolve(raw)?.text),
+        None => None,
+    };
+    let outcome = supervise::run_captured(command, stdin_text.as_deref(), timeout)
         .map_err(|e| format!("'{cmd_str}': {e}"))?;
     drop(pulse_guard);
 
@@ -387,7 +396,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     // Distil the captured output to the lines that matter, if asked.
     let focus = match &cli.focus {
         Some(pat) => {
-            let re = pattern::compile(pat).map_err(|e| format!("invalid --focus pattern: {e}"))?;
+            let re = pattern::compile_with(pat, cli.mode)
+                .map_err(|e| format!("invalid --focus pattern: {e}"))?;
             let mut blocks = Vec::new();
             if let Some(b) = focus_block(&outcome.stdout, &re, cli.context) {
                 blocks.push(format!("stdout (focus):\n{b}"));

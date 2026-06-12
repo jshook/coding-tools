@@ -23,6 +23,7 @@ use coding_tools::explain::Format;
 use coding_tools::patch::{
     MoveTo, Op, apply_doc, apply_jsonl, apply_yaml, normalize_value, parse_path, split_assign,
 };
+use coding_tools::payload;
 use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::verdict::{Expect, Verdict};
 use coding_tools::walk::{self, EntryType};
@@ -61,7 +62,7 @@ struct Cli {
     #[arg(long)]
     follow: bool,
 
-    /// Set PATH to VALUE (repeatable). VALUE is parsed as JSON, or taken as a string if it is not valid JSON.
+    /// Set PATH to VALUE (repeatable). VALUE is parsed as JSON, or taken as a string if it is not valid JSON. file:PATH reads the value verbatim as a string; text:VALUE escapes the prefix.
     #[arg(long, value_name = "PATH=VALUE")]
     set: Vec<String>,
 
@@ -69,7 +70,7 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     delete: Vec<String>,
 
-    /// Append VALUE to the array at PATH, no index needed (repeatable). VALUE is parsed as JSON or taken as a string.
+    /// Append VALUE to the array at PATH, no index needed (repeatable). VALUE is parsed as JSON or taken as a string; file:PATH reads it verbatim as a string.
     #[arg(long, value_name = "PATH=VALUE")]
     add: Vec<String>,
 
@@ -144,6 +145,18 @@ impl DocFormat {
     }
 }
 
+/// Resolve a VALUE through the payload schemes: a `file:`-sourced value is
+/// taken verbatim as a string node (never re-parsed as JSON); anything else
+/// is parsed as JSON, or taken as a string if it is not valid JSON.
+fn patch_value(v: &str) -> Result<String, String> {
+    let r = payload::resolve(v)?;
+    Ok(if r.from_file {
+        serde_json::Value::String(r.text).to_string()
+    } else {
+        normalize_value(&r.text)
+    })
+}
+
 fn run(cli: Cli) -> Result<ExitCode, String> {
     let watchdog = pulse::watchdog("ct-patch", cli.timeout)?;
     let _pulse = cli.heartbeat.start("ct-patch", PulseState::new())?;
@@ -154,7 +167,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         ops.push(Op::Set {
             path: parse_path(p)?,
             raw: p.to_string(),
-            value: normalize_value(v),
+            value: patch_value(v)?,
         });
     }
     for spec in &cli.add {
@@ -163,7 +176,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         ops.push(Op::Add {
             path: parse_path(p)?,
             raw: p.to_string(),
-            value: normalize_value(v),
+            value: patch_value(v)?,
         });
     }
     for (specs, to) in [
