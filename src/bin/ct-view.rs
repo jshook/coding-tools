@@ -15,9 +15,9 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use coding_tools::explain::Format;
-use coding_tools::pattern;
 use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::view::{expand_and_merge, parse_range, segments};
+use coding_tools::{block, pattern, payload};
 use serde_json::json;
 
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
@@ -42,9 +42,13 @@ struct Cli {
     #[arg(long)]
     range: Option<String>,
 
-    /// Show only lines matching this pattern (substring->glob->regex promoted), with --context around each.
+    /// Show only lines matching this pattern (substring->glob->regex promoted), with --context around each. Accepts file:PATH / text:VALUE; a multi-line pattern matches as a line-anchored literal block.
     #[arg(long = "match")]
     pattern: Option<String>,
+
+    /// Pin how the pattern is interpreted (promotion off): literal, glob, or regex.
+    #[arg(long, value_enum)]
+    mode: Option<pattern::Mode>,
 
     /// Lines of context shown around each --match hit.
     #[arg(long, short = 'C', default_value_t = 2)]
@@ -84,13 +88,48 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 
     // Resolve which line indices to show, and whether a --match found anything.
     let (mut selected, matched): (Vec<usize>, Option<bool>) = if let Some(p) = &cli.pattern {
-        let re = pattern::compile(p).map_err(|e| format!("invalid --match pattern: {e}"))?;
-        let hits: Vec<usize> = lines
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| re.is_match(l))
-            .map(|(i, _)| i)
-            .collect();
+        let resolved = payload::resolve(p)?;
+        let pat_lines = payload::to_lines(&resolved.text);
+        let hits: Vec<usize> = if pat_lines.len() > 1 {
+            // A multi-line pattern is a line-anchored literal block; the
+            // context window expands around the whole matched region.
+            if matches!(cli.mode, Some(pattern::Mode::Glob) | Some(pattern::Mode::Regex)) {
+                return Err(
+                    "a multi-line pattern matches as a literal block; --mode glob/regex is reserved"
+                        .to_string(),
+                );
+            }
+            let starts = block::find_starts(&lines, &pat_lines);
+            if starts.is_empty()
+                && let Some(m) = block::nearest_miss(&lines, &pat_lines)
+            {
+                eprintln!(
+                    "ct-view: nearest miss: {}:{}: block diverges at its line {}",
+                    cli.path.display(),
+                    m.line,
+                    m.first_diverging_line
+                );
+                eprintln!("ct-view:   expected: {}", m.expected);
+                eprintln!("ct-view:   found:    {}", m.found);
+            }
+            starts
+                .iter()
+                .flat_map(|&s| s..s + pat_lines.len())
+                .collect()
+        } else {
+            let effective = cli
+                .mode
+                .or(resolved.from_file.then_some(pattern::Mode::Literal));
+            let single = pat_lines.into_iter().next().unwrap_or_default();
+            let re = pattern::compile_with(&single, effective)
+                .map_err(|e| format!("invalid --match pattern: {e}"))?;
+            lines
+                .iter()
+                .enumerate()
+                .filter(|(_, l)| re.is_match(l))
+                .map(|(i, _)| i)
+                .collect()
+        };
         let found = !hits.is_empty();
         (expand_and_merge(&hits, cli.context, total), Some(found))
     } else if let Some(r) = &cli.range {

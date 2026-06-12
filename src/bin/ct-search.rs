@@ -13,11 +13,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+use coding_tools::block::{self, NearestMiss};
 use coding_tools::explain::Format;
 use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
 use coding_tools::verdict::Expect;
 use coding_tools::walk::{self, EntryType};
-use coding_tools::{pattern, template};
+use coding_tools::{pattern, payload, template};
+use regex::Regex;
 use serde_json::json;
 
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
@@ -34,7 +36,7 @@ const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-search.json");
                   matches only when every supplied predicate holds. See `ct-search --explain` for \
                   agent-oriented documentation."
 )]
-#[command(group = clap::ArgGroup::new("mode")
+#[command(group = clap::ArgGroup::new("output_mode")
     .args(["list", "summary", "detail", "quiet"])
     .multiple(false))]
 struct Cli {
@@ -50,9 +52,13 @@ struct Cli {
     #[arg(long, value_enum, value_delimiter = ',')]
     r#type: Vec<EntryType>,
 
-    /// Content pattern (substring->glob->regex promoted); searches file contents.
+    /// Content pattern (substring->glob->regex promoted); searches file contents. Accepts file:PATH / text:VALUE; a multi-line pattern matches as a line-anchored literal block.
     #[arg(long)]
     grep: Option<String>,
+
+    /// Pin how patterns are interpreted (promotion off): literal, glob, or regex.
+    #[arg(long, value_enum)]
+    mode: Option<pattern::Mode>,
 
     /// Size predicate [+|-]N[k|m|g]: +N larger than, -N smaller than, N at least N.
     #[arg(long)]
@@ -140,17 +146,46 @@ impl Mode {
     }
 }
 
+/// How `--grep` matches a file: a single-line pattern (regex after promotion
+/// or an explicit `--mode`), or a multi-line line-anchored literal block.
+enum Grep {
+    Line(Regex),
+    Block(Vec<String>),
+}
+
+/// Compile a resolved `--grep` payload. A `file:`-sourced pattern defaults to
+/// literal; a multi-line payload is a literal block (an explicit non-literal
+/// `--mode` on a block is a usage error).
+fn compile_grep(resolved: &payload::Resolved, mode: Option<pattern::Mode>) -> Result<Grep, String> {
+    let lines = payload::to_lines(&resolved.text);
+    if lines.len() > 1 {
+        if matches!(mode, Some(pattern::Mode::Glob) | Some(pattern::Mode::Regex)) {
+            return Err(
+                "a multi-line pattern matches as a literal block; --mode glob/regex is reserved"
+                    .to_string(),
+            );
+        }
+        return Ok(Grep::Block(lines));
+    }
+    let effective = mode.or(resolved.from_file.then_some(pattern::Mode::Literal));
+    let single = lines.into_iter().next().unwrap_or_default();
+    pattern::compile_with(&single, effective)
+        .map(Grep::Line)
+        .map_err(|e| format!("invalid --grep pattern: {e}"))
+}
+
 fn run(cli: Cli) -> Result<ExitCode, String> {
     let _watchdog = pulse::watchdog("ct-search", cli.timeout)?;
     let _pulse = cli.heartbeat.start("ct-search", PulseState::new())?;
     let names = match &cli.name {
         Some(spec) => Some(
-            pattern::compile_name_set(spec).map_err(|e| format!("invalid --name pattern: {e}"))?,
+            pattern::compile_name_set_with(spec, cli.mode)
+                .map_err(|e| format!("invalid --name pattern: {e}"))?,
         ),
         None => None,
     };
     let grep_re = match &cli.grep {
-        Some(p) => Some(pattern::compile(p).map_err(|e| format!("invalid --grep pattern: {e}"))?),
+        Some(p) => Some(compile_grep(&payload::resolve(p)?, cli.mode)?),
         None => None,
     };
     let size = match &cli.size {
@@ -187,12 +222,15 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     let mut matched = 0usize;
     let mut total_lines = 0usize;
     let mut match_paths: Vec<String> = Vec::new();
+    // Best block alignment seen in any non-matching file (deepest divergence
+    // wins) — the nearest-miss diagnostic for a clean negative.
+    let mut nearest: Option<(String, NearestMiss)> = None;
 
     for entry in selector.walk() {
         let entry = entry?;
 
         let mut lines: Vec<(usize, String)> = Vec::new();
-        if let Some(re) = &grep_re {
+        if let Some(grep) = &grep_re {
             if !entry.file_type().is_file() {
                 continue;
             }
@@ -201,13 +239,34 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 Err(_) => continue,
             };
             let content = String::from_utf8_lossy(&bytes);
-            if !re.is_match(&content) {
-                continue;
-            }
-            if need_lines {
-                for (i, line) in content.lines().enumerate() {
-                    if re.is_match(line) {
-                        lines.push((i + 1, line.to_string()));
+            match grep {
+                Grep::Line(re) => {
+                    if !re.is_match(&content) {
+                        continue;
+                    }
+                    if need_lines {
+                        for (i, line) in content.lines().enumerate() {
+                            if re.is_match(line) {
+                                lines.push((i + 1, line.to_string()));
+                            }
+                        }
+                    }
+                }
+                Grep::Block(b) => {
+                    let file_lines: Vec<&str> = content.lines().collect();
+                    let starts = block::find_starts(&file_lines, b);
+                    if starts.is_empty() {
+                        if let Some(miss) = block::nearest_miss(&file_lines, b)
+                            && nearest
+                                .as_ref()
+                                .is_none_or(|(_, n)| miss.first_diverging_line > n.first_diverging_line)
+                        {
+                            nearest = Some((entry.path().display().to_string(), miss));
+                        }
+                        continue;
+                    }
+                    for s in starts {
+                        lines.push((s + 1, file_lines[s].to_string()));
                     }
                 }
             }
@@ -250,6 +309,20 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         } else {
             println!("{matched} match(es)");
         }
+    }
+
+    // A block pattern that matched nothing reports its nearest miss under
+    // --detail: where the best candidate aligned and which line diverged.
+    if matched == 0
+        && matches!(mode, Mode::Detail)
+        && let Some((path, m)) = &nearest
+    {
+        eprintln!(
+            "ct-search: nearest miss: {path}:{}: block diverges at its line {}",
+            m.line, m.first_diverging_line
+        );
+        eprintln!("ct-search:   expected: {}", m.expected);
+        eprintln!("ct-search:   found:    {}", m.found);
     }
 
     // The verdict generalises the historic exit status: the default `any`
