@@ -7,6 +7,7 @@
 //! module edge, and the spec guards.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use coding_tools::modgraph;
 use coding_tools::rules::ProbeOutcome;
@@ -63,4 +64,27 @@ fn mods_guards_are_specific() {
     let (o, reason, _) = mods_check(&dir, &[]);
     assert_eq!(o, ProbeOutcome::Broken);
     assert!(reason.contains("nothing to assert"), "{reason:?}");
+}
+
+#[test]
+fn mods_rejects_unknown_flag_with_a_valid_flags_hint() {
+    let dir = fixture("badflag");
+    // A bad argument is BROKEN and the message lists the real flags (sourced
+    // from the clap grammar, so the hint cannot drift from the check).
+    let (o, reason, _) = mods_check(&dir, &["--bogus"]);
+    assert_eq!(o, ProbeOutcome::Broken);
+    assert!(reason.contains("valid flags"), "{reason:?}");
+    assert!(reason.contains("--acyclic") && reason.contains("--layers"), "{reason:?}");
+}
+
+#[test]
+fn mods_honors_timeout() {
+    let dir = fixture("timeout");
+    // A zero bound trips on the first file the walk yields: --timeout is honored
+    // (mods walks the tree itself, so the deadline is checked cooperatively),
+    // not silently ignored as it once was.
+    let argv = vec!["--base".to_string(), ".".to_string(), "--acyclic".to_string()];
+    let (o, reason, _) = modgraph::check(&argv, &dir, Some(Duration::ZERO));
+    assert_eq!(o, ProbeOutcome::Broken);
+    assert!(reason.contains("timed out"), "{reason:?}");
 }

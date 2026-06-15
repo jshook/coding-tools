@@ -86,6 +86,16 @@ fn deps_forbid_duplicates_and_defective_assertions() {
 }
 
 #[test]
+fn deps_rejects_unknown_flag_with_a_valid_flags_hint() {
+    // A bad argument is BROKEN and the message lists the real flags, sourced
+    // from the clap grammar so the hint cannot drift from the check.
+    let (o, reason, _) = deps_check(&["--bogus"]);
+    assert_eq!(o, ProbeOutcome::Broken);
+    assert!(reason.contains("valid flags"), "{reason:?}");
+    assert!(reason.contains("--deny") && reason.contains("--acyclic"), "{reason:?}");
+}
+
+#[test]
 fn deps_acyclic_and_layers_over_this_workspace() {
     assert_eq!(deps_check(&["--acyclic", "--edges", "normal"]).0, ProbeOutcome::Holds);
     // Member-scoped: this single-crate workspace has no member-to-member cycle.

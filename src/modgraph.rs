@@ -30,7 +30,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::{CommandFactory, Parser};
 use regex::Regex;
@@ -344,7 +344,8 @@ pub fn check_flags() -> Vec<(String, &'static str)> {
 /// build the module-use graph, and assert against it. Returns the probe
 /// outcome, a one-line reason, and the violation report. Spec / walk errors are
 /// [`ProbeOutcome::Broken`].
-pub fn check(args: &[String], root: &Path, _timeout: Option<Duration>) -> (ProbeOutcome, String, String) {
+pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeOutcome, String, String) {
+    let started = Instant::now();
     let broken = |msg: String| (ProbeOutcome::Broken, msg, String::new());
     let cli = match ModsCheck::try_parse_from(args.iter().map(String::as_str)) {
         Ok(c) => c,
@@ -404,6 +405,13 @@ pub fn check(args: &[String], root: &Path, _timeout: Option<Duration>) -> (Probe
     };
     let mut files: Vec<(String, String)> = Vec::new();
     for entry in selector.walk() {
+        // The walk + per-file read is the unbounded cost on a large tree; honor
+        // the rule's --timeout here (deps bounds its cargo metadata the same way).
+        if let Some(limit) = timeout
+            && started.elapsed() >= limit
+        {
+            return broken(format!("mods: timed out after {:.1}s", limit.as_secs_f64()));
+        }
         let entry = match entry {
             Ok(e) => e,
             Err(e) => return broken(format!("mods: {e}")),

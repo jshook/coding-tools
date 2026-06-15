@@ -473,6 +473,35 @@ fn builtin_mods_check_records_runs_and_prototypes() {
 }
 
 #[test]
+fn prototyping_a_non_builtin_probe_runs_without_saving() {
+    let dir = project("prototype-search");
+    fresh_store(&dir);
+    std::fs::write(dir.join("src/lib.rs"), "pub fn clean() {}\n").unwrap();
+
+    // A bare gated probe with no verb prototypes any allowed tool, not just the
+    // built-in checks: it runs and reports, without recording. Holds here —
+    // ZZZNOTHERE is absent, so --expect none is SUCCESS (exit 0).
+    let hold = ct_rules(&dir)
+        .args(["--", "ct-search", "--base", "src", "--grep", "ZZZNOTHERE", "--expect", "none", "--quiet"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&hold), 0, "stderr: {:?}", stderr(&hold));
+    assert!(stdout(&hold).contains("not saved"), "{:?}", stdout(&hold));
+
+    // Violated: `clean` is present, so --expect none fails (exit 1) — and the
+    // exit status follows the outcome so a prototype composes in &&/||.
+    let viol = ct_rules(&dir)
+        .args(["--", "ct-search", "--base", "src", "--grep", "clean", "--expect", "none", "--quiet"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&viol), 1, "stderr: {:?}", stderr(&viol));
+
+    // Neither prototype wrote to the store.
+    let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
+    assert_eq!(store.matches("\"id\"").count(), 0, "prototypes must not write: {store}");
+}
+
+#[test]
 fn ct_each_walker_source_feeds_per_file_rules() {
     let dir = project("rules-walker");
     fresh_store(&dir);
