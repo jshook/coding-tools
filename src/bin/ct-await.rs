@@ -19,9 +19,10 @@ use std::time::Instant;
 
 use clap::Parser;
 use coding_tools::allowlist;
+use coding_tools::cli::ct_await::Cli;
 use coding_tools::explain::Format;
 use coding_tools::pattern;
-use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
+use coding_tools::pulse::{self, PulseState};
 use coding_tools::supervise;
 use coding_tools::template;
 use coding_tools::verdict::Verdict;
@@ -29,67 +30,6 @@ use coding_tools::verdict::Verdict;
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-await.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-await.json");
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "ct-await",
-    version,
-    about = "Poll a read-only probe until it succeeds, an abort pattern appears, or the bound expires.",
-    long_about = "ct-await runs a gated read-only probe every --every seconds until the condition \
-                  is established — probe exit 0, or a required --ok-match appearing in its output — \
-                  or until an --err-match appears (immediate ERROR) or the required --timeout \
-                  expires (ERROR). Observe an external process's effects without owning its \
-                  execution (also reachable as `ct await`). See `ct-await --explain` for \
-                  agent-oriented documentation."
-)]
-struct Cli {
-    /// Question this wait answers; printed as a "== ... ==" banner.
-    #[arg(long)]
-    question: Option<String>,
-
-    /// Seconds between probe runs (fractional allowed).
-    #[arg(long, value_name = "SECS", default_value_t = 5.0)]
-    every: f64,
-
-    /// Hard bound on the whole wait (fractional allowed). Required: a wait is bounded by design.
-    #[arg(long, value_name = "SECS")]
-    timeout: f64,
-
-    /// SUCCESS when this pattern (substring->glob->regex promoted) appears in the probe's output. When supplied it is the REQUIRED proof: a clean exit without it means "not yet".
-    #[arg(long, value_name = "PATTERN")]
-    ok_match: Option<String>,
-
-    /// End the wait immediately with ERROR when this pattern appears in the probe's output (decisive over --ok-match, exactly as in ct-test).
-    #[arg(long, value_name = "PATTERN")]
-    err_match: Option<String>,
-
-    /// Pin how matcher patterns are interpreted (promotion off): literal, glob, or regex.
-    #[arg(long, value_enum)]
-    mode: Option<pattern::Mode>,
-
-    #[command(flatten)]
-    heartbeat: HeartbeatOpts,
-
-    /// Template written to stdout when the wait ends. Tokens: {RESULT} {ELAPSED} {TICKS} {REASON} {QUESTION} {CMD}.
-    #[arg(long, alias = "emit-stdout")]
-    emit: Option<String>,
-
-    /// Template written to stderr when the wait ends (same tokens as --emit).
-    #[arg(long)]
-    emit_stderr: Option<String>,
-
-    /// Suppress the banner and the default outcome line.
-    #[arg(long)]
-    quiet: bool,
-
-    /// Print agent usage docs (md or json) and exit.
-    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
-    explain: Option<Format>,
-
-    /// The probe (after `--`): an argv run directly each tick, never through a shell. Exit 0 ends the wait with SUCCESS; any other exit means "not yet".
-    #[arg(last = true, value_name = "PROBE...")]
-    probe: Vec<String>,
-}
 
 /// The refusal shown for a non-gated probe.
 fn deny_message(name: &str) -> String {

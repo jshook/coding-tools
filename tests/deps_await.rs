@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Jonathan Shook
 
-//! End-to-end guards on `ct-deps` (real `cargo metadata` over this very
-//! workspace: deny/forbid evidence paths, duplicates, defective assertions)
-//! and `ct-await` (success on a condition that becomes true, immediate
-//! abort-on, hard timeout, and the immutable probe gate). The binaries are
-//! driven through the paths Cargo exports (`CARGO_BIN_EXE_*`).
+//! Guards on the built-in `deps` check (real `cargo metadata` over this very
+//! workspace: deny/forbid evidence paths, duplicates, defective assertions),
+//! run in-process via the library, and end-to-end on `ct-await` (success on a
+//! condition that becomes true, immediate abort-on, hard timeout, and the
+//! immutable probe gate) driven through `CARGO_BIN_EXE_ct-await`.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
+
+use coding_tools::deps;
+use coding_tools::rules::ProbeOutcome;
 
 fn repo() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -33,10 +36,11 @@ fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
-fn ct_deps() -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_ct-deps"));
-    c.current_dir(repo());
-    c
+/// Run the built-in `deps` check over this very workspace, in-process.
+/// Returns `(outcome, reason, violation report)`.
+fn deps_check(args: &[&str]) -> (ProbeOutcome, String, String) {
+    let argv: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    deps::check(&argv, repo(), None)
 }
 
 fn ct_await(dir: &Path) -> Command {
@@ -47,55 +51,61 @@ fn ct_await(dir: &Path) -> Command {
 
 #[test]
 fn deps_deny_reports_an_evidence_path_for_a_real_dependency() {
-    // clap IS a dependency of this crate: the assertion must fail with proof.
-    let out = ct_deps().args(["--deny", "clap"]).output().unwrap();
-    assert_eq!(code(&out), 1, "stderr: {:?}", stderr(&out));
-    let text = stdout(&out);
-    assert!(text.contains("deny: clap: coding-tools v"), "evidence path: {text:?}");
-    assert!(text.contains("-> clap v"), "path reaches the crate: {text:?}");
+    // clap IS a dependency of this crate: the check violates with proof.
+    let (o, _reason, report) = deps_check(&["--deny", "clap"]);
+    assert_eq!(o, ProbeOutcome::Violated);
+    assert!(report.contains("deny: clap: coding-tools v"), "evidence: {report:?}");
+    assert!(report.contains("-> clap v"), "reaches the crate: {report:?}");
 
-    // An absent crate holds, quietly composable.
-    let out = ct_deps()
-        .args(["--deny", "openssl", "--quiet"])
-        .output()
-        .unwrap();
-    assert_eq!(code(&out), 0, "stderr: {:?}", stderr(&out));
+    // An absent crate holds.
+    assert_eq!(deps_check(&["--deny", "openssl"]).0, ProbeOutcome::Holds);
 }
 
 #[test]
-fn deps_forbid_and_duplicates_and_defective_assertions() {
+fn deps_forbid_duplicates_and_defective_assertions() {
     // A real reachable pair: this crate depends on walkdir.
-    let out = ct_deps()
-        .args(["--forbid", "coding-tools=>walkdir"])
-        .output()
-        .unwrap();
-    assert_eq!(code(&out), 1);
-    assert!(stdout(&out).contains("forbid: coding-tools=>walkdir:"));
+    let (o, _, report) = deps_check(&["--forbid", "coding-tools=>walkdir"]);
+    assert_eq!(o, ProbeOutcome::Violated);
+    assert!(report.contains("forbid: coding-tools=>walkdir:"), "{report:?}");
 
     // No path in the reverse direction.
-    let out = ct_deps()
-        .args(["--forbid", "walkdir=>coding-tools", "--quiet"])
-        .output()
-        .unwrap();
-    assert_eq!(code(&out), 0, "stderr: {:?}", stderr(&out));
+    assert_eq!(deps_check(&["--forbid", "walkdir=>coding-tools"]).0, ProbeOutcome::Holds);
 
-    // A source package that does not exist is a defective assertion (exit 2).
-    let out = ct_deps().args(["--forbid", "ghost=>walkdir"]).output().unwrap();
-    assert_eq!(code(&out), 2);
-    assert!(stderr(&out).contains("no package named 'ghost'"));
+    // A source package that does not exist is a defective assertion (Broken).
+    let (o, reason, _) = deps_check(&["--forbid", "ghost=>walkdir"]);
+    assert_eq!(o, ProbeOutcome::Broken);
+    assert!(reason.contains("no package named 'ghost'"), "{reason:?}");
 
     // Duplicates: this repo's own invariant says there are none.
-    let out = ct_deps()
-        .args(["--duplicates", "--emit", "{RESULT} {COUNT}"])
-        .output()
-        .unwrap();
-    assert_eq!(code(&out), 0, "stderr: {:?}", stderr(&out));
-    assert!(stdout(&out).contains("SUCCESS 0"));
+    assert_eq!(deps_check(&["--duplicates"]).0, ProbeOutcome::Holds);
 
-    // No assertions is a usage error.
-    let out = ct_deps().output().unwrap();
-    assert_eq!(code(&out), 2);
-    assert!(stderr(&out).contains("nothing to assert"));
+    // No assertions is a defective probe.
+    let (o, reason, _) = deps_check(&[]);
+    assert_eq!(o, ProbeOutcome::Broken);
+    assert!(reason.contains("nothing to assert"), "{reason:?}");
+}
+
+#[test]
+fn deps_acyclic_and_layers_over_this_workspace() {
+    assert_eq!(deps_check(&["--acyclic", "--edges", "normal"]).0, ProbeOutcome::Holds);
+    // Member-scoped: this single-crate workspace has no member-to-member cycle.
+    assert_eq!(deps_check(&["--acyclic", "--members"]).0, ProbeOutcome::Holds);
+    // A single matching layer is trivially clean (no pair to violate).
+    assert_eq!(deps_check(&["--layers", "coding-tools"]).0, ProbeOutcome::Holds);
+
+    // A layer matching no member is a defective spec (the typo guard).
+    let (o, reason, _) = deps_check(&["--layers", "coding-tools,ghost"]);
+    assert_eq!(o, ProbeOutcome::Broken);
+    assert!(reason.contains("layer 'ghost' matches nothing"), "{reason:?}");
+
+    // Spec errors are Broken with a specific reason.
+    let (o, reason, _) = deps_check(&["--members"]);
+    assert_eq!(o, ProbeOutcome::Broken);
+    assert!(reason.contains("--members applies to --acyclic"), "{reason:?}");
+
+    let (o, reason, _) = deps_check(&["--layers-closed"]);
+    assert_eq!(o, ProbeOutcome::Broken);
+    assert!(reason.contains("--layers-closed requires --layers"), "{reason:?}");
 }
 
 #[test]

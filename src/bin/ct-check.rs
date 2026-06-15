@@ -15,8 +15,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+use coding_tools::cli::ct_check::Cli;
 use coding_tools::explain::Format;
-use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
+use coding_tools::pulse::{self, PulseState};
 use coding_tools::rules::{self, ProbeOutcome, Rule, Severity, Store};
 use coding_tools::{pattern, template};
 use serde_json::json;
@@ -24,69 +25,6 @@ use serde_json::json;
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-check.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-check.json");
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "ct-check",
-    version,
-    about = "Verify the project's recorded invariants from .ct/rules.jsonc (read-only).",
-    long_about = "ct-check runs the rule store's probes in order and reports each rule as SUCCESS, \
-                  ERROR, WARN, PENDING, or BROKEN (also reachable as `ct check`). It never writes \
-                  anything; rules are recorded with ct-rules. See `ct-check --explain` for \
-                  agent-oriented documentation."
-)]
-struct Cli {
-    /// Rule store. Default: the nearest .ct/rules.jsonc walking upward from the current directory.
-    #[arg(long)]
-    file: Option<PathBuf>,
-
-    /// Select rules whose id matches (substring->glob->regex promoted, anchored).
-    #[arg(long)]
-    id: Option<String>,
-
-    /// Select rules carrying any of these tags (comma-separated).
-    #[arg(long, value_delimiter = ',')]
-    tag: Vec<String>,
-
-    /// Stop after the first enforced violation; remaining rules are reported as skipped.
-    #[arg(long)]
-    fail_fast: bool,
-
-    /// Print the selected rules (id, lanes, question, tags); run nothing.
-    #[arg(long)]
-    list: bool,
-
-    /// Suppress per-rule lines and the default summary.
-    #[arg(long)]
-    quiet: bool,
-
-    /// Emit a structured JSON result instead of text (overrides the emit templates).
-    #[arg(long)]
-    json: bool,
-
-    /// Per-rule template written to stdout. Tokens: {RESULT} {ID} {QUESTION} {CODE} {WHY} {CMD}.
-    #[arg(long, value_name = "TEMPLATE")]
-    emit_each: Option<String>,
-
-    /// Summary template written to stdout. Tokens: {RESULT} {OK} {ERRORS} {WARNED} {PENDING} {BROKEN} {SKIPPED} {TOTAL} {REASON}.
-    #[arg(long, alias = "emit-stdout", value_name = "TEMPLATE")]
-    emit: Option<String>,
-
-    /// Summary template written to stderr (same tokens as --emit).
-    #[arg(long, value_name = "TEMPLATE")]
-    emit_stderr: Option<String>,
-
-    /// Default per-rule bound in seconds (fractional allowed); a rule's own timeout field overrides it. A timed-out probe is BROKEN.
-    #[arg(long, value_name = "SECS")]
-    timeout: Option<f64>,
-
-    #[command(flatten)]
-    heartbeat: HeartbeatOpts,
-
-    /// Print agent usage docs (md or json) and exit.
-    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
-    explain: Option<Format>,
-}
 
 /// A rule's reported lane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

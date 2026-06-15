@@ -115,7 +115,8 @@
           "stdout"
         ],
         "description": "Stream heartbeat pulses are written to. Default: stderr."
-      }
+      },
+      "mode": {"description":"Pin how --name is interpreted (promotion off): literal, glob, or regex.","enum":["literal","glob","regex"],"type":"string"}
     },
     "required": []
   }

@@ -296,6 +296,17 @@ pub fn parse_store(text: &str) -> Result<Store, String> {
                 },
                 network: o.get("network").and_then(|v| v.as_bool()).unwrap_or(false),
             };
+            // Built-in checks (`deps`/`mods`) classify their own outcome, so an
+            // `expect` adapter is meaningless for them — reject it at load
+            // rather than silently ignore it (matches the ct-rules add guard).
+            if matches!(rule.probe.first().map(String::as_str), Some("deps") | Some("mods"))
+                && rule.expect != Adapter::Exit
+            {
+                return Err(format!(
+                    "{where_}: built-in check '{}' takes no expect adapter (it classifies its own outcome)",
+                    rule.probe[0]
+                ));
+            }
             rules.push(rule);
         }
     }
@@ -424,12 +435,23 @@ pub const BRIDGE: &[BridgeEntry] = &[
     },
 ];
 
+/// A built-in check type — run in-process (not spawned) by [`run_probe`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Builtin {
+    /// The crate-graph check ([`crate::deps::check`]).
+    Deps,
+    /// The module-graph check ([`crate::modgraph::check`]).
+    Mods,
+}
+
 /// What the gate resolved a probe to.
 pub enum Gated<'a> {
     /// A suite observer (read-only tools, `ct-test`, `ct-each`).
     Observer,
     /// A bridge entry; run with [`bridge_argv`]-adjusted arguments.
     Bridge(&'a BridgeEntry),
+    /// A built-in check (`deps`/`mods`) run in-process from the rule layer.
+    Builtin(Builtin),
 }
 
 /// Gate a (def-expanded) probe argv. Returns how it may run, or a refusal
@@ -450,6 +472,12 @@ pub enum Gated<'a> {
 /// ```
 pub fn gate_probe(argv: &[String]) -> Result<Gated<'static>, String> {
     let name = allowlist::gated_name(&argv[0]);
+    if name == "deps" {
+        return Ok(Gated::Builtin(Builtin::Deps));
+    }
+    if name == "mods" {
+        return Ok(Gated::Builtin(Builtin::Mods));
+    }
     if name == "ct-check" {
         return Err("a probe may not run ct-check (no self-recursion through the store)".to_string());
     }
@@ -554,9 +582,26 @@ pub fn run_probe(
     timeout: Option<std::time::Duration>,
     adapter: &Adapter,
 ) -> (ProbeOutcome, String, crate::supervise::Outcome) {
+    if let Gated::Builtin(kind) = gated {
+        let (outcome, reason, report) = match kind {
+            Builtin::Deps => crate::deps::check(&expanded[1..], root, timeout),
+            Builtin::Mods => crate::modgraph::check(&expanded[1..], root, timeout),
+        };
+        return (
+            outcome,
+            reason,
+            crate::supervise::Outcome {
+                stdout: report,
+                stderr: String::new(),
+                status: None,
+                timed_out: false,
+            },
+        );
+    }
     let argv = match gated {
         Gated::Observer => expanded.to_vec(),
         Gated::Bridge(entry) => bridge_argv(entry, expanded, network),
+        Gated::Builtin(_) => unreachable!("built-in checks handled above"),
     };
     let name = allowlist::gated_name(&argv[0]);
     let mut command = std::process::Command::new(crate::supervise::resolve_program(&argv[0], &name));
@@ -719,6 +764,13 @@ mod tests {
         assert!(parse_store(unknown).unwrap_err().contains("unknown store key"));
         let badsev = r#"{"rules":[{"id":"x","question":"q","probe":["ls"],"severity":"high"}]}"#;
         assert!(parse_store(badsev).unwrap_err().contains("invalid severity"));
+        // A built-in check carries its own outcome; an expect adapter on one is
+        // rejected at load, not silently ignored (mirrors the ct-rules guard).
+        let builtin_adapter =
+            r#"{"rules":[{"id":"x","question":"q","probe":["deps","--acyclic"],"expect":"empty"}]}"#;
+        assert!(parse_store(builtin_adapter)
+            .unwrap_err()
+            .contains("takes no expect adapter"));
     }
 
     #[test]
@@ -744,6 +796,23 @@ mod tests {
         assert!(gate_probe(&argv(&["cargo", "build"])).is_err());
         assert!(gate_probe(&argv(&["cargo"])).is_err());
         assert!(gate_probe(&argv(&["sh", "-c", "true"])).is_err());
+    }
+
+    #[test]
+    fn gate_classifies_builtin_checks() {
+        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // `deps`/`mods` are reserved heads → built-in checks run in-process.
+        assert!(matches!(
+            gate_probe(&argv(&["deps", "--acyclic"])),
+            Ok(Gated::Builtin(Builtin::Deps))
+        ));
+        assert!(matches!(
+            gate_probe(&argv(&["mods", "--forbid", "a=>b"])),
+            Ok(Gated::Builtin(Builtin::Mods))
+        ));
+        // The retired binary names are not probes (no longer allowlisted).
+        assert!(gate_probe(&argv(&["ct-deps", "--acyclic"])).is_err());
+        assert!(gate_probe(&argv(&["ct-mods", "--acyclic"])).is_err());
     }
 
     #[test]

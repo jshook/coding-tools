@@ -30,8 +30,12 @@ can call by its full name.
 | `ct-outline`| Report the declarations in a file or tree — kind, name, `start:end` span — for bounded reads. | [explain/ct-outline.md](../explain/ct-outline.md) |
 | `ct-rules`  | Record, promote, remove, and list the project's invariant rules (`.ct/rules.jsonc`); writes the store, on no gate. | [explain/ct-rules.md](../explain/ct-rules.md) |
 | `ct-check`  | Verify the recorded invariants — five lanes (`SUCCESS`/`ERROR`/`WARN`/`PENDING`/`BROKEN`), one exit status; purely read-only. | [explain/ct-check.md](../explain/ct-check.md) |
-| `ct-deps`   | Assert crate-graph invariants over hermetic `cargo metadata` — deny crates, forbid `A=>B` paths, duplicates — with evidence. | [explain/ct-deps.md](../explain/ct-deps.md) |
 | `ct-await`  | Poll a gated read-only probe until success, an abort pattern, or the required bound — observe work you don't execute. | [explain/ct-await.md](../explain/ct-await.md) |
+
+`ct-rules`/`ct-check` also host **built-in checks** — `deps` (crate graph over
+`cargo metadata`) and `mods` (module graph from `use` edges) — run in-process as
+rule probes (`ct check deps`/`mods` flags via `ct rules … -- deps …`), not as
+top-level commands. See `docs/specs/rules.md`.
 
 Each tool's page is the **canonical, self-contained reference** for that tool —
 the same text the tool emits from `<tool> --explain` — so it never drifts from

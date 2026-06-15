@@ -26,8 +26,11 @@ full name.
 | `ct outline`| `ct-outline`| Report a file's declarations — kind, name, `start:end` span — for bounded reads. |
 | `ct rules`  | `ct-rules`  | Record the project's invariants in `.ct/rules.jsonc` — verified at the moment they're written. |
 | `ct check`  | `ct-check`  | Re-verify every recorded invariant; five lanes, one exit status. Read-only.   |
-| `ct deps`   | `ct-deps`   | Assert crate-graph invariants — deny crates, forbid `A=>B` paths, duplicates — with evidence paths. |
 | `ct await`  | `ct-await`  | Wait, boundedly, for an external outcome via a read-only probe.               |
+
+`ct rules`/`ct check` also host **built-in checks** — `deps` (crate-graph) and
+`mods` (module-graph) invariants — recorded and verified as rules (`ct rules …
+-- deps …` / `-- mods …`), not as separate top-level commands.
 
 ## Why
 

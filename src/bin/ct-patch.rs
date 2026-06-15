@@ -19,12 +19,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+use coding_tools::cli::ct_patch::{Cli, DocFormat};
 use coding_tools::explain::Format;
 use coding_tools::patch::{
     MoveTo, Op, apply_doc, apply_jsonl, apply_yaml, normalize_value, parse_path, split_assign,
 };
 use coding_tools::payload;
-use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
+use coding_tools::pulse::{self, PulseState};
 use coding_tools::verdict::{Expect, Verdict};
 use coding_tools::walk::{self, EntryType};
 use serde_json::json;
@@ -32,118 +33,6 @@ use serde_json::json;
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-patch.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-patch.json");
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "ct-patch",
-    version,
-    about = "Set/add/delete/move nodes by path in JSON/JSONC/JSONL/YAML, preserving comments and formatting.",
-    long_about = "ct-patch makes structured edits to JSON, JSONC, JSONL, and YAML files (also reachable \
-                  as `ct patch`): address a node by path (keys, [N] indices, or [key=value] predicates) \
-                  and --set, --add, --delete, or --move-*. JSON-family edits are byte-range splices so \
-                  everything outside the changed node is preserved; YAML uses the pure-Rust yaml-edit \
-                  backend. Gated by --expect and previewable with --dry-run. See `ct-patch --explain` \
-                  for agent-oriented documentation."
-)]
-struct Cli {
-    /// Root to patch; a file patches just that file, a directory is descended.
-    #[arg(long, default_value = ".")]
-    base: PathBuf,
-
-    /// Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored.
-    #[arg(long)]
-    name: Option<String>,
-
-    /// Include dot-entries (names starting with '.'); default skips them.
-    #[arg(long)]
-    hidden: bool,
-
-    /// Follow symlinks while traversing.
-    #[arg(long)]
-    follow: bool,
-
-    /// Set PATH to VALUE (repeatable). VALUE is parsed as JSON, or taken as a string if it is not valid JSON. file:PATH reads the value verbatim as a string; text:VALUE escapes the prefix.
-    #[arg(long, value_name = "PATH=VALUE")]
-    set: Vec<String>,
-
-    /// Delete the node at PATH (repeatable).
-    #[arg(long, value_name = "PATH")]
-    delete: Vec<String>,
-
-    /// Append VALUE to the array at PATH, no index needed (repeatable). VALUE is parsed as JSON or taken as a string; file:PATH reads it verbatim as a string.
-    #[arg(long, value_name = "PATH=VALUE")]
-    add: Vec<String>,
-
-    /// Move the array element selected by PATH to the front of its list (repeatable).
-    #[arg(long, value_name = "PATH")]
-    move_first: Vec<String>,
-
-    /// Move the array element selected by PATH to the end of its list (repeatable).
-    #[arg(long, value_name = "PATH")]
-    move_last: Vec<String>,
-
-    /// Move the array element selected by PATH one position earlier (repeatable).
-    #[arg(long, value_name = "PATH")]
-    move_up: Vec<String>,
-
-    /// Move the array element selected by PATH one position later (repeatable).
-    #[arg(long, value_name = "PATH")]
-    move_down: Vec<String>,
-
-    /// Force the document format instead of detecting it from the file extension.
-    #[arg(long, value_enum)]
-    format: Option<DocFormat>,
-
-    /// Verdict expectation over the total number of changes: any|none|N|=N|+N|-N (default: any).
-    #[arg(long)]
-    expect: Option<String>,
-
-    /// Show what would change and the verdict, but write nothing.
-    #[arg(long)]
-    dry_run: bool,
-
-    /// Suppress the per-file lines; print only the summary.
-    #[arg(long)]
-    quiet: bool,
-
-    /// Emit a structured JSON result instead of text.
-    #[arg(long)]
-    json: bool,
-
-    /// Abort with exit 2 if the scan exceeds SECS seconds (fractional allowed). Never interrupts the write phase: once a SUCCESS verdict starts writing, every write completes.
-    #[arg(long, value_name = "SECS")]
-    timeout: Option<f64>,
-
-    #[command(flatten)]
-    heartbeat: HeartbeatOpts,
-
-    /// Print agent usage docs (md or json) and exit.
-    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
-    explain: Option<Format>,
-}
-
-/// Document format. JSON, JSONC, and JSONL parse through the same lenient
-/// `jsonc-parser` tree; YAML uses the pure-Rust `yaml-edit` backend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-enum DocFormat {
-    Json,
-    Jsonc,
-    Jsonl,
-    Yaml,
-}
-
-impl DocFormat {
-    /// Detect a format from a file extension.
-    fn from_ext(ext: &str) -> Option<DocFormat> {
-        match ext.to_ascii_lowercase().as_str() {
-            "json" => Some(DocFormat::Json),
-            "jsonc" => Some(DocFormat::Jsonc),
-            "jsonl" | "ndjson" => Some(DocFormat::Jsonl),
-            "yaml" | "yml" => Some(DocFormat::Yaml),
-            _ => None,
-        }
-    }
-}
 
 /// Resolve a VALUE through the payload schemes: a `file:`-sourced value is
 /// taken verbatim as a string node (never re-parsed as JSON); anything else
@@ -211,7 +100,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     };
     let names = match &cli.name {
         Some(spec) => Some(
-            coding_tools::pattern::compile_name_set(spec)
+            coding_tools::pattern::compile_name_set_with(spec, cli.mode)
                 .map_err(|e| format!("invalid --name pattern: {e}"))?,
         ),
         None => None,

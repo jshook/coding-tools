@@ -9,15 +9,15 @@
 //! md`; `docs/explain/ct-search.json` is the MCP tool-use definition emitted for
 //! `--explain json`. Both are embedded below.
 
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
 use coding_tools::block::{self, NearestMiss};
+use coding_tools::cli::ct_search::Cli;
 use coding_tools::explain::Format;
-use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
+use coding_tools::pulse::{self, PulseState};
 use coding_tools::verdict::Expect;
-use coding_tools::walk::{self, EntryType};
+use coding_tools::walk;
 use coding_tools::{pattern, payload, template};
 use regex::Regex;
 use serde_json::json;
@@ -25,104 +25,6 @@ use serde_json::json;
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-search.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-search.json");
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "ct-search",
-    version,
-    about = "Recursively find files by name, type, size, and content from a chosen root.",
-    long_about = "ct-search combines the predicates you would otherwise assemble from find, xargs, \
-                  and grep into one declarative command (also reachable as `ct search`). An entry \
-                  matches only when every supplied predicate holds. See `ct-search --explain` for \
-                  agent-oriented documentation."
-)]
-#[command(group = clap::ArgGroup::new("output_mode")
-    .args(["list", "summary", "detail", "quiet"])
-    .multiple(false))]
-struct Cli {
-    /// Search root (relative or absolute), independent of the current directory.
-    #[arg(long, default_value = ".")]
-    base: PathBuf,
-
-    /// File-name pattern; '|'-separated alternatives, each substring->glob->regex promoted and anchored to the whole name.
-    #[arg(long)]
-    name: Option<String>,
-
-    /// Restrict to entry kinds: f=file, d=dir, l=symlink (repeatable or comma-joined).
-    #[arg(long, value_enum, value_delimiter = ',')]
-    r#type: Vec<EntryType>,
-
-    /// Content pattern (substring->glob->regex promoted); searches file contents. Accepts file:PATH / text:VALUE; a multi-line pattern matches as a line-anchored literal block.
-    #[arg(long)]
-    grep: Option<String>,
-
-    /// Pin how patterns are interpreted (promotion off): literal, glob, or regex.
-    #[arg(long, value_enum)]
-    mode: Option<pattern::Mode>,
-
-    /// Size predicate [+|-]N[k|m|g]: +N larger than, -N smaller than, N at least N.
-    #[arg(long)]
-    size: Option<String>,
-
-    /// Include dot-entries (names starting with '.'); default skips them.
-    #[arg(long)]
-    hidden: bool,
-
-    /// Follow symlinks while traversing.
-    #[arg(long)]
-    follow: bool,
-
-    /// Stop after N matches.
-    #[arg(long)]
-    limit: Option<usize>,
-
-    /// Abort with exit 2 if the search exceeds SECS seconds (fractional allowed).
-    #[arg(long, value_name = "SECS")]
-    timeout: Option<f64>,
-
-    #[command(flatten)]
-    heartbeat: HeartbeatOpts,
-
-    /// Question this search answers, framing it as a test; printed as a "== ... ==" banner unless --quiet.
-    #[arg(long)]
-    question: Option<String>,
-
-    /// Verdict expectation over the match count: any|none|N|=N|+N|-N (default: any). Turns the search into a pass/fail test whose exit status follows the verdict.
-    #[arg(long)]
-    expect: Option<String>,
-
-    /// Template written to stdout after the search. Tokens: {RESULT} {QUESTION} {COUNT} {LINES} {BASE} {MATCHES}.
-    #[arg(long, alias = "emit-stdout")]
-    emit: Option<String>,
-
-    /// Template written to stderr after the search (same tokens as --emit).
-    #[arg(long)]
-    emit_stderr: Option<String>,
-
-    /// Output mode: print one matching path per line (default).
-    #[arg(long)]
-    list: bool,
-
-    /// Output mode: print counts only.
-    #[arg(long)]
-    summary: bool,
-
-    /// Output mode: print matches plus, for --grep, each hit as path:line:text.
-    #[arg(long)]
-    detail: bool,
-
-    /// Output mode: print nothing; report via exit status only.
-    #[arg(long)]
-    quiet: bool,
-
-    /// Emit a structured JSON result instead of text (overrides the output mode and --emit).
-    #[arg(long)]
-    json: bool,
-
-    /// Print agent usage docs (md or json) and exit.
-    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
-    explain: Option<Format>,
-}
 
 /// Resolved output mode, derived from the mutually-exclusive output flags.
 enum Mode {

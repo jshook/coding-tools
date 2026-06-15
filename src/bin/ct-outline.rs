@@ -12,13 +12,13 @@
 //! `--explain md`; `docs/explain/ct-outline.json` is the MCP tool-use
 //! definition emitted for `--explain json`. Both are embedded below.
 
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+use coding_tools::cli::ct_outline::Cli;
 use coding_tools::explain::Format;
 use coding_tools::outline::{Entry, language_for, outline};
-use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
+use coding_tools::pulse::{self, PulseState};
 use coding_tools::verdict::Expect;
 use coding_tools::walk::{self, EntryType};
 use coding_tools::{pattern, template};
@@ -27,94 +27,6 @@ use serde_json::json;
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-outline.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-outline.json");
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "ct-outline",
-    version,
-    about = "Report the declarations in a file or tree: kind, name, start:end span, and nesting.",
-    long_about = "ct-outline detects declarations heuristically per language (Rust, Python, Markdown) \
-                  and reports each with its kind, name, and 1-based start:end line span (also \
-                  reachable as `ct outline`) — locate a symbol, then read exactly that region with \
-                  ct-view --range. Start lines are exact; an underivable end renders as start:?. \
-                  See `ct-outline --explain` for agent-oriented documentation."
-)]
-struct Cli {
-    /// Root to outline; a file outlines just that file, a directory is descended.
-    #[arg(long, default_value = ".")]
-    base: PathBuf,
-
-    /// Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored.
-    #[arg(long)]
-    name: Option<String>,
-
-    /// Restrict to these extensions (comma-separated, no dots), e.g. --ext rs,py. Combined with --name as alternatives.
-    #[arg(long, value_delimiter = ',')]
-    ext: Vec<String>,
-
-    /// Include dot-entries (names starting with '.'); default skips them.
-    #[arg(long)]
-    hidden: bool,
-
-    /// Follow symlinks while traversing.
-    #[arg(long)]
-    follow: bool,
-
-    /// Keep entries whose name matches (substring->glob->regex promoted, anchored to the whole declaration name).
-    #[arg(long = "match")]
-    pattern: Option<String>,
-
-    /// Pin how --match/--name patterns are interpreted (promotion off): literal, glob, or regex.
-    #[arg(long, value_enum)]
-    mode: Option<pattern::Mode>,
-
-    /// Keep entries of these kinds (comma-separated), e.g. --kind fn,struct. Kinds are per-language keywords.
-    #[arg(long, value_delimiter = ',')]
-    kind: Vec<String>,
-
-    /// Keep entries nested at most N levels deep (1 = top-level only).
-    #[arg(long)]
-    depth: Option<usize>,
-
-    /// Output one grep-friendly row per matched entry: path:start:end:kind:name.
-    #[arg(long)]
-    flat: bool,
-
-    /// Question this outline answers, framing it as a test; printed as a "== ... ==" banner unless --quiet.
-    #[arg(long)]
-    question: Option<String>,
-
-    /// Verdict expectation over the matched-entry count: any|none|N|=N|+N|-N (default: any).
-    #[arg(long)]
-    expect: Option<String>,
-
-    /// Template written to stdout after the outline. Tokens: {RESULT} {QUESTION} {COUNT} {BASE} {MATCHES}.
-    #[arg(long, alias = "emit-stdout")]
-    emit: Option<String>,
-
-    /// Template written to stderr after the outline (same tokens as --emit).
-    #[arg(long)]
-    emit_stderr: Option<String>,
-
-    /// Print nothing; report via exit status (and --emit, which still fires).
-    #[arg(long)]
-    quiet: bool,
-
-    /// Emit a structured JSON result instead of text (overrides the text modes and --emit).
-    #[arg(long)]
-    json: bool,
-
-    /// Abort with exit 2 if the run exceeds SECS seconds (fractional allowed).
-    #[arg(long, value_name = "SECS")]
-    timeout: Option<f64>,
-
-    #[command(flatten)]
-    heartbeat: HeartbeatOpts,
-
-    /// Print agent usage docs (md or json) and exit.
-    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
-    explain: Option<Format>,
-}
 
 /// One file's outline with per-entry match flags.
 struct FileOutline {

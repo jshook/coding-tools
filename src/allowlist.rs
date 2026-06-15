@@ -29,13 +29,12 @@ use std::path::Path;
 /// umbrella `ct` and the dispatching/mutating `ct-test`/`ct-each`/`ct-edit`/
 /// `ct-patch`/`ct-rules`/`ct-await` are excluded because they can change
 /// state or dispatch — the read-only `ct-search`, `ct-outline`, `ct-tree`,
-/// `ct-view`, `ct-check`, and `ct-deps` (whose `cargo metadata` source is
-/// forced `--locked --offline`) are included.) There is no run-time
-/// mechanism to add to this list.
+/// `ct-view`, and `ct-check` are included.) The crate-/module-graph checks
+/// (`deps`/`mods`) are not dispatch targets — they are built-in checks the rule
+/// layer runs in-process. There is no run-time mechanism to add to this list.
 pub const BUILTIN: &[&str] = &[
     "cat",
     "ct-check",
-    "ct-deps",
     "ct-outline",
     "ct-search",
     "ct-tree",

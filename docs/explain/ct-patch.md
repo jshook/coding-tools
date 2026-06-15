@@ -42,6 +42,7 @@ Files whose format is neither detected nor forced are skipped.
 | ---------- | --------- | ----------------------------------------------------------------------- |
 | `--base`   | `PATH`    | A **file** patches just that file; a **directory** is descended. Default `.` |
 | `--name`   | `PATTERN` | Limit to files whose name matches (`\|`-separated, promoted, anchored).  |
+| `--mode`   | `literal\|glob\|regex` | Pin how `--name` is interpreted (promotion off), as in `ct-search`/`ct-edit`. |
 | `--hidden` | —         | Include dot-entries.                                                     |
 | `--follow` | —         | Follow symlinks.                                                         |
 | `--format` | `FMT`     | Force `json`/`jsonc`/`jsonl`/`yaml` instead of detecting from the extension. |

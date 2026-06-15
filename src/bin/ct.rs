@@ -69,10 +69,6 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "Verify the project's recorded invariants from .ct/rules.jsonc (ct-check)",
     ),
     (
-        "deps",
-        "Assert crate-graph invariants: deny crates, forbid A=>B paths, no duplicates (ct-deps)",
-    ),
-    (
         "await",
         "Poll a read-only probe until it succeeds, aborts, or times out (ct-await)",
     ),

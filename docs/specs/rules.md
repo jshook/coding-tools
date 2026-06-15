@@ -27,7 +27,8 @@ job well, a rule *leverages* it rather than ct rebuilding it.
 | **probe**    | The rule's command — an argv vector (never a shell) that runs read-only and reports violations. |
 | **violation**| One offending finding a probe reports. A rule holds when its probe reports zero violations and exits `0`. |
 | **def**      | A named definition in the store — a set of names, paths, or a pattern — that rules reference as `{def:NAME}` instead of hardcoding lists. |
-| **observer** | A read-only suite tool a probe can use (`ct-search`, `ct-outline`, `ct-tree`, `ct-view`, `ct-each`, `ct-test`, future `ct-deps`). |
+| **observer** | A read-only suite tool a probe can use (`ct-search`, `ct-outline`, `ct-tree`, `ct-view`, `ct-each`, `ct-test`). |
+| **built-in check** | A crate-/module-graph assertion the rule layer runs in-process, named by the probe head `deps`/`mods`. |
 | **bridge**   | The compiled-in table of permitted external Rust-tool invocations (§5). |
 | **lane**     | A rule's reporting state: `holds`, `violated`, `pending`, `broken`. |
 
@@ -91,9 +92,9 @@ sections: `defs` and `rules`.
     },
     {
       "id": "no-openssl",
+      // Built-in check (§5): the crate graph, asserted in-process — no adapter.
       "question": "Is the dependency tree free of openssl?",
-      "probe": ["cargo", "tree", "-i", "openssl", "--locked"],
-      "expect": "absent",          // see §5: bridge probes carry an expectation adapter
+      "probe": ["deps", "--deny", "openssl"],
       "why": "musl cross-builds require pure-Rust TLS",
       "tags": ["deps", "portability"],
       "severity": "fail"
@@ -109,7 +110,7 @@ Rule fields are v1's (`id`, `question`, `probe` [was `cmd`], `why`, `tags`,
 | ------------ | ------- |
 | `prompt`     | The verbatim human request that led to the rule, retained as provenance so intent can be revisited (the `--add` confirmation announces the retention). Never read by verification; `ct-rules --flatten` strips every prompt in one pass. |
 | `severity`   | `fail` (default) or `warn`. A violated `warn` rule is reported (`WARN` lane) but never reddens the exit status — enforced vocabulary with soft consequences; the probation ramp before tightening to `fail`. |
-| `expect`     | For bridge probes only (§5): how to read the external tool's outcome — `"exit"` (default, the suite contract), `"empty"` (holds iff stdout reports nothing), or a `ct-test`-style matcher object (`{"err-match": …}` / `{"ok-match": …}`, identical promotion and fail-closed precedence). |
+| `expect`     | For bridge probes only (§5): how to read the external tool's outcome — `"exit"` (default, the suite contract), `"empty"` (holds iff stdout reports nothing), or a `ct-test`-style matcher object (`{"err-match": …}` / `{"ok-match": …}`, identical promotion and fail-closed precedence). Observers and the built-in checks (`deps`/`mods`) reject it — they already speak the exit contract; the store load fails if one carries an adapter. |
 | `network`    | `true` permits the probe to touch the network, honored only for bridge prefixes where it means something (currently `cargo deny check`); everything else — and the default — runs hermetic (`--offline` enforced). A reviewed, per-rule decision visible in the store diff. |
 
 `defs` expansion: `{def:NAME}` expands in probe argv elements before gate
@@ -131,6 +132,12 @@ cargo-deny idea). Writes the store; on no gate, ever. Store writes keep the
 file human-friendly: a standing header comment (re-established if lost), one
 field per line per rule, blank lines between rules.
 
+A **bare probe with no verb** (`ct rules -- <probe>`) runs it and reports the
+outcome *without saving* — prototype a check, then re-run it with `--add ID
+--question …` once it holds. Exit status follows the outcome (`0`/`1`/`2`), so
+a prototype composes in `&&`/`||`. Any gated probe prototypes this way,
+built-in checks included.
+
 **`ct-check` — verify them.** Pure read-only runner: store order, sequential,
 independent; selection by `--id`/`--tag`; lanes `holds`/`violated`/`pending`/
 `broken`; any `broken` rule ⇒ exit `2`; violated `fail` rule ⇒ exit `1`;
@@ -141,11 +148,15 @@ always name the governing rule, so the suppression/fix path is self-teaching.
 
 ## 5. The bridge: leveraging Rust tooling
 
-Some invariant classes need facts the suite's observers don't (yet) have:
-the resolved crate graph, semantic symbol references, supply-chain policy.
-Established free tools already produce these facts well. Rules may leverage
-them through the **bridge**: a **compiled-in, immutable table of argv
-prefixes** naming known read-only invocations of specific external tools.
+Some invariant classes need facts the suite's observers don't carry. Two come
+from **built-in checks** — `deps` (the resolved crate graph) and `mods` (the
+intra-crate module graph) — reserved probe heads the rule layer runs
+**in-process**: `deps` shells one hermetic `cargo metadata` internally, `mods`
+parses `use` edges. They classify their own outcome, take no `expect` adapter,
+and are prototyped and recorded exactly like any other probe (§8). The rest —
+semantic symbol references, supply-chain policy, raw dependency paths — come
+from external tools through the **bridge**: a **compiled-in, immutable table of
+argv prefixes** naming known read-only invocations of specific external tools.
 
 The initial bridge (settled; each entry is an exact prefix + enforced flags):
 
@@ -171,10 +182,12 @@ Properties that keep this inside the suite's safety posture:
 - Absent tools degrade **loudly**: a bridge probe whose binary is missing is
   `broken` (exit `2` path), never silently skipped.
 - Bridge probes don't speak the suite's exit contract, so the rule's
-  `expect` adapter interprets them (e.g. `cargo tree -i openssl` prints a
-  tree when present, "nothing to print" warning when absent → `expect:
-  "absent"` maps that to holds/violated). Adapters are small, named, and
-  compiled per prefix.
+  `expect` adapter interprets them (e.g. `cargo tree -i openssl` errors "did
+  not match any packages" when openssl is absent → `--expect-ok 'did not
+  match any packages'`, stored `{"ok-match": …}`, maps that to
+  holds/violated). Adapters are small, named, and compiled per prefix. For
+  the openssl question itself the built-in `deps --deny openssl` is the
+  simpler native form — no bridge, no adapter.
 
 The bridge is for *leverage*, not identity: ct never wraps a tool just to
 rename it. cargo-deny stays configured by `deny.toml` and merely gets a seat
@@ -192,21 +205,21 @@ Cross-referenced from public discussion of ArchUnit, import-linter, deptrac,
 jQAssistant, clippy configuration, and cargo-deny usage (sources in
 `rules-prior-art.md` and the research notes). Ordered roughly by how often
 practitioners cite them. Each entry: what it asserts → how ct expresses it
-(today / with `ct-deps` (planned cargo-metadata observer) / via bridge).
+(today / with the `deps`/`mods` built-in checks / via bridge).
 
 1. **Layer ordering** — dependencies between named layers flow one way
    (domain ← application ← infrastructure; controller → service →
    repository). The single most-cited architecture rule (ArchUnit's layered
    architecture, import-linter's `layers` contract, deptrac's core model).
-   *ct:* workspace-member layering via `ct-deps` over cargo metadata;
-   module-level layering via a future use-edge observer; directory-level
-   approximations today with `ct-search --base {def:layer} --grep`.
+   *ct:* workspace-member layering via `deps` over cargo metadata;
+   module-level layering via `mods --layers` (the heuristic use-edge graph);
+   directory-level approximations also possible with `ct-search --base {def:layer} --grep`.
 
 2. **Cycle freedom** — no dependency cycles among modules/crates ("cycles
    are the death of modularization"). ArchUnit slices, cargo-modules
    `--acyclic`, jQAssistant package cycles.
-   *ct:* crate-level via `ct-deps --acyclic`; module-level via bridge
-   (`cargo modules dependencies --acyclic`-shaped) or future observer.
+   *ct:* crate-level via `deps --acyclic`; module-level via `mods
+   --acyclic` (the heuristic use-edge graph), no rust-analyzer required.
 
 3. **Banned symbols & APIs** — never call/use X (`java.util.Date`,
    `System.out`; in Rust: `unwrap()` in lib code, `std::fs` over `fs_err`,
@@ -218,14 +231,15 @@ practitioners cite them. Each entry: what it asserts → how ct expresses it
 4. **Banned & allowed dependencies** — the crate graph must not contain X
    (or: only allowlisted crates). cargo-deny `bans`; the rust-lang repo's
    tidy keeps an explicit dependency allowlist.
-   *ct:* bridge (`cargo tree -i X` + `expect: absent`, or `cargo deny
-   check bans`); natively via `ct-deps --deny X` when built.
+   *ct:* the built-in `deps --deny X` (the native form); or bridge — `cargo
+   tree -i X` with `--expect-ok 'did not match any packages'`, or `cargo deny
+   check bans`.
 
 5. **Sibling independence** — modules/features in a set must not depend on
    each other (plugins, bounded contexts). import-linter's `independence`
    contract; ArchUnit slices.
    *ct:* `ct-each --items-def {def:plugins}` fanning a cross-reference probe;
-   exactly via `ct-deps` for workspace members.
+   exactly via `deps` for workspace members.
 
 6. **Role–name–location coherence** — things of a role are named and placed
    accordingly (`*Test` naming, entities in the domain layer, `ct-*` binaries
@@ -244,7 +258,7 @@ practitioners cite them. Each entry: what it asserts → how ct expresses it
 8. **Dependency hygiene: duplicates & versions** — no duplicate crate
    versions; workspace-unified dependency versions. cargo-deny
    `multiple-versions` (noisy but universally enabled), `cargo tree -d`.
-   *ct:* bridge (`cargo tree -d` + `expect: empty`); natively in `ct-deps`.
+   *ct:* bridge (`cargo tree -d` + `expect: empty`); natively in `deps`.
 
 9. **Supply-chain policy** — license allowlist, trusted sources, no known
    advisories. cargo-deny's whole domain; the clearest "leverage, don't
@@ -269,6 +283,10 @@ The catalog is descriptive, not a schema: every category lands as ordinary
 rules + defs, not as special-cased machinery. That is the lean bet — the
 categories live in the store as recorded vocabulary, not in the binary.
 
+A worked, copy-pasteable `ct rules --add` for each category here — with the
+native/approximation/bridge status spelled out and the case for adopting each
+as a project rule — is in `docs/specs/rules-examples.md`.
+
 ## 7. Cargo hook (carried from v1, unchanged in substance)
 
 `ct rules --hook cargo` writes a `tests/ct_invariants.rs` shim that runs
@@ -276,13 +294,17 @@ categories live in the store as recorded vocabulary, not in the binary.
 non-zero exit; degrades loudly when `ct` is absent from `PATH`. Possible
 companion: a `cargo-ct` external-subcommand shim (`cargo ct check`).
 
-## 8. Observer roadmap implied by the catalog
+## 8. Fact-layer roadmap implied by the catalog
 
-| Observer | Facts | Status |
-| -------- | ----- | ------ |
-| `ct-deps` | crate graph from `cargo metadata --locked --offline`: `--deny NAME`, `--forbid 'A=>B'` (workspace layering), `--duplicates`, `--edges` kind filtering — every violation with an evidence path | **shipped** |
+`deps`/`mods` ship as **built-in checks** — probe heads the rule layer runs
+in-process (`ct rules … -- deps …` / `-- mods …`; verified by `ct check`), not
+top-level tools; the remaining entries extend existing observers.
+
+| Fact source | Facts | Status |
+| ----------- | ----- | ------ |
+| `deps` (built-in check) | crate graph from `cargo metadata --locked --offline`: `--deny NAME`, `--forbid 'A=>B'` (workspace layering), `--layers` (ordered stack, `--layers-closed` for exhaustiveness), `--acyclic` (`--members` for the actionable scope), `--duplicates`, `--edges` kind filtering — every violation with an evidence path | **shipped** |
 | `ct-outline` visibility | report `pub`/`pub(crate)`/private on Rust entries (small extension to the existing pack) | small extension |
-| module use-edges | heuristic `use`-statement graph (ct-outline honesty class) for module-level layering/cycles without rust-analyzer | candidate |
+| `mods` (built-in check) | heuristic `use`-statement module graph (ct-outline honesty class): `--forbid 'A=>B'`, `--acyclic`, `--layers` at module granularity, without rust-analyzer | **shipped** |
 
 ## 9. Carried decisions (settled in the v1 walkthrough)
 

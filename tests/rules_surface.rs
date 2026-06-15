@@ -412,6 +412,67 @@ fn bridge_probes_run_real_cargo_with_hermetic_flags() {
 }
 
 #[test]
+fn builtin_mods_check_records_runs_and_prototypes() {
+    let dir = project("builtin-mods");
+    fresh_store(&dir);
+    // A tiny acyclic module graph: a -> b.
+    std::fs::write(dir.join("src/lib.rs"), "mod a;\nmod b;\n").unwrap();
+    std::fs::write(dir.join("src/a.rs"), "use crate::b::X;\npub fn f() {}\n").unwrap();
+    std::fs::write(dir.join("src/b.rs"), "pub struct X;\n").unwrap();
+
+    // --add runs the built-in `mods` check IN-PROCESS (gate -> run_probe Builtin)
+    // and records it because it holds — exercising the consolidation glue.
+    let add = ct_rules(&dir)
+        .args(["--add", "mods-acyclic", "--question", "Is the module graph acyclic?"])
+        .args(["--", "mods", "--acyclic"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&add), 0, "stderr: {:?}", stderr(&add));
+
+    // A violating built-in check is refused (the glue detects the real edge).
+    let bad = ct_rules(&dir)
+        .args(["--add", "no-a-to-b", "--question", "Does a stay off b?"])
+        .args(["--", "mods", "--forbid", "a=>b"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&bad), 1, "stderr: {:?}", stderr(&bad));
+
+    // ct check runs the stored built-in rule via the same in-process dispatch.
+    let check = ct_check(&dir).output().unwrap();
+    assert_eq!(code(&check), 0, "stderr: {:?}", stderr(&check));
+    assert!(stdout(&check).contains("SUCCESS  mods-acyclic"), "{:?}", stdout(&check));
+
+    // The stored probe is the bare built-in head — no binary involved.
+    let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
+    assert!(store.contains("\"mods\""), "stored probe head: {store}");
+    assert!(!store.contains("ct-mods"), "no binary reference: {store}");
+
+    // Prototype mode: a bare probe runs + reports without saving.
+    let proto = ct_rules(&dir).args(["--", "mods", "--acyclic"]).output().unwrap();
+    assert_eq!(code(&proto), 0, "stderr: {:?}", stderr(&proto));
+    assert!(stdout(&proto).contains("not saved"), "{:?}", stdout(&proto));
+    let proto_bad = ct_rules(&dir).args(["--", "mods", "--forbid", "a=>b"]).output().unwrap();
+    assert_eq!(code(&proto_bad), 1, "stderr: {:?}", stderr(&proto_bad));
+
+    // Neither prototype wrote: still exactly the one recorded rule.
+    let store2 = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
+    assert_eq!(store2.matches("\"id\"").count(), 1, "prototypes must not write: {store2}");
+
+    // An --expect adapter on a built-in check is refused, not silently dropped.
+    let guard = ct_rules(&dir)
+        .args(["--add", "x", "--question", "q", "--expect-ok", "foo"])
+        .args(["--", "mods", "--acyclic"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&guard), 2, "stderr: {:?}", stderr(&guard));
+    assert!(
+        stderr(&guard).contains("classifies its own outcome"),
+        "stderr: {:?}",
+        stderr(&guard)
+    );
+}
+
+#[test]
 fn ct_each_walker_source_feeds_per_file_rules() {
     let dir = project("rules-walker");
     fresh_store(&dir);

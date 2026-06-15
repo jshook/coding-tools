@@ -82,7 +82,7 @@ nothing — preview the sweep before committing to it.
 Dispatch targets are gated by **program name** (the file-name component of the
 expanded command), against a fixed, compiled-in set:
 
-- **Default:** the read-only allowlist (`cat ct-check ct-deps ct-outline ct-search ct-tree ct-view echo
+- **Default:** the read-only allowlist (`cat ct-check ct-outline ct-search ct-tree ct-view echo
   false file grep head ls pwd stat tail true wc`) plus `ct-test` — which is
   itself gated to read-only commands, so dispatching it stays read-only.
 - **With `--mutating`:** additionally `ct-edit` and `ct-patch` — the suite's

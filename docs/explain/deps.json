@@ -1,0 +1,46 @@
+{
+  "name": "deps",
+  "description": "Built-in crate-graph check — a reserved probe head the rule layer runs in-process (not a standalone command). Asserts properties of the resolved dependency graph from one hermetic `cargo metadata --format-version 1 --locked --offline` invocation, with every violation carrying an evidence path. Use it as a rule probe (`ct rules --add ID --question … -- deps …`, verified by `ct check`) or prototype it without saving (`ct rules -- deps …`). It classifies its own outcome, so it takes no --expect adapter. Assertions (at least one required): --deny NAME (a crate reachable from any workspace member), --forbid 'A=>B' (package A reaches package B; A absent is broken), --duplicates (a crate at more than one version), --acyclic (any dependency cycle — Tarjan SCC; --members scopes it to the workspace-member subgraph, the actionable form), --layers L0,L1,... (ordered highest first, crate-name patterns; a lower layer must not reach a higher one, indirectly; --layers-closed flags members matching no layer). --edges normal,build,dev restricts traversed edge kinds (default all three). Outcome: holds (no violations), violated (with the evidence paths), or broken (no assertion, defective --forbid spec, empty --layers pattern, or cargo metadata failure).",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "deny": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Violation if this crate is reachable from any workspace member (repeatable). Evidence: the shortest dependency path."
+      },
+      "forbid": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Violation if package A reaches package B, written 'A=>B' (repeatable, indirect). A must exist in the graph, else broken."
+      },
+      "duplicates": {
+        "type": "boolean",
+        "description": "Violation for every crate that resolves at more than one version, with the version list as evidence."
+      },
+      "acyclic": {
+        "type": "boolean",
+        "description": "Violation for every dependency cycle among crates (Tarjan strongly-connected components). Honors --edges and --members; evidence is a concrete cycle path."
+      },
+      "members": {
+        "type": "boolean",
+        "description": "With --acyclic: restrict cycle detection to the workspace-member subgraph (the actionable form; third-party crate cycles are usually unfixable dev-dependency noise)."
+      },
+      "layers": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Ordered layers, highest first (comma-joined or repeated). Each entry is a crate-name pattern matched against workspace members; a layer may depend on layers listed after it, never before. Violation per offending member of a lower layer that reaches a higher one (indirectly). A pattern matching no member is broken."
+      },
+      "layers-closed": {
+        "type": "boolean",
+        "description": "With --layers: also report a violation for every workspace member that matches no layer (exhaustive assignment)."
+      },
+      "edges": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["normal", "build", "dev"] },
+        "description": "Dependency-edge kinds traversed (comma-joined or repeated). Default: all three. 'normal' alone asks about the shipped artifact only."
+      }
+    },
+    "required": []
+  }
+}

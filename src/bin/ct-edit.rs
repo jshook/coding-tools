@@ -16,14 +16,14 @@
 //! the MCP tool-use definition emitted for `--explain json`. Both are embedded
 //! below.
 
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+use coding_tools::cli::ct_edit::Cli;
 use coding_tools::edit::Site;
 use coding_tools::editscript::{self, EditOutcome, FileBuf, Op};
 use coding_tools::explain::Format;
-use coding_tools::pulse::{self, HeartbeatOpts, PulseState, Watchdog};
+use coding_tools::pulse::{self, PulseState, Watchdog};
 use coding_tools::verdict::{Expect, Verdict};
 use coding_tools::walk::{self, EntryType};
 use coding_tools::{blockdoc, pattern, payload};
@@ -32,88 +32,6 @@ use serde_json::json;
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-edit.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-edit.json");
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "ct-edit",
-    version,
-    about = "Find/replace across selected files, gated by an --expect verdict and previewable with --dry-run.",
-    long_about = "ct-edit applies a find/replace to the files chosen by ct-search-style predicates \
-                  (also reachable as `ct edit`). It computes every replacement first, classifies \
-                  the total against --expect, and writes only when the verdict is SUCCESS and \
-                  --dry-run is not set. --find/--replace accept file:PATH / text:VALUE payloads; \
-                  a multi-line find matches as a literal block. --script runs a .ctb batch \
-                  atomically: everything is verified in memory before anything is written. \
-                  See `ct-edit --explain` for agent-oriented documentation."
-)]
-struct Cli {
-    /// Search root (relative or absolute); a file edits just that file, a directory is descended.
-    #[arg(long, default_value = ".")]
-    base: PathBuf,
-
-    /// Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored.
-    #[arg(long)]
-    name: Option<String>,
-
-    /// Include dot-entries (names starting with '.'); default skips them.
-    #[arg(long)]
-    hidden: bool,
-
-    /// Follow symlinks while traversing.
-    #[arg(long)]
-    follow: bool,
-
-    /// Pattern to find (substring->glob->regex promoted); matched per line. Accepts file:PATH / text:VALUE; a multi-line payload matches as a line-anchored literal block. Required unless --script is given.
-    #[arg(long, conflicts_with = "script")]
-    find: Option<String>,
-
-    /// Replacement text. With a regex --find, $1/${name} expand; otherwise literal. Accepts file:PATH / text:VALUE; for a block --find, an empty payload deletes the matched lines. Required unless --script is given.
-    #[arg(long, conflicts_with = "script")]
-    replace: Option<String>,
-
-    /// Pin how --find is interpreted (promotion off): literal, glob, or regex.
-    #[arg(long, value_enum, conflicts_with = "script")]
-    mode: Option<pattern::Mode>,
-
-    /// Run a .ctb edit script: a batch of find/replace blocks verified in full before any write (see --explain).
-    #[arg(long, value_name = "PATH")]
-    script: Option<PathBuf>,
-
-    /// Fence string opening script directive lines (for payloads that contain the default at line start).
-    #[arg(long, default_value = blockdoc::DEFAULT_FENCE, requires = "script")]
-    fence: String,
-
-    /// Script edits match pristine content instead of cascading; overlapping edits become a usage error.
-    #[arg(long, requires = "script")]
-    no_cascade: bool,
-
-    /// Verdict expectation over the total replacement count: any|none|N|=N|+N|-N (default: any). In scripts, per-edit expect= defaults to =1.
-    #[arg(long, conflicts_with = "script")]
-    expect: Option<String>,
-
-    /// Show what would change and the verdict, but write nothing.
-    #[arg(long)]
-    dry_run: bool,
-
-    /// Suppress the per-site diff; print only the summary line.
-    #[arg(long)]
-    quiet: bool,
-
-    /// Emit a structured JSON result instead of text.
-    #[arg(long)]
-    json: bool,
-
-    /// Abort with exit 2 if the scan exceeds SECS seconds (fractional allowed). Never interrupts the write phase: once a SUCCESS verdict starts writing, every write completes.
-    #[arg(long, value_name = "SECS")]
-    timeout: Option<f64>,
-
-    #[command(flatten)]
-    heartbeat: HeartbeatOpts,
-
-    /// Print agent usage docs (md or json) and exit.
-    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
-    explain: Option<Format>,
-}
 
 /// Build the file selector shared by both forms.
 fn selector(cli: &Cli) -> Result<walk::Selector, String> {

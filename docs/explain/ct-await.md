@@ -67,7 +67,7 @@ of probe runs. `--heartbeat SECS` pulses while waiting (tokens: `{ELAPSED}`
 ## What a probe may be
 
 The same fixed, immutable read-only set `ct-each` dispatches by default: the
-allowlist (`cat ct-check ct-deps ct-outline ct-search ct-tree ct-view echo
+allowlist (`cat ct-check ct-outline ct-search ct-tree ct-view echo
 false file grep head ls pwd stat tail true wc`) plus `ct-test` and `ct-each`
 (without `--mutating`). `ct-check` being included means *"wait until the
 project's invariants hold"* is one command. `ct-await` itself stays off every

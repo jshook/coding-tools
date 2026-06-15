@@ -16,8 +16,10 @@ reviewed in git like any other artifact, and re-verified forever after by
 This document is the canonical reference for `ct-rules`. It is also what the
 tool prints for `ct-rules --explain` (`--explain md`); `ct-rules --explain
 json` prints the equivalent MCP / tool-use definition. The store schema,
-probe gate, and bridge are specified in `docs/specs/rules.md`; the verifying
-side is documented in `ct-check --explain`.
+probe gate, and bridge are specified in `docs/specs/rules.md`; a worked,
+copy-pasteable rule for each invariant category is in
+`docs/specs/rules-examples.md`; the verifying side is documented in `ct-check
+--explain`.
 
 ## The store
 
@@ -76,6 +78,22 @@ ct rules --list
 ct rules --flatten                    # strip retained prompts (see below)
 ```
 
+## Prototyping before recording
+
+A bare probe with **no verb** runs it and reports — *without saving* — so you can
+iterate on a check before committing it:
+
+```sh
+ct rules -- deps --acyclic --members         # runs the built-in deps check now
+# prototype: HOLDS (deps: all assertions hold); not saved — add --add ID … to record it
+ct rules -- mods --layers 'infra*,domain*'   # try a module-layering check
+```
+
+Exit status follows the outcome (`0` holds / `1` violated / `2` broken), so a
+prototype composes in `&&`/`||`. When it's right, the same probe with `--add ID
+--question …` records it. (`deps`/`mods` are the built-in checks — see
+`ct-check --explain`; any gated probe can be prototyped this way.)
+
 ## Retaining the request behind a rule
 
 When a human asks an agent to record a rule, the *prose of that request* is
@@ -107,7 +125,9 @@ Probes observe; they never change anything. The gate is **compiled in and
 immutable** — a store entry selects from it and can never extend it:
 
 - the suite's read-only tools (`ct-search`, `ct-outline`, `ct-tree`,
-  `ct-view`, `ct-deps`, plus `ct-test`, plus `ct-each` *without* `--mutating`);
+  `ct-view`, plus `ct-test`, plus `ct-each` *without* `--mutating`);
+- the **built-in checks** `deps` (crate graph over `cargo metadata`) and `mods`
+  (module graph from `use` edges), run in-process from the rule layer;
 - the **bridge**: `cargo metadata`, `cargo tree` (hermetic flags enforced),
   `cargo deny check` (offline unless the rule opts in with `--network` —
   the project's own `deny.toml` remains the policy file), and

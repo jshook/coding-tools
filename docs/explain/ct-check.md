@@ -23,13 +23,50 @@ authoring side is documented in `ct-rules --explain`.
   for known violations, and the `why` behind it.
 - A probe reports **violations**; a rule *holds* when its probe reports none.
   Probes run the suite's read-only tools (`ct-search`, `ct-outline`,
-  `ct-tree`, `ct-view`, `ct-deps`, `ct-each` without `--mutating`, `ct-test`) or a
-  compiled-in **bridge** invocation of established Rust tooling
-  (`cargo metadata`, `cargo tree`, `cargo deny check`, `rust-analyzer
-  search|symbols` — hermetic flags enforced). The gate is immutable: a store
-  entry selects from it and can never extend it.
+  `ct-tree`, `ct-view`, `ct-each` without `--mutating`, `ct-test`), a **built-in
+  check** (`deps`/`mods`, run in-process — see below), or a compiled-in
+  **bridge** invocation of established Rust tooling (`cargo metadata`, `cargo
+  tree`, `cargo deny check`, `rust-analyzer search|symbols` — hermetic flags
+  enforced). The gate is immutable: a store entry selects from it and can never
+  extend it.
 - **Runs are pure.** `ct-check` writes nothing — not the store, not state.
   All writing lives in `ct-rules`.
+
+## Built-in checks: `deps` and `mods`
+
+Two probe heads are not external tools but **checks the rule layer runs
+in-process** — the crate-graph and module-graph invariants. Prototype one with
+`ct rules -- deps …` / `-- mods …` (runs it, prints the verdict, saves nothing),
+then `--add` to record it.
+
+**`deps`** — crate-graph invariants over hermetic `cargo metadata`
+(`--locked --offline`); each violation carries an evidence path.
+
+| Flag | A violation when… |
+| ---- | ----------------- |
+| `--deny NAME` | a crate `NAME` is reachable from any workspace member (repeatable) |
+| `--forbid 'A=>B'` | package `A` reaches package `B` (repeatable; `A` absent ⇒ broken) |
+| `--duplicates` | any crate resolves at more than one version |
+| `--acyclic` | any dependency cycle (Tarjan SCC); `--members` scopes it to the workspace subgraph |
+| `--layers L0,L1,…` | a lower layer reaches a higher one (listed highest first, patterns; `--layers-closed` flags unassigned members) |
+| `--edges normal,build,dev` | restrict which edge kinds are traversed (default: all three) |
+
+**`mods`** — module-graph invariants from a heuristic `use`-edge graph
+(`ct-outline` honesty class) over the crate source.
+
+| Flag | Meaning |
+| ---- | ------- |
+| `--base DIR` / `--name` / `--ext` | which source to walk (default `--base src`, `*.rs`) |
+| `--forbid 'A=>B'` | module `A` reaches module `B`, directly or transitively |
+| `--acyclic` | any module-dependency cycle |
+| `--layers L0,L1,…` | layered module order (highest first; `--layers-closed`) |
+
+```sh
+ct rules --add no-crate-cycles --question "Is the crate graph acyclic?" \
+  -- deps --acyclic --members
+ct rules --add domain-off-infra --question "Is domain free of infra imports?" \
+  -- mods --layers 'infra*,domain*'
+```
 
 ## Store discovery
 

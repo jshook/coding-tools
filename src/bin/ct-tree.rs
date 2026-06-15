@@ -12,12 +12,12 @@
 //! below.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+use coding_tools::cli::ct_tree::{Cli, GroupBy, SortKey};
 use coding_tools::explain::Format;
-use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
+use coding_tools::pulse::{self, PulseState};
 use coding_tools::tree::{metrics, parent_dir, within};
 use coding_tools::walk::{self, EntryType};
 use serde_json::json;
@@ -25,125 +25,6 @@ use serde_json::json;
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-tree.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-tree.json");
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "ct-tree",
-    version,
-    about = "Report a file tree with per-file line/word/char counts, filtered, sorted, and summarised.",
-    long_about = "ct-tree walks a directory for chosen file types and reports the effective tree with \
-                  per-file line, word, and character counts (also reachable as `ct tree`). Filter by \
-                  metric predicates (--min-lines etc.) and per-folder counts, sort by any column, and \
-                  choose a summarisation level (--tree, --flat, --summary). See `ct-tree --explain` \
-                  for agent-oriented documentation."
-)]
-#[command(group = clap::ArgGroup::new("output_mode")
-    .args(["tree", "flat", "summary"])
-    .multiple(false))]
-struct Cli {
-    /// Root to walk (relative or absolute), independent of the current directory.
-    #[arg(long, default_value = ".")]
-    base: PathBuf,
-
-    /// File-name pattern; '|'-separated alternatives, each substring->glob->regex promoted and anchored.
-    #[arg(long)]
-    name: Option<String>,
-
-    /// Pin how --name/--ext patterns are interpreted (promotion off): literal, glob, or regex.
-    #[arg(long, value_enum)]
-    mode: Option<coding_tools::pattern::Mode>,
-
-    /// Restrict to these extensions (comma-separated, no dots), e.g. --ext rs,toml. Combined with --name as alternatives.
-    #[arg(long, value_delimiter = ',')]
-    ext: Vec<String>,
-
-    /// Include dot-entries (names starting with '.'); default skips them.
-    #[arg(long)]
-    hidden: bool,
-
-    /// Follow symlinks while traversing.
-    #[arg(long)]
-    follow: bool,
-
-    /// Only include files with at least N lines.
-    #[arg(long)]
-    min_lines: Option<u64>,
-    /// Only include files with at most N lines.
-    #[arg(long)]
-    max_lines: Option<u64>,
-    /// Only include files with at least N words.
-    #[arg(long)]
-    min_words: Option<u64>,
-    /// Only include files with at most N words.
-    #[arg(long)]
-    max_words: Option<u64>,
-    /// Only include files with at least N characters.
-    #[arg(long)]
-    min_chars: Option<u64>,
-    /// Only include files with at most N characters.
-    #[arg(long)]
-    max_chars: Option<u64>,
-
-    /// Only include folders that directly contain at least N matching files.
-    #[arg(long)]
-    min_files_per_folder: Option<usize>,
-    /// Only include folders that directly contain at most N matching files.
-    #[arg(long)]
-    max_files_per_folder: Option<usize>,
-
-    /// Sort key: path, name, lines, words, chars, or ext.
-    #[arg(long, value_enum, default_value_t = SortKey::Path)]
-    sort: SortKey,
-    /// Sort descending instead of ascending.
-    #[arg(long)]
-    desc: bool,
-
-    /// Output mode: an indented file tree with per-file and per-folder counts (default).
-    #[arg(long)]
-    tree: bool,
-    /// Output mode: one matching file per line with its counts.
-    #[arg(long)]
-    flat: bool,
-    /// Output mode: aggregate counts only, grouped by --group.
-    #[arg(long)]
-    summary: bool,
-
-    /// Grouping for --summary: ext, dir, or none (grand total only).
-    #[arg(long, value_enum, default_value_t = GroupBy::Ext)]
-    group: GroupBy,
-
-    /// Emit a structured JSON result instead of text.
-    #[arg(long)]
-    json: bool,
-
-    /// Abort with exit 2 if the report exceeds SECS seconds (fractional allowed).
-    #[arg(long, value_name = "SECS")]
-    timeout: Option<f64>,
-
-    #[command(flatten)]
-    heartbeat: HeartbeatOpts,
-
-    /// Print agent usage docs (md or json) and exit.
-    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
-    explain: Option<Format>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-enum SortKey {
-    Path,
-    Name,
-    Lines,
-    Words,
-    Chars,
-    Ext,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-enum GroupBy {
-    Ext,
-    Dir,
-    None,
-}
 
 /// One reported file with its counts and display path.
 #[derive(Debug, Clone)]

@@ -251,7 +251,7 @@ find block, its path and line, the index of the first diverging line, and
 the diverging source/pattern line pair. The author sees *why* the anchor
 missed (whitespace drift, a comment edit, an already-applied change)
 without bisecting by hand. This is the block analogue of the suite's
-evidence-on-negatives posture (`ct-deps` evidence paths).
+evidence-on-negatives posture (`deps` evidence paths).
 
 Text mode prefixes per-site diff lines with the edit ordinal
 (`[3/12] path:line:- …`), then a per-edit verdict table and the batch

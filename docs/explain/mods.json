@@ -1,0 +1,49 @@
+{
+  "name": "mods",
+  "description": "Built-in module-graph check — a reserved probe head the rule layer runs in-process (not a standalone command), the single-crate analogue of `deps`. Builds a heuristic module dependency graph from `use` statements over the crate source (the ct-outline honesty class: one module per source file; an edge A -> B when a file in module A has a `use crate::B…`/`self::…`/`super::…` resolving into module B; brace groups, aliases, globs, and `self` segments handled; it under-reports rather than inventing edges, and does not resolve pub-use re-export chains, macro/cfg-disabled code, or inline `mod {}` nesting). Use as a rule probe (`ct rules --add ID --question … -- mods …`, verified by `ct check`) or prototype with `ct rules -- mods …`. Classifies its own outcome, so it takes no --expect adapter. Targeting: --base DIR (crate source root, default src; module paths are crate-relative, e.g. src/domain/entity.rs is domain::entity), --name, --ext (default rs), --hidden, --follow. Assertions (at least one required): --forbid 'A=>B' (module A reaches module B, directly or transitively), --acyclic (any module-dependency cycle), --layers L0,L1,... (ordered highest first, module-name patterns — use domain* for a subtree; --layers-closed flags modules matching no layer). Outcome: holds, violated (with evidence paths), or broken (no assertion, defective spec, empty --layers pattern, or no source files).",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "base": {
+        "type": "string",
+        "description": "The crate source root to walk; `crate::` resolves against it. Default: src."
+      },
+      "name": {
+        "type": "string",
+        "description": "Limit to files whose name matches; '|'-separated alternatives, promoted and anchored."
+      },
+      "ext": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Extensions to include (no dots), e.g. ['rs']. May be comma-joined or repeated. Default: rs."
+      },
+      "hidden": {
+        "type": "boolean",
+        "description": "Include dot-entries; default skips them."
+      },
+      "follow": {
+        "type": "boolean",
+        "description": "Follow symlinks while traversing."
+      },
+      "forbid": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Violation if module A reaches module B, written 'A=>B' (repeatable, indirect). Module names match exactly."
+      },
+      "acyclic": {
+        "type": "boolean",
+        "description": "Violation for every module-dependency cycle (Tarjan strongly-connected components). Evidence is a concrete cycle path."
+      },
+      "layers": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Ordered layers, highest first (comma-joined or repeated). Each entry is a module-name pattern (use domain* for a subtree); a layer may depend on layers listed after it, never before. A pattern matching no module is broken."
+      },
+      "layers-closed": {
+        "type": "boolean",
+        "description": "With --layers: also report a violation for every module that matches no layer (exhaustive assignment)."
+      }
+    },
+    "required": []
+  }
+}

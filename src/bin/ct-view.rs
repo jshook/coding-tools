@@ -10,12 +10,12 @@
 //! for `--explain md`; `docs/explain/ct-view.json` is the MCP tool-use
 //! definition emitted for `--explain json`. Both are embedded below.
 
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+use coding_tools::cli::ct_view::Cli;
 use coding_tools::explain::Format;
-use coding_tools::pulse::{self, HeartbeatOpts, PulseState};
+use coding_tools::pulse::{self, PulseState};
 use coding_tools::view::{expand_and_merge, parse_range, segments};
 use coding_tools::{block, pattern, payload};
 use serde_json::json;
@@ -23,60 +23,6 @@ use serde_json::json;
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-view.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-view.json");
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "ct-view",
-    version,
-    about = "Show a file's lines by range, or the regions around a pattern with context.",
-    long_about = "ct-view is a focused, bounded reader for a single file (also reachable as \
-                  `ct view`): print a line range with --range, or the windows around a \
-                  --match pattern with --context lines, rather than dumping the whole file. \
-                  See `ct-view --explain` for agent-oriented documentation."
-)]
-struct Cli {
-    /// File to view.
-    path: PathBuf,
-
-    /// Line range A:B (1-based, inclusive); also A: (to end), :B (from start), or A (one line).
-    #[arg(long)]
-    range: Option<String>,
-
-    /// Show only lines matching this pattern (substring->glob->regex promoted), with --context around each. Accepts file:PATH / text:VALUE; a multi-line pattern matches as a line-anchored literal block.
-    #[arg(long = "match")]
-    pattern: Option<String>,
-
-    /// Pin how the pattern is interpreted (promotion off): literal, glob, or regex.
-    #[arg(long, value_enum)]
-    mode: Option<pattern::Mode>,
-
-    /// Lines of context shown around each --match hit.
-    #[arg(long, short = 'C', default_value_t = 2)]
-    context: usize,
-
-    /// Cap the number of lines emitted.
-    #[arg(long)]
-    limit: Option<usize>,
-
-    /// Abort with exit 2 if the view exceeds SECS seconds (fractional allowed).
-    #[arg(long, value_name = "SECS")]
-    timeout: Option<f64>,
-
-    #[command(flatten)]
-    heartbeat: HeartbeatOpts,
-
-    /// Suppress the line-number gutter in text output.
-    #[arg(long)]
-    plain: bool,
-
-    /// Emit a structured JSON result instead of text.
-    #[arg(long)]
-    json: bool,
-
-    /// Print agent usage docs (md or json) and exit.
-    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
-    explain: Option<Format>,
-}
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
     let _watchdog = pulse::watchdog("ct-view", cli.timeout)?;

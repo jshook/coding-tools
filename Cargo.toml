@@ -66,10 +66,6 @@ name = "ct-check"
 path = "src/bin/ct-check.rs"
 
 [[bin]]
-name = "ct-deps"
-path = "src/bin/ct-deps.rs"
-
-[[bin]]
 name = "ct-await"
 path = "src/bin/ct-await.rs"
 

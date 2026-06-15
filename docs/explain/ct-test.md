@@ -53,7 +53,7 @@ Because `ct-test` runs an arbitrary program, it runs **only** commands on a fixe
 compiled-in list of read-only commands:
 
 ```
-cat ct-check ct-deps ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc
+cat ct-check ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc
 ```
 
 The suite's read-only `ct-search`/`ct-outline`/`ct-tree`/`ct-view`/`ct-check` are

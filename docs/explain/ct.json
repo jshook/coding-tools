@@ -1,12 +1,12 @@
 {
   "name": "ct",
-  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, `ct deps` runs ct-deps, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
+  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
   "input_schema": {
     "type": "object",
     "properties": {
       "command": {
         "type": "string",
-        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), edit (ct-edit), patch (ct-patch), test (ct-test), each (ct-each), outline (ct-outline), rules (ct-rules), check (ct-check), deps (ct-deps), await (ct-await). Any other ct-* tool on PATH also works.",
+        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), edit (ct-edit), patch (ct-patch), test (ct-test), each (ct-each), outline (ct-outline), rules (ct-rules), check (ct-check), await (ct-await). Any other ct-* tool on PATH also works.",
         "enum": [
           "search",
           "view",
@@ -18,7 +18,6 @@
           "outline",
           "rules",
           "check",
-          "deps",
           "await"
         ]
       },
@@ -122,6 +121,10 @@
           "quiet": {
             "type": "boolean",
             "description": "Output mode: print no per-match output and no --question banner; report via exit status (and --emit, which still fires). Mutually exclusive with the other output modes."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result {tool, verdict, base, count, lines, matches:[paths]} instead of text; overrides the output mode and --emit."
           },
           "timeout": {
             "type": "number",
@@ -563,6 +566,15 @@
               "stdout"
             ],
             "description": "Stream heartbeat pulses are written to. Default: stderr."
+          },
+          "mode": {
+            "description": "Pin how --name is interpreted (promotion off): literal, glob, or regex.",
+            "enum": [
+              "literal",
+              "glob",
+              "regex"
+            ],
+            "type": "string"
           }
         },
         "required": []
@@ -570,7 +582,7 @@
     },
     {
       "name": "ct-test",
-      "description": "Run a command as a framed experiment: pose a question, classify the result from stdout/stderr pattern matches, and emit a templated verdict. Pass/fail is decided by what the command prints, not only its exit code. ct-test is fail-closed; {RESULT} resolves in order: (0) the run timed out (--timeout) => ERROR (decisive — the experiment did not complete, so no match in partial output can establish success; {CODE} becomes 'timeout'); (1) any err-match hit => ERROR (decisive, never overridden); (2) else any ok-match hit => SUCCESS (a supplied --ok-match is a REQUIRED proof of success — a clean exit does not substitute for it); (3) else the run is inconclusive and --otherwise decides (success|error|exit), defaulting to error when an --ok-match was supplied, otherwise exit. The -stdout/-stderr matcher variants search only that one stream (e.g. cargo test writes 'test result: ok' to stdout, so --ok-match-stderr would miss it). On ERROR a one-line reason explaining which rule fired is printed to stderr and is available as the {REASON} emit token. --focus distils the captured output to the lines matching a pattern (with --context around each), printed to stderr and available as {FOCUS}; --capture-tail N bounds the {STDOUT}/{STDERR} emit tokens to the last N lines (matchers and --focus still see everything). --timeout SECS kills the command's whole process group after SECS seconds (fractional allowed). --heartbeat SECS prints a minimal liveness pulse while the command runs ([{ELAPSED}s] by default, customisable with --heartbeat-emit, routed to stderr or stdout by --heartbeat-to). Exit status is 0 when RESULT is SUCCESS, 1 when ERROR, 2 on a usage or runtime error. ct-test runs only a fixed, immutable built-in set of read-only commands (cat ct-check ct-deps ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc), so it is a ready conditional wrapper around the read-only ct-* tools; a command not on it is refused with exit 2 and nothing runs, and there is no run-time way to extend the list. Gating is by program name (the basename of cmd). There is no shell mode: the command is always launched directly, never through sh, so the match predicates and --focus replace the usual '| grep' post-processing (use ct-each for dispatch over many items). Pattern arguments use substring->glob->regex promotion and are searched unanchored. Invoke as `ct test ...` or `ct-test ...`. --stdin accepts payload schemes (file:PATH / text:VALUE); --mode literal|glob|regex pins matcher interpretation (promotion off).",
+      "description": "Run a command as a framed experiment: pose a question, classify the result from stdout/stderr pattern matches, and emit a templated verdict. Pass/fail is decided by what the command prints, not only its exit code. ct-test is fail-closed; {RESULT} resolves in order: (0) the run timed out (--timeout) => ERROR (decisive — the experiment did not complete, so no match in partial output can establish success; {CODE} becomes 'timeout'); (1) any err-match hit => ERROR (decisive, never overridden); (2) else any ok-match hit => SUCCESS (a supplied --ok-match is a REQUIRED proof of success — a clean exit does not substitute for it); (3) else the run is inconclusive and --otherwise decides (success|error|exit), defaulting to error when an --ok-match was supplied, otherwise exit. The -stdout/-stderr matcher variants search only that one stream (e.g. cargo test writes 'test result: ok' to stdout, so --ok-match-stderr would miss it). On ERROR a one-line reason explaining which rule fired is printed to stderr and is available as the {REASON} emit token. --focus distils the captured output to the lines matching a pattern (with --context around each), printed to stderr and available as {FOCUS}; --capture-tail N bounds the {STDOUT}/{STDERR} emit tokens to the last N lines (matchers and --focus still see everything). --timeout SECS kills the command's whole process group after SECS seconds (fractional allowed). --heartbeat SECS prints a minimal liveness pulse while the command runs ([{ELAPSED}s] by default, customisable with --heartbeat-emit, routed to stderr or stdout by --heartbeat-to). Exit status is 0 when RESULT is SUCCESS, 1 when ERROR, 2 on a usage or runtime error. ct-test runs only a fixed, immutable built-in set of read-only commands (cat ct-check ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc), so it is a ready conditional wrapper around the read-only ct-* tools; a command not on it is refused with exit 2 and nothing runs, and there is no run-time way to extend the list. Gating is by program name (the basename of cmd). There is no shell mode: the command is always launched directly, never through sh, so the match predicates and --focus replace the usual '| grep' post-processing (use ct-each for dispatch over many items). Pattern arguments use substring->glob->regex promotion and are searched unanchored. Invoke as `ct test ...` or `ct-test ...`. --stdin accepts payload schemes (file:PATH / text:VALUE); --mode literal|glob|regex pins matcher interpretation (promotion off).",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -692,7 +704,7 @@
     },
     {
       "name": "ct-each",
-      "description": "Run one command template once per item and judge the sweep with an aggregate verdict — the declarative replacement for a bash for-loop. Items come from --items, the shared walker (--base/--name/--ext/--hidden/--follow: matched file paths become items, in walk order — the natural source for per-file sweeps), and/or --stdin (one per line), in that order; everything after `--` is the command template, and {ITEM} (the current item) and {INDEX} (its 1-based position) expand inside every argv element. Each expansion is launched directly — there is no shell anywhere, so item values can never re-shape the command. Each run is classified by the suite's exit contract (exit 0 => that item SUCCESS, anything else => ERROR), and the count of per-item successes is judged against --expect: all (every item, the default) | any | none | N (at least) | =N (exactly) | +N (more than) | -N (fewer than). Dispatch targets are gated by program name against a fixed, immutable set: the read-only allowlist (cat ct-check ct-deps ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc) plus ct-test by default; with --mutating also ct-edit and ct-patch (each still enforces its own --expect/--dry-run gates). Nothing else is ever runnable and there is no run-time way to extend the set; every item's expanded command is gated before the first one runs, so a refusal (exit 2, nothing run) cannot strike mid-sweep. --dry-run prints each expanded command and runs nothing. --timeout SECS bounds each item's run (process-group kill; that item is ERROR with {CODE}=timeout). --heartbeat SECS prints a minimal liveness pulse ([{ELAPSED}s] by default, customisable with --heartbeat-emit, routed by --heartbeat-to). On a per-item ERROR a one-line reason goes to stderr; --show-output passes children's streams through verbatim. Exit status: 0 when the aggregate verdict is SUCCESS, 1 when ERROR, 2 on usage/runtime error or a refused target. Invoke as `ct each ...` or `ct-each ...`. --items accepts payload schemes: file:PATH expands to the file's non-empty lines, text:VALUE is one literal item.",
+      "description": "Run one command template once per item and judge the sweep with an aggregate verdict — the declarative replacement for a bash for-loop. Items come from --items, the shared walker (--base/--name/--ext/--hidden/--follow: matched file paths become items, in walk order — the natural source for per-file sweeps), and/or --stdin (one per line), in that order; everything after `--` is the command template, and {ITEM} (the current item) and {INDEX} (its 1-based position) expand inside every argv element. Each expansion is launched directly — there is no shell anywhere, so item values can never re-shape the command. Each run is classified by the suite's exit contract (exit 0 => that item SUCCESS, anything else => ERROR), and the count of per-item successes is judged against --expect: all (every item, the default) | any | none | N (at least) | =N (exactly) | +N (more than) | -N (fewer than). Dispatch targets are gated by program name against a fixed, immutable set: the read-only allowlist (cat ct-check ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc) plus ct-test by default; with --mutating also ct-edit and ct-patch (each still enforces its own --expect/--dry-run gates). Nothing else is ever runnable and there is no run-time way to extend the set; every item's expanded command is gated before the first one runs, so a refusal (exit 2, nothing run) cannot strike mid-sweep. --dry-run prints each expanded command and runs nothing. --timeout SECS bounds each item's run (process-group kill; that item is ERROR with {CODE}=timeout). --heartbeat SECS prints a minimal liveness pulse ([{ELAPSED}s] by default, customisable with --heartbeat-emit, routed by --heartbeat-to). On a per-item ERROR a one-line reason goes to stderr; --show-output passes children's streams through verbatim. Exit status: 0 when the aggregate verdict is SUCCESS, 1 when ERROR, 2 on usage/runtime error or a refused target. Invoke as `ct each ...` or `ct-each ...`. --items accepts payload schemes: file:PATH expands to the file's non-empty lines, text:VALUE is one literal item.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -924,7 +936,7 @@
     },
     {
       "name": "ct-rules",
-      "description": "Say what the rules are: the specification and storage interface of the project's invariant surface (.ct/rules.jsonc; the verifying side is ct-check). Verbs (exactly one per invocation): --init scaffolds a commented store under .ct/ (the suite's home for project-local state; discovered by walking upward to the nearest .ct, --file overrides); --add ID records a rule — the probe after `--` is gate-validated and RUN immediately, and must hold (a violated candidate is refused exit 1 with the probe's own violation output; a broken probe is refused exit 2) unless --pending parks it as an aspiration that ct-check reports separately and never enforces; --promote ID re-runs a pending rule's probe and clears the pending flag once it holds; --remove ID deletes by exact id (duplicate ids are always refused — ids are history); --def NAME=VALUE sets named vocabulary (VALUE parsed as JSON, e.g. a list, else taken as a string) that rules reference as {def:NAME} inside probe argvs; --list prints defs and rules; --prompt TEXT (with --add) retains the verbatim human request behind the rule as provenance — the confirmation tells the user it was retained — and --flatten strips every retained prompt in one pass, leaving only the mechanical definitions; the store itself is human-friendly JSONC (a standing header comment re-established on every write, one field per line per rule, blank lines between rules); --hook cargo writes tests/ct_invariants.rs, a plain reviewed-in-git shim that makes `cargo test` run `ct check --quiet` and fail loudly (including when the ct binary is missing; a shim ct-rules did not generate is never overwritten). Probes observe and never change anything: the gate is compiled-in and immutable — the suite's read-only tools (ct-search ct-outline ct-tree ct-view ct-deps, ct-test, ct-each without --mutating) plus the bridge (cargo metadata / cargo tree hermetic, cargo deny check offline unless --network, rust-analyzer search|symbols search-only); never the mutating tools, ct-check (no self-recursion), ct-rules itself, shells, or unlisted externals. --add options: --question (required), --why (printed whenever the rule fails), --tag, --severity warn (violations report but never redden the exit), --expect empty | --expect-ok PATTERN | --expect-err PATTERN (outcome adapters for bridge tools; ct-test matcher semantics), --network, --timeout SECS, --pending. All store mutations are comment-preserving (the suite's own patch machinery). ct-rules writes only the store and the hook shim, and is on no allow-gate. Exit: 0 success; 1 refused on the merits (candidate/promotion does not hold); 2 usage or store error. Invoke as `ct rules ...` or `ct-rules ...`.",
+      "description": "Say what the rules are: the specification and storage interface of the project's invariant surface (.ct/rules.jsonc; the verifying side is ct-check). Verbs (exactly one per invocation): --init scaffolds a commented store under .ct/ (the suite's home for project-local state; discovered by walking upward to the nearest .ct, --file overrides); --add ID records a rule — the probe after `--` is gate-validated and RUN immediately, and must hold (a violated candidate is refused exit 1 with the probe's own violation output; a broken probe is refused exit 2) unless --pending parks it as an aspiration that ct-check reports separately and never enforces; --promote ID re-runs a pending rule's probe and clears the pending flag once it holds; --remove ID deletes by exact id (duplicate ids are always refused — ids are history); --def NAME=VALUE sets named vocabulary (VALUE parsed as JSON, e.g. a list, else taken as a string) that rules reference as {def:NAME} inside probe argvs; --list prints defs and rules; --prompt TEXT (with --add) retains the verbatim human request behind the rule as provenance — the confirmation tells the user it was retained — and --flatten strips every retained prompt in one pass, leaving only the mechanical definitions; the store itself is human-friendly JSONC (a standing header comment re-established on every write, one field per line per rule, blank lines between rules); --hook cargo writes tests/ct_invariants.rs, a plain reviewed-in-git shim that makes `cargo test` run `ct check --quiet` and fail loudly (including when the ct binary is missing; a shim ct-rules did not generate is never overwritten). A bare probe with no verb runs it and reports without saving — prototyping; the same probe with --add ID --question … then records it. Probes observe and never change anything: the gate is compiled-in and immutable — the suite's read-only tools (ct-search ct-outline ct-tree ct-view, ct-test, ct-each without --mutating), the built-in checks deps|mods (crate/module graph invariants, run in-process), plus the bridge (cargo metadata / cargo tree hermetic, cargo deny check offline unless --network, rust-analyzer search|symbols search-only); never the mutating tools, ct-check (no self-recursion), ct-rules itself, shells, or unlisted externals. --add options: --question (required), --why (printed whenever the rule fails), --tag, --severity warn (violations report but never redden the exit), --expect empty | --expect-ok PATTERN | --expect-err PATTERN (outcome adapters for bridge tools; ct-test matcher semantics), --network, --timeout SECS, --pending. All store mutations are comment-preserving (the suite's own patch machinery). ct-rules writes only the store and the hook shim, and is on no allow-gate. Exit: 0 success; 1 refused on the merits (candidate/promotion does not hold); 2 usage or store error. Invoke as `ct rules ...` or `ct-rules ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1039,7 +1051,7 @@
     },
     {
       "name": "ct-check",
-      "description": "Verify the project's recorded invariants: load the rule store (.ct/rules.jsonc, discovered by walking upward to the nearest .ct directory, git-style), run every selected rule's probe in store order, and report each rule in one of five lanes — SUCCESS (zero violations), ERROR (violations, severity fail => exit 1), WARN (violations, severity warn => reported, never reddens the exit), PENDING (an aspiration recorded with --pending: current state reported, never enforced), BROKEN (the probe itself is defective: exited 2, died, timed out, or its binary is missing; any broken rule => the whole run exits 2 — a defective store is a maintenance signal). Probes are argv vectors (never a shell), gated to a compiled-in, immutable set: the suite's read-only tools (ct-search ct-outline ct-tree ct-view ct-deps, ct-test, ct-each without --mutating) plus the bridge of known read-only Rust-tool invocations (cargo metadata / cargo tree with hermetic flags enforced, cargo deny check offline unless the rule carries network:true, rust-analyzer search|symbols search-only). The store is validated before anything runs (malformed entries, duplicate ids, unknown {def:NAME} references, non-gated probes => exit 2 naming the rule). Bridge probes are read through the rule's expect adapter: exit (default), empty (holds iff exit 0 and no stdout), or ct-test-style ok-match/err-match patterns. ct-check is purely read-only (writes nothing, ever; ct-rules is the writing surface) and is itself on the suite's read-only allowlist, so ct-test/ct-each can wrap it — but a rule's probe may not run ct-check (no self-recursion). A red lane is never unexplained: the reason, the rule's why, and the head of the probe's violation output go to stderr. Exit: 0 all enforced rules hold, 1 any enforced violation, 2 usage/store error or any BROKEN rule. Invoke as `ct check ...` or `ct-check ...`.",
+      "description": "Verify the project's recorded invariants: load the rule store (.ct/rules.jsonc, discovered by walking upward to the nearest .ct directory, git-style), run every selected rule's probe in store order, and report each rule in one of five lanes — SUCCESS (zero violations), ERROR (violations, severity fail => exit 1), WARN (violations, severity warn => reported, never reddens the exit), PENDING (an aspiration recorded with --pending: current state reported, never enforced), BROKEN (the probe itself is defective: exited 2, died, timed out, or its binary is missing; any broken rule => the whole run exits 2 — a defective store is a maintenance signal). Probes are argv vectors (never a shell), gated to a compiled-in, immutable set: the suite's read-only tools (ct-search ct-outline ct-tree ct-view, ct-test, ct-each without --mutating), the built-in checks deps|mods (crate/module graph invariants, run in-process), plus the bridge of known read-only Rust-tool invocations (cargo metadata / cargo tree with hermetic flags enforced, cargo deny check offline unless the rule carries network:true, rust-analyzer search|symbols search-only). The store is validated before anything runs (malformed entries, duplicate ids, unknown {def:NAME} references, non-gated probes => exit 2 naming the rule). Bridge probes are read through the rule's expect adapter: exit (default), empty (holds iff exit 0 and no stdout), or ct-test-style ok-match/err-match patterns. ct-check is purely read-only (writes nothing, ever; ct-rules is the writing surface) and is itself on the suite's read-only allowlist, so ct-test/ct-each can wrap it — but a rule's probe may not run ct-check (no self-recursion). A red lane is never unexplained: the reason, the rule's why, and the head of the probe's violation output go to stderr. Exit: 0 all enforced rules hold, 1 any enforced violation, 2 usage/store error or any BROKEN rule. Invoke as `ct check ...` or `ct-check ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1111,88 +1123,8 @@
       }
     },
     {
-      "name": "ct-deps",
-      "description": "Assert crate-graph invariants over the resolved dependency graph, with every violation carrying its evidence. The graph comes from one `cargo metadata --format-version 1 --locked --offline` invocation (hermetic by construction: the lockfile is read, never written; the network is never touched; a workspace that cannot resolve offline is exit 2, never a silent pass). Assertions (at least one required): --deny NAME (violation when a crate named NAME is reachable from any workspace member; evidence = the shortest dependency path), --forbid 'A=>B' (violation when any package named A reaches a package named B — the workspace-layering form; A absent from the graph is exit 2, a defective assertion rather than a clean pass; evidence = the path), --duplicates (violation per crate resolving at more than one version; evidence = the version list). --edges normal,build,dev restricts which dependency-edge kinds are traversed (default all three; --edges normal asks about the shipped artifact only). Output: one line per violation (check: subject: evidence) plus a summary; --quiet for exit-status only; --json emits {tool, verdict, count, violations:[{check,subject,evidence}]}; --emit/--emit-stderr templates take {RESULT} {COUNT} {VIOLATIONS} {QUESTION}. --timeout SECS bounds the cargo child (process-group kill, exit 2). Read-only: on the ct-test allowlist, admissible in ct-each dispatch and ct-rules probes (the native form of crate-graph rules, no expect adapter needed). Exit: 0 every assertion holds, 1 violations found, 2 usage/runtime error. Invoke as `ct deps ...` or `ct-deps ...`.",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "deny": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Violation if this crate appears anywhere reachable from the workspace (repeatable). Evidence: the shortest dependency path."
-          },
-          "forbid": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Violation if package A reaches package B, written 'A=>B' (repeatable). A must exist in the graph (else exit 2). The workspace-layering assertion."
-          },
-          "duplicates": {
-            "type": "boolean",
-            "description": "Violation for every crate that resolves at more than one version, with the version list as evidence."
-          },
-          "edges": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "normal",
-                "build",
-                "dev"
-              ]
-            },
-            "description": "Dependency-edge kinds traversed (comma-joined or repeated). Default: all three. 'normal' alone asks about the shipped artifact only."
-          },
-          "question": {
-            "type": "string",
-            "description": "Question this check answers; printed as a '== ... ==' banner unless --quiet."
-          },
-          "emit": {
-            "type": "string",
-            "description": "Template written to stdout after the check (alias: emit-stdout). Tokens: {RESULT} {COUNT} {VIOLATIONS} {QUESTION}."
-          },
-          "emit-stderr": {
-            "type": "string",
-            "description": "Template written to stderr. Same tokens as emit."
-          },
-          "quiet": {
-            "type": "boolean",
-            "description": "Print no violation lines or summary; report via exit status (and --emit, which still fires)."
-          },
-          "json": {
-            "type": "boolean",
-            "description": "Emit a structured JSON result {tool, verdict, count, violations:[{check,subject,evidence}]} instead of text."
-          },
-          "timeout": {
-            "type": "number",
-            "description": "Kill the underlying cargo metadata invocation (process group) and abort with exit 2 after SECS seconds (fractional allowed)."
-          },
-          "heartbeat": {
-            "type": "number",
-            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
-          },
-          "heartbeat-emit": {
-            "type": "string",
-            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
-          },
-          "heartbeat-to": {
-            "type": "string",
-            "enum": [
-              "stderr",
-              "stdout"
-            ],
-            "description": "Stream heartbeat pulses are written to. Default: stderr."
-          }
-        },
-        "required": []
-      }
-    },
-    {
       "name": "ct-await",
-      "description": "Wait, observably and boundedly, for an external outcome: poll a gated read-only probe every --every seconds (default 5) until the condition is established — probe exit 0, or a required --ok-match pattern appearing in its output — or until an --err-match pattern appears (immediate ERROR, decisive over everything — a failed build reports in seconds, not after the timeout; exactly ct-test's matcher precedence, and a supplied --ok-match is the REQUIRED proof: exit 0 without it is still 'not yet'), or until the REQUIRED --timeout expires (ERROR; a wait is bounded by design, and no single probe run can outlive the bound — process-group kill). The probe is an argv after `--`, launched directly each tick (never through a shell) from the current directory; matchers see only what the probe prints (pair them with content-surfacing probes like cat or ct-view; self-classifying probes like ct-search --quiet need none); any non-zero probe exit simply means 'not yet' (a log file that does not exist yet is the normal waiting case) — only a probe that cannot launch, or a non-gated probe, is exit 2. Probes are the same fixed read-only set ct-each dispatches by default: the allowlist (cat ct-check ct-deps ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc) plus ct-test and ct-each (without --mutating); ct-check included means 'wait until the project's invariants hold' is one command. ct-await separates observation authority from execution authority: whoever owns the work (a human's mvn run, CI, a deploy) executes it; ct-await only watches its effects. ct-await itself is on no gate (it is a dispatcher, like ct-each). On ERROR the reason goes to stderr. --heartbeat pulses while waiting ({ELAPSED} {TOOL} {QUESTION} {CMD} {TICKS}); --emit/--emit-stderr templates take {RESULT} {ELAPSED} {TICKS} {REASON} {QUESTION} {CMD}. Exit: 0 the condition was established within the bound, 1 err-match matched or the timeout expired, 2 usage error / refused probe / launch failure. Invoke as `ct await ...` or `ct-await ...`.",
+      "description": "Wait, observably and boundedly, for an external outcome: poll a gated read-only probe every --every seconds (default 5) until the condition is established — probe exit 0, or a required --ok-match pattern appearing in its output — or until an --err-match pattern appears (immediate ERROR, decisive over everything — a failed build reports in seconds, not after the timeout; exactly ct-test's matcher precedence, and a supplied --ok-match is the REQUIRED proof: exit 0 without it is still 'not yet'), or until the REQUIRED --timeout expires (ERROR; a wait is bounded by design, and no single probe run can outlive the bound — process-group kill). The probe is an argv after `--`, launched directly each tick (never through a shell) from the current directory; matchers see only what the probe prints (pair them with content-surfacing probes like cat or ct-view; self-classifying probes like ct-search --quiet need none); any non-zero probe exit simply means 'not yet' (a log file that does not exist yet is the normal waiting case) — only a probe that cannot launch, or a non-gated probe, is exit 2. Probes are the same fixed read-only set ct-each dispatches by default: the allowlist (cat ct-check ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc) plus ct-test and ct-each (without --mutating); ct-check included means 'wait until the project's invariants hold' is one command. ct-await separates observation authority from execution authority: whoever owns the work (a human's mvn run, CI, a deploy) executes it; ct-await only watches its effects. ct-await itself is on no gate (it is a dispatcher, like ct-each). On ERROR the reason goes to stderr. --heartbeat pulses while waiting ({ELAPSED} {TOOL} {QUESTION} {CMD} {TICKS}); --emit/--emit-stderr templates take {RESULT} {ELAPSED} {TICKS} {REASON} {QUESTION} {CMD}. Exit: 0 the condition was established within the bound, 1 err-match matched or the timeout expired, 2 usage error / refused probe / launch failure. Invoke as `ct await ...` or `ct-await ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1266,6 +1198,120 @@
           "timeout",
           "probe"
         ]
+      }
+    }
+  ],
+  "builtin_checks": [
+    {
+      "name": "deps",
+      "description": "Built-in crate-graph check — a reserved probe head the rule layer runs in-process (not a standalone command). Asserts properties of the resolved dependency graph from one hermetic `cargo metadata --format-version 1 --locked --offline` invocation, with every violation carrying an evidence path. Use it as a rule probe (`ct rules --add ID --question … -- deps …`, verified by `ct check`) or prototype it without saving (`ct rules -- deps …`). It classifies its own outcome, so it takes no --expect adapter. Assertions (at least one required): --deny NAME (a crate reachable from any workspace member), --forbid 'A=>B' (package A reaches package B; A absent is broken), --duplicates (a crate at more than one version), --acyclic (any dependency cycle — Tarjan SCC; --members scopes it to the workspace-member subgraph, the actionable form), --layers L0,L1,... (ordered highest first, crate-name patterns; a lower layer must not reach a higher one, indirectly; --layers-closed flags members matching no layer). --edges normal,build,dev restricts traversed edge kinds (default all three). Outcome: holds (no violations), violated (with the evidence paths), or broken (no assertion, defective --forbid spec, empty --layers pattern, or cargo metadata failure).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "deny": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Violation if this crate is reachable from any workspace member (repeatable). Evidence: the shortest dependency path."
+          },
+          "forbid": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Violation if package A reaches package B, written 'A=>B' (repeatable, indirect). A must exist in the graph, else broken."
+          },
+          "duplicates": {
+            "type": "boolean",
+            "description": "Violation for every crate that resolves at more than one version, with the version list as evidence."
+          },
+          "acyclic": {
+            "type": "boolean",
+            "description": "Violation for every dependency cycle among crates (Tarjan strongly-connected components). Honors --edges and --members; evidence is a concrete cycle path."
+          },
+          "members": {
+            "type": "boolean",
+            "description": "With --acyclic: restrict cycle detection to the workspace-member subgraph (the actionable form; third-party crate cycles are usually unfixable dev-dependency noise)."
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered layers, highest first (comma-joined or repeated). Each entry is a crate-name pattern matched against workspace members; a layer may depend on layers listed after it, never before. Violation per offending member of a lower layer that reaches a higher one (indirectly). A pattern matching no member is broken."
+          },
+          "layers-closed": {
+            "type": "boolean",
+            "description": "With --layers: also report a violation for every workspace member that matches no layer (exhaustive assignment)."
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "build",
+                "dev"
+              ]
+            },
+            "description": "Dependency-edge kinds traversed (comma-joined or repeated). Default: all three. 'normal' alone asks about the shipped artifact only."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "mods",
+      "description": "Built-in module-graph check — a reserved probe head the rule layer runs in-process (not a standalone command), the single-crate analogue of `deps`. Builds a heuristic module dependency graph from `use` statements over the crate source (the ct-outline honesty class: one module per source file; an edge A -> B when a file in module A has a `use crate::B…`/`self::…`/`super::…` resolving into module B; brace groups, aliases, globs, and `self` segments handled; it under-reports rather than inventing edges, and does not resolve pub-use re-export chains, macro/cfg-disabled code, or inline `mod {}` nesting). Use as a rule probe (`ct rules --add ID --question … -- mods …`, verified by `ct check`) or prototype with `ct rules -- mods …`. Classifies its own outcome, so it takes no --expect adapter. Targeting: --base DIR (crate source root, default src; module paths are crate-relative, e.g. src/domain/entity.rs is domain::entity), --name, --ext (default rs), --hidden, --follow. Assertions (at least one required): --forbid 'A=>B' (module A reaches module B, directly or transitively), --acyclic (any module-dependency cycle), --layers L0,L1,... (ordered highest first, module-name patterns — use domain* for a subtree; --layers-closed flags modules matching no layer). Outcome: holds, violated (with evidence paths), or broken (no assertion, defective spec, empty --layers pattern, or no source files).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string",
+            "description": "The crate source root to walk; `crate::` resolves against it. Default: src."
+          },
+          "name": {
+            "type": "string",
+            "description": "Limit to files whose name matches; '|'-separated alternatives, promoted and anchored."
+          },
+          "ext": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Extensions to include (no dots), e.g. ['rs']. May be comma-joined or repeated. Default: rs."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Include dot-entries; default skips them."
+          },
+          "follow": {
+            "type": "boolean",
+            "description": "Follow symlinks while traversing."
+          },
+          "forbid": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Violation if module A reaches module B, written 'A=>B' (repeatable, indirect). Module names match exactly."
+          },
+          "acyclic": {
+            "type": "boolean",
+            "description": "Violation for every module-dependency cycle (Tarjan strongly-connected components). Evidence is a concrete cycle path."
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered layers, highest first (comma-joined or repeated). Each entry is a module-name pattern (use domain* for a subtree); a layer may depend on layers listed after it, never before. A pattern matching no module is broken."
+          },
+          "layers-closed": {
+            "type": "boolean",
+            "description": "With --layers: also report a violation for every module that matches no layer (exhaustive assignment)."
+          }
+        },
+        "required": []
       }
     }
   ]

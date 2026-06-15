@@ -38,7 +38,6 @@ ct --version
 | `ct outline`| `ct-outline`| Report the declarations in a file or tree: kind, name, `start:end` span.   |
 | `ct rules`  | `ct-rules`  | Record, promote, remove, and list the project's invariant rules (`.ct/rules.jsonc`). |
 | `ct check`  | `ct-check`  | Verify the recorded invariants; five lanes, one exit status. Read-only.    |
-| `ct deps`   | `ct-deps`   | Assert crate-graph invariants: deny crates, forbid `A=>B` paths, no duplicates. |
 | `ct await`  | `ct-await`  | Poll a read-only probe until it succeeds, aborts, or the bound expires.    |
 
 Dispatch is **generic**: `ct <name>` runs `ct-<name>`, so any `ct-*` tool you add

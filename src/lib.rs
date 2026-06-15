@@ -38,7 +38,10 @@
 //!
 //! Per-command surfaces (the pure logic each `ct-*` tool is built on):
 //!
-//! * [`deps`] — `ct-deps`'s crate-graph queries over `cargo metadata`.
+//! * [`deps`] — the `deps` built-in check's crate-graph queries over `cargo
+//!   metadata` (including its in-process [`deps::check`] entry point).
+//! * [`modgraph`] — the `mods` built-in check's heuristic intra-crate module-use
+//!   graph, reusing [`deps`]'s assertions at module granularity.
 //! * [`outline`] — `ct-outline`'s heuristic per-language declaration
 //!   detection.
 //! * [`view`] — `ct-view`'s range parsing and context-window merging.
@@ -50,10 +53,12 @@
 pub mod allowlist;
 pub mod block;
 pub mod blockdoc;
+pub mod cli;
 pub mod deps;
 pub mod edit;
 pub mod editscript;
 pub mod explain;
+pub mod modgraph;
 pub mod outline;
 pub mod patch;
 pub mod pattern;
