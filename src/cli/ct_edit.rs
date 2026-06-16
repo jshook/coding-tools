@@ -42,6 +42,10 @@ pub struct Cli {
     #[arg(long)]
     pub follow: bool,
 
+    /// Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would.
+    #[arg(long)]
+    pub no_ignore: bool,
+
     /// Pattern to find (substring->glob->regex promoted); matched per line. Accepts file:PATH / text:VALUE; a multi-line payload matches as a line-anchored literal block. Required unless --script is given.
     #[arg(long, conflicts_with = "script")]
     pub find: Option<String>,

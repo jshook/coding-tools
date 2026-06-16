@@ -59,6 +59,10 @@ pub struct Cli {
     #[arg(long)]
     pub follow: bool,
 
+    /// Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would.
+    #[arg(long)]
+    pub no_ignore: bool,
+
     /// Stop after N matches.
     #[arg(long)]
     pub limit: Option<usize>,

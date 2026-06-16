@@ -79,6 +79,10 @@
         "type": "string",
         "enum": ["stderr", "stdout"],
         "description": "Stream heartbeat pulses are written to. Default: stderr."
+      },
+      "no-ignore": {
+        "type": "boolean",
+        "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
       }
     },
     "required": []

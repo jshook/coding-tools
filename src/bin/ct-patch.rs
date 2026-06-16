@@ -112,6 +112,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         size: None,
         hidden: cli.hidden,
         follow: cli.follow,
+        no_ignore: cli.no_ignore,
     };
 
     let mut total_changes = 0usize;
@@ -119,7 +120,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 
     for entry in selector.walk() {
         let entry = entry?;
-        if !entry.file_type().is_file() {
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
         let fmt = match cli.format.or_else(|| {

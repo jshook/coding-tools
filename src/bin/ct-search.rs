@@ -106,6 +106,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         size,
         hidden: cli.hidden,
         follow: cli.follow,
+        no_ignore: cli.no_ignore,
     };
 
     let mode = Mode::from(&cli);
@@ -133,7 +134,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 
         let mut lines: Vec<(usize, String)> = Vec::new();
         if let Some(grep) = &grep_re {
-            if !entry.file_type().is_file() {
+            if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
             let bytes = match std::fs::read(entry.path()) {

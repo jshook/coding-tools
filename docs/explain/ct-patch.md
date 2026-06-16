@@ -45,6 +45,7 @@ Files whose format is neither detected nor forced are skipped.
 | `--mode`   | `literal\|glob\|regex` | Pin how `--name` is interpreted (promotion off), as in `ct-search`/`ct-edit`. |
 | `--hidden` | —         | Include dot-entries.                                                     |
 | `--follow` | —         | Follow symlinks.                                                         |
+| `--no-ignore` | —      | Walk gitignored / `.ignore` files too (`.git` is always skipped). Default: skip what git would. |
 | `--format` | `FMT`     | Force `json`/`jsonc`/`jsonl`/`yaml` instead of detecting from the extension. |
 
 ## Operations

@@ -31,6 +31,7 @@ the equivalent MCP / tool-use definition.
 | `--ext`    | `LIST`    | Restrict to extensions (comma-separated, no dots), e.g. `--ext rs,toml`. Added to `--name` as alternatives. |
 | `--hidden` | —         | Include dot-entries. Default: skipped.                                   |
 | `--follow` | —         | Follow symlinks while traversing.                                        |
+| `--no-ignore` | —      | Walk gitignored / `.ignore` files too (`.git` is always skipped). Default: the walk skips what git would, so `target/` and the like are not descended. |
 
 Only regular files are measured; the tree shows the directories that contain them.
 

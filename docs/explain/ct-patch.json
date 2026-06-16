@@ -116,7 +116,11 @@
         ],
         "description": "Stream heartbeat pulses are written to. Default: stderr."
       },
-      "mode": {"description":"Pin how --name is interpreted (promotion off): literal, glob, or regex.","enum":["literal","glob","regex"],"type":"string"}
+      "mode": {"description":"Pin how --name is interpreted (promotion off): literal, glob, or regex.","enum":["literal","glob","regex"],"type":"string"},
+      "no-ignore": {
+        "type": "boolean",
+        "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
+      }
     },
     "required": []
   }

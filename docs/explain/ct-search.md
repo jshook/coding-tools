@@ -60,6 +60,7 @@ An entry matches only when **all** supplied predicates hold.
 | `--size`     | `EXPR`    | Size predicate `[+\|-]N[k\|m\|g]`: `+N` larger than, `-N` smaller than, `N` at least N. Applies to regular files. |
 | `--hidden`   | —         | Include dot-entries (names starting with `.`). Default: skipped, and dot-directories are not descended into. |
 | `--follow`   | —         | Follow symlinks while traversing.                                                           |
+| `--no-ignore` | —        | Walk gitignored / `.ignore` files too (`.git` is always skipped). Default: the walk skips what git would, so `target/` and the like are not descended. |
 | `--limit`    | `N`       | Stop after `N` matches.                                                                      |
 
 ### Output mode

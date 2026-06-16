@@ -34,6 +34,7 @@ the equivalent MCP / tool-use definition.
 | `--name`     | `PATTERN` | Limit to files whose name matches; `\|`-separated alternatives, each promoted and anchored. |
 | `--hidden`   | —         | Include dot-entries. Default: skipped.                                               |
 | `--follow`   | —         | Follow symlinks while traversing.                                                    |
+| `--no-ignore` | —        | Walk gitignored / `.ignore` files too (`.git` is always skipped). Default: skip what git would. |
 
 Only regular files are edited. Files that are not valid UTF-8 text are skipped.
 

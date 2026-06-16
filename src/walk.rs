@@ -11,10 +11,11 @@
 //! entries that pass them, leaving content-level work (grep, replace) to the
 //! caller.
 
+use std::ffi::OsStr;
 use std::path::PathBuf;
 
+use ignore::{DirEntry, WalkBuilder};
 use regex::Regex;
-use walkdir::{DirEntry, WalkDir};
 
 /// Entry-kind selector for `--type`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -96,17 +97,14 @@ pub fn size_matches(cmp: &SizeCmp, len: u64) -> bool {
     }
 }
 
-/// True for dot-entries below the search root (the root itself is never hidden).
-fn is_hidden(entry: &DirEntry) -> bool {
-    entry.depth() > 0 && entry.file_name().to_string_lossy().starts_with('.')
-}
-
 /// Whether an entry's kind is among `types` (empty `types` means "any kind").
 fn entry_kind_matches(types: &[EntryType], entry: &DirEntry) -> bool {
     if types.is_empty() {
         return true;
     }
-    let ft = entry.file_type();
+    let Some(ft) = entry.file_type() else {
+        return false; // only stdin has no file type; never matches a kind
+    };
     types.iter().any(|t| match t {
         EntryType::F => ft.is_file(),
         EntryType::D => ft.is_dir(),
@@ -130,23 +128,39 @@ pub struct Selector {
     pub hidden: bool,
     /// Follow symlinks while traversing.
     pub follow: bool,
+    /// Walk every file, ignoring `.gitignore`/`.ignore` rules (the `.git`
+    /// directory is always skipped regardless). Default `false`: like git, the
+    /// walk skips what the project has chosen to ignore.
+    pub no_ignore: bool,
 }
 
 impl Selector {
     /// Yield every entry under [`base`](Selector::base) that passes the
-    /// structural predicates (kind, name, size, hidden). Traversal errors and
-    /// per-entry `stat` failures surface as `Err` items rather than panicking.
+    /// structural predicates (kind, name, size, hidden). By default the walk
+    /// honors `.gitignore`/`.ignore` (and always skips `.git`), so a build tree
+    /// like `target/` is not descended; `no_ignore` disables that filtering.
+    /// Traversal errors and per-entry `stat` failures surface as `Err` items
+    /// rather than panicking.
     pub fn walk(&self) -> impl Iterator<Item = Result<DirEntry, String>> + '_ {
-        WalkDir::new(&self.base)
+        let respect = !self.no_ignore;
+        WalkBuilder::new(&self.base)
             .follow_links(self.follow)
-            .into_iter()
-            .filter_entry(move |e| self.hidden || !is_hidden(e))
+            .hidden(!self.hidden) // hidden(true) = skip dot-entries
+            .ignore(respect)
+            .git_ignore(respect)
+            .git_global(respect)
+            .git_exclude(respect)
+            .parents(respect)
+            // The VCS directory is never useful to these tools; skip it even
+            // under --hidden / --no-ignore.
+            .filter_entry(|e| e.file_name() != OsStr::new(".git"))
+            .build()
             .filter_map(move |res| self.evaluate(res))
     }
 
     /// Apply the structural predicates to one raw traversal result. `None` drops
     /// the entry; `Some(Ok)` keeps it; `Some(Err)` reports a hard failure.
-    fn evaluate(&self, res: walkdir::Result<DirEntry>) -> Option<Result<DirEntry, String>> {
+    fn evaluate(&self, res: Result<DirEntry, ignore::Error>) -> Option<Result<DirEntry, String>> {
         let entry = match res {
             Ok(e) => e,
             Err(e) => return Some(Err(format!("traversal error: {e}"))),
@@ -161,7 +175,7 @@ impl Selector {
             }
         }
         if let Some(cmp) = &self.size {
-            if !entry.file_type().is_file() {
+            if !entry.file_type().is_some_and(|t| t.is_file()) {
                 return None;
             }
             match entry.metadata() {

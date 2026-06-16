@@ -343,6 +343,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         size: None,
         hidden: cli.hidden,
         follow: cli.follow,
+        no_ignore: cli.no_ignore,
     };
 
     let base_disp = cli.base.display().to_string();
@@ -352,7 +353,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     let mut rows: Vec<FileRow> = Vec::new();
     for entry in selector.walk() {
         let entry = entry?;
-        if !entry.file_type().is_file() {
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
         let bytes = match std::fs::read(entry.path()) {

@@ -189,10 +189,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             size: None,
             hidden: cli.hidden,
             follow: cli.follow,
+            no_ignore: cli.no_ignore,
         };
         for entry in selector.walk() {
             let entry = entry?;
-            if entry.file_type().is_file() {
+            if entry.file_type().is_some_and(|t| t.is_file()) {
                 items.push(entry.path().display().to_string());
             }
         }

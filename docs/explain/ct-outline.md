@@ -69,6 +69,7 @@ useful: `ct-view FILE --range START:` reads from there to the end of file.
 | `--ext`    | `LIST`   | Restrict to extensions (comma-separated, no dots); added to `--name` as alternatives. |
 | `--hidden` | —        | Include dot-entries; default skips them.                              |
 | `--follow` | —        | Follow symlinks while traversing.                                     |
+| `--no-ignore` | —     | Walk gitignored / `.ignore` files too (`.git` is always skipped). Default: the walk skips what git would. |
 
 Files whose language is not recognised (see *Languages*) are skipped silently
 in a directory walk, and reported as an error (`exit 2`) when named directly

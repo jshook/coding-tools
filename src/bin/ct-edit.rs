@@ -49,6 +49,7 @@ fn selector(cli: &Cli) -> Result<walk::Selector, String> {
         size: None,
         hidden: cli.hidden,
         follow: cli.follow,
+        no_ignore: cli.no_ignore,
     })
 }
 
@@ -58,7 +59,7 @@ fn load_files(sel: &walk::Selector) -> Result<Vec<FileBuf>, String> {
     let mut files = Vec::new();
     for entry in sel.walk() {
         let entry = entry?;
-        if !entry.file_type().is_file() {
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
         if let Ok(content) = std::fs::read_to_string(entry.path()) {

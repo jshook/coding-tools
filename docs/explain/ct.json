@@ -145,6 +145,10 @@
               "stdout"
             ],
             "description": "Stream heartbeat pulses are written to. Default: stderr."
+          },
+          "no-ignore": {
+            "type": "boolean",
+            "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
           }
         },
         "required": []
@@ -351,6 +355,10 @@
               "stdout"
             ],
             "description": "Stream heartbeat pulses are written to. Default: stderr."
+          },
+          "no-ignore": {
+            "type": "boolean",
+            "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
           }
         },
         "required": []
@@ -444,6 +452,10 @@
               "stdout"
             ],
             "description": "Stream heartbeat pulses are written to. Default: stderr."
+          },
+          "no-ignore": {
+            "type": "boolean",
+            "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
           }
         },
         "required": []
@@ -575,6 +587,10 @@
               "regex"
             ],
             "type": "string"
+          },
+          "no-ignore": {
+            "type": "boolean",
+            "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
           }
         },
         "required": []
@@ -821,6 +837,10 @@
               "type": "string"
             },
             "description": "Command and arguments run per item (supplied after `--`); {ITEM} and {INDEX} expand in every element. The program must be on the fixed dispatch gate."
+          },
+          "no-ignore": {
+            "type": "boolean",
+            "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
           }
         },
         "required": [
@@ -929,6 +949,10 @@
               "stdout"
             ],
             "description": "Stream heartbeat pulses are written to. Default: stderr."
+          },
+          "no-ignore": {
+            "type": "boolean",
+            "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
           }
         },
         "required": []

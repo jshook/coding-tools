@@ -148,6 +148,7 @@ stops before the summary is printed, so a pulse never lands after the verdict.
 | `--ext`      | `LIST`   | Walker filter: extensions (comma-separated, no dots); combined with `--name` as alternatives. |
 | `--hidden`   | —        | Walker: include dot-entries.                                          |
 | `--follow`   | —        | Walker: follow symlinks.                                              |
+| `--no-ignore` | —       | Walker: walk gitignored / `.ignore` files too (`.git` is always skipped). Default: skip what git would. |
 | `--stdin`    | —        | Also read items from standard input, one per line.                   |
 | `--question` | `TEXT`   | The question this sweep answers; printed as a `== … ==` banner.      |
 | `--expect`   | `SPEC`   | Aggregate expectation over the SUCCESS count (default `all`).        |

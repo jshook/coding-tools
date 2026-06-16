@@ -402,6 +402,8 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
         size: None,
         hidden: cli.hidden,
         follow: cli.follow,
+        // The module graph always respects ignores; build trees hold no modules.
+        no_ignore: false,
     };
     let mut files: Vec<(String, String)> = Vec::new();
     for entry in selector.walk() {
@@ -416,7 +418,7 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
             Ok(e) => e,
             Err(e) => return broken(format!("mods: {e}")),
         };
-        if !entry.file_type().is_file() {
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
         let path = entry.path();
