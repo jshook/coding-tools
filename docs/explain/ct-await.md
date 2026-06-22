@@ -62,7 +62,9 @@ a self-classifying probe (`ct-search --quiet`, `ct-check --quiet`) needs none.
 covers everything: a single probe run can never outlive it (process-group
 kill), and expiry is `ERROR` with a reason naming the bound and the number
 of probe runs. `--heartbeat SECS` pulses while waiting (tokens: `{ELAPSED}`
-`{TOOL}` `{QUESTION}` `{CMD}` `{TICKS}`).
+`{TOOL}` `{QUESTION}` `{CMD}` `{TICKS}`); `--heartbeat-emit` sets the pulse
+template and `--heartbeat-to` picks the stream (`stderr`, the default, or
+`stdout`).
 
 ## What a probe may be
 

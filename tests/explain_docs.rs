@@ -207,6 +207,40 @@ fn schema_matches_clap_grammar() {
     }
 }
 
+/// Every flag a leaf tool accepts must be mentioned in its `.md` reference —
+/// the human-facing doc can't silently omit a flag (ct-search gained `--json`
+/// in the schema while the doc lagged, exactly this drift). The reverse — a
+/// `--flag` in the prose that is no longer real — is deliberately *not* checked:
+/// the docs richly cross-reference other tools' flags, cargo flags
+/// (`--locked`/`--offline`), and `--move-*`-style shorthands, so a phantom-flag
+/// check would be dominated by false positives.
+#[test]
+fn md_documents_every_flag() {
+    for (tool, grammar) in coding_tools::cli::grammars() {
+        let path = explain_path(tool, "md");
+        let md = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        // Long-flag tokens mentioned anywhere in the doc: each `--` followed by
+        // its run of flag-name characters.
+        let mentioned: BTreeSet<&str> = md
+            .match_indices("--")
+            .map(|(i, _)| {
+                md[i + 2..]
+                    .split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+                    .next()
+                    .unwrap_or("")
+            })
+            .collect();
+        for f in &grammar.flags {
+            assert!(
+                mentioned.contains(f.name.as_str()),
+                "{tool}: --{} is accepted by the CLI but never mentioned in docs/explain/{tool}.md",
+                f.name
+            );
+        }
+    }
+}
+
 #[test]
 fn builtin_check_defs_are_well_formed_and_bundled() {
     let manifest = read_json("ct");

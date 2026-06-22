@@ -74,6 +74,8 @@ Mutually exclusive; defaults to `--list`.
 | `--detail`  | Matching paths plus, for `--grep`, each hit as `path:line:text`.   |
 | `--quiet`   | No per-match output, and no `--question` banner; communicate via exit status (and `--emit`). |
 
+`--json` overrides these text modes (and `--emit`), emitting a structured result `{tool, verdict, base, count, lines, matches}`.
+
 ### Framing the search as a test
 
 These turn a search into a framed check whose verdict is `SUCCESS` or `ERROR`.
