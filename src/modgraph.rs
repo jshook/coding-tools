@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 use clap::{CommandFactory, Parser};
 use regex::Regex;
 
-use crate::deps::{flag_kinds, EdgeKind, Graph, Package};
+use crate::deps::{grammar, EdgeKind, Graph, Package};
 use crate::pattern;
 use crate::rules::ProbeOutcome;
 use crate::walk::{self, EntryType};
@@ -332,12 +332,9 @@ struct ModsCheck {
     layers_closed: bool,
 }
 
-/// The `mods` check's flags as `(name, kind)` pairs, read straight from the clap
-/// grammar (via [`crate::deps::flag_kinds`]). The single source of truth behind
-/// the published `docs/explain/mods.json` schema (a test reconciles the two) and
-/// the valid-flags hint on a bad argument.
-pub fn check_flags() -> Vec<(String, &'static str)> {
-    flag_kinds(ModsCheck::command())
+/// The `mods` check's introspected grammar (see [`crate::deps::grammar`]).
+pub fn check_grammar() -> crate::deps::Grammar {
+    grammar(ModsCheck::command())
 }
 
 /// Run a `mods` built-in check: walk the crate source under `root`/`--base`,
@@ -350,7 +347,7 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
     let cli = match ModsCheck::try_parse_from(args.iter().map(String::as_str)) {
         Ok(c) => c,
         Err(e) => {
-            let valid = check_flags().iter().map(|(f, _)| format!("--{f}")).collect::<Vec<_>>().join(" ");
+            let valid = check_grammar().flags.iter().map(|s| format!("--{}", s.name)).collect::<Vec<_>>().join(" ");
             return broken(format!(
                 "mods: {} (valid flags: {valid})",
                 e.to_string().lines().next().unwrap_or("bad arguments")

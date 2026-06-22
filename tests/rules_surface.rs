@@ -522,3 +522,40 @@ fn ct_each_walker_source_feeds_per_file_rules() {
     assert_eq!(code(&check), 1, "violation => exit 1");
     assert!(stdout(&check).contains("ERROR    license-headers"));
 }
+
+#[test]
+fn ct_check_id_mode_pins_interpretation() {
+    let dir = project("check-id-mode");
+    fresh_store(&dir);
+    std::fs::write(dir.join("src/lib.rs"), "fn clean() {}\n").unwrap();
+    // One holding rule with id "abc".
+    let add = ct_rules(&dir)
+        .args(["--add", "abc", "--question", "q"])
+        .args(["--", "ct-search", "--base", "src", "--grep", "ZZZ", "--expect", "none", "--quiet"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&add), 0, "stderr: {:?}", stderr(&add));
+
+    // --mode pins how --id is read: 'a.c' as a regex matches "abc"; as a literal
+    // it does not — so the same pattern selects the rule under one mode, not the other.
+    let re = ct_check(&dir).args(["--id", "a.c", "--mode", "regex", "--list"]).output().unwrap();
+    assert!(stdout(&re).contains("abc"), "regex --id should match: {:?}", stdout(&re));
+    let lit = ct_check(&dir).args(["--id", "a.c", "--mode", "literal", "--list"]).output().unwrap();
+    assert!(!stdout(&lit).contains("abc"), "literal --id must not match: {:?}", stdout(&lit));
+}
+
+#[test]
+fn ct_each_refuses_builtin_check_with_guidance() {
+    let dir = project("each-builtin");
+    // A built-in check is not a per-item dispatch target; the refusal teaches the
+    // right path (the check's own repeatable flags) rather than dead-ending.
+    let out = Command::new(env!("CARGO_BIN_EXE_ct-each"))
+        .current_dir(&dir)
+        .args(["--items", "openssl", "--", "deps", "--deny", "{ITEM}"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 2, "refused dispatch => exit 2");
+    let err = stderr(&out);
+    assert!(err.contains("built-in check"), "{err:?}");
+    assert!(err.contains("deps --deny"), "should point to repeatable flags: {err:?}");
+}

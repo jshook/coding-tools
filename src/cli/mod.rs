@@ -40,13 +40,12 @@ pub fn commands() -> Vec<(&'static str, clap::Command)> {
     ]
 }
 
-/// Every leaf tool's name paired with its `(long-flag, kind)` list — `kind` is
-/// `"boolean"`, `"array"`, or `"string"` — read straight from the clap grammar.
-/// The introspection behind the schema-drift guard; uses the same reader as the
-/// built-in checks ([`crate::deps::flag_kinds`]).
-pub fn flags() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
+/// Every leaf tool's name paired with its introspected [`crate::deps::Grammar`]
+/// (flag specs + clap-required names). The introspection behind the schema-drift
+/// guard; uses the same reader as the built-in checks ([`crate::deps::grammar`]).
+pub fn grammars() -> Vec<(&'static str, crate::deps::Grammar)> {
     commands()
         .into_iter()
-        .map(|(name, command)| (name, crate::deps::flag_kinds(command)))
+        .map(|(name, command)| (name, crate::deps::grammar(command)))
         .collect()
 }

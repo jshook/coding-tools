@@ -572,36 +572,59 @@ struct DepsCheck {
     edges: Vec<EdgeKind>,
 }
 
-/// Extract `(long-flag, kind)` pairs from a built-in check's clap grammar,
-/// skipping any auto help/version arg. `kind` is `"boolean"` (a bare flag),
-/// `"array"` (a repeatable value), or `"string"` (a single value) — the same
-/// vocabulary the published `docs/explain` schema uses for a property's `type`.
-/// Shared by both built-in checks so their grammar has one reader.
-pub(crate) fn flag_kinds(command: clap::Command) -> Vec<(String, &'static str)> {
-    command
-        .get_arguments()
-        .filter_map(|arg| {
-            let long = arg.get_long()?;
-            // help/version are auto-added; --explain is the documentation flag,
-            // never part of a tool's input schema.
-            if matches!(long, "help" | "version" | "explain") {
-                return None;
-            }
+/// One long-flagged argument, read from the clap grammar: its `--name`, value
+/// `kind` (`"boolean"` / `"array"` / `"string"`, the `docs/explain` `type`
+/// vocabulary), whether clap requires it, and its enum `values` (empty when the
+/// value is free-form).
+pub struct FlagSpec {
+    pub name: String,
+    pub kind: &'static str,
+    pub required: bool,
+    pub values: Vec<String>,
+}
+
+/// The introspected grammar of a tool or built-in check: every long flag's
+/// spec, plus the names of all clap-required arguments — flags *and* positionals
+/// (named by their field id, e.g. `path`/`probe`). The single source of truth
+/// behind the published `docs/explain` schema (a test reconciles the two) and
+/// the valid-flags hint on a bad argument.
+pub struct Grammar {
+    pub flags: Vec<FlagSpec>,
+    pub required: Vec<String>,
+}
+
+/// Read a command's [`Grammar`]. Skips the auto help/version args and the
+/// `--explain` documentation flag, none of which are tool inputs.
+pub(crate) fn grammar(command: clap::Command) -> Grammar {
+    let mut flags = Vec::new();
+    let mut required = Vec::new();
+    for arg in command.get_arguments() {
+        let id = arg.get_id().as_str();
+        if matches!(id, "help" | "version" | "explain") {
+            continue;
+        }
+        // Positionals (path/probe/command/args) have no long flag; name them by
+        // field id, matching the schema property key.
+        let name = arg.get_long().map(String::from).unwrap_or_else(|| id.to_string());
+        if arg.is_required_set() {
+            required.push(name.clone());
+        }
+        if arg.get_long().is_some() {
             let kind = match arg.get_action() {
                 clap::ArgAction::SetTrue | clap::ArgAction::SetFalse => "boolean",
                 clap::ArgAction::Append => "array",
                 _ => "string",
             };
-            Some((long.to_string(), kind))
-        })
-        .collect()
+            let values = arg.get_possible_values().iter().map(|v| v.get_name().to_string()).collect();
+            flags.push(FlagSpec { name, kind, required: arg.is_required_set(), values });
+        }
+    }
+    Grammar { flags, required }
 }
 
-/// The `deps` check's flags as `(name, kind)` pairs, read straight from the clap
-/// grammar. The single source of truth behind the published `docs/explain/deps.json`
-/// schema (a test reconciles the two) and the valid-flags hint on a bad argument.
-pub fn check_flags() -> Vec<(String, &'static str)> {
-    flag_kinds(DepsCheck::command())
+/// The `deps` check's introspected grammar (see [`grammar`]).
+pub fn check_grammar() -> Grammar {
+    grammar(DepsCheck::command())
 }
 
 /// Run a `deps` built-in check over the crate graph rooted at `root` (one
@@ -614,7 +637,7 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
     let cli = match DepsCheck::try_parse_from(args.iter().map(String::as_str)) {
         Ok(c) => c,
         Err(e) => {
-            let valid = check_flags().iter().map(|(f, _)| format!("--{f}")).collect::<Vec<_>>().join(" ");
+            let valid = check_grammar().flags.iter().map(|s| format!("--{}", s.name)).collect::<Vec<_>>().join(" ");
             return broken(format!(
                 "deps: {} (valid flags: {valid})",
                 e.to_string().lines().next().unwrap_or("bad arguments")

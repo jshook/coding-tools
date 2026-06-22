@@ -12,6 +12,15 @@
         "type": "string",
         "description": "Select rules whose id matches (substring->glob->regex promoted, anchored to the whole id)."
       },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "literal",
+          "glob",
+          "regex"
+        ],
+        "description": "Pin how --id is interpreted (promotion off): literal, glob, or regex."
+      },
       "tag": {
         "type": "array",
         "items": { "type": "string" },

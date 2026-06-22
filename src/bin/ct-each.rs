@@ -85,6 +85,18 @@ struct ItemResult {
 /// The refusal shown when a dispatch target is not permitted: what was blocked
 /// and the full, fixed set of runnable commands.
 fn deny_message(name: &str, mutating: bool) -> String {
+    // deps/mods are built-in checks the rule layer runs in-process, not commands
+    // ct-each spawns; route the caller to the right path rather than a bare refusal.
+    if name == "deps" || name == "mods" {
+        return format!(
+            "ct-each: '{name}' is a built-in check, not a per-item dispatch target, so nothing was run.\n\
+             \n\
+             Built-in checks run in-process from the rule layer, not as commands ct-each spawns. To \
+             assert several values at once, use the check's own repeatable flags in a single run \
+             (e.g. `deps --deny A --deny B`, `mods --forbid A=>B --forbid C=>D`). To record or verify \
+             one, use `ct rules -- {name} …` and `ct check`.\n"
+        );
+    }
     let base = allowlist::BUILTIN.join(" ");
     let extra = allowlist::MUTATING_SUITE.join(" ");
     let hint = if mutating {

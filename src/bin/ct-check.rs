@@ -122,7 +122,9 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     let (store, expanded) = load_validated(&store_file)?;
 
     let id_re = match &cli.id {
-        Some(p) => Some(pattern::compile_anchored(p).map_err(|e| format!("invalid --id: {e}"))?),
+        Some(p) => {
+            Some(pattern::compile_anchored_with(p, cli.mode).map_err(|e| format!("invalid --id: {e}"))?)
+        }
         None => None,
     };
     let picked: Vec<usize> = (0..store.rules.len())

@@ -99,6 +99,7 @@ and the head of the probe's own violation output go to stderr.
 | ------------- | -------- | ------- |
 | `--file`      | `PATH`   | The store. Default: nearest `.ct/rules.jsonc` upward. |
 | `--id`        | `PATTERN`| Select rules by id (substring→glob→regex promoted, anchored). |
+| `--mode`      | `literal\|glob\|regex` | Pin how `--id` is interpreted (promotion off). |
 | `--tag`       | `LIST`   | Select rules carrying any of these tags (comma-separated). |
 | `--fail-fast` | —        | Stop after the first enforced violation; the rest report as `SKIPPED`. |
 | `--list`      | —        | Print the selected rules (id, flags, question, tags); run nothing. |

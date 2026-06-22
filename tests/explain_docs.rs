@@ -7,7 +7,7 @@
 //! umbrella `ct` additionally bundles each leaf tool's definition under `tools`,
 //! which must not drift from the standalone leaf files.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// Tools whose canonical docs live in `docs/explain/`.
@@ -128,27 +128,33 @@ fn normalize_kind(ty: &str) -> String {
 }
 
 /// The unified schema-drift guard: every tool's `docs/explain/<tool>.json` must
-/// enumerate exactly the flags its clap grammar accepts, with matching kinds.
-/// Leaf grammars come from the lib-hosted `coding_tools::cli`; built-in checks
-/// from their `check_flags`. Meta flags (`--help`/`--version`/`--explain`) are
-/// dropped by the grammar reader; positional/trailing-argv inputs (see
-/// `non_flag_props`) are dropped from the schema side. A flag added to or
-/// removed from a clap struct, or a kind change (bool ↔ value, scalar ↔ array),
-/// without the matching doc edit fails here.
+/// agree with its live clap grammar on four facets — flag **names**, value
+/// **kinds** (bool/array/scalar), **enum** values (e.g. `--mode`, `--type`,
+/// `--edges`), and **required**ness — so a flag added/removed, a kind or enum
+/// change, or a newly-mandatory argument can't ship without the matching doc
+/// edit. Leaf grammars come from the lib-hosted `coding_tools::cli`; built-in
+/// checks from their `check_grammar`. Meta flags (`--help`/`--version`/
+/// `--explain`) are dropped by the grammar reader; positional/trailing-argv
+/// inputs (see `non_flag_props`) are dropped from the name/kind/enum side but
+/// kept for the required check (a positional like `path` can be mandatory).
 #[test]
 fn schema_matches_clap_grammar() {
-    let mut grammars: Vec<(&str, Vec<(String, &'static str)>)> = coding_tools::cli::flags();
-    grammars.push(("deps", coding_tools::deps::check_flags()));
-    grammars.push(("mods", coding_tools::modgraph::check_flags()));
+    let mut grammars: Vec<(&str, coding_tools::deps::Grammar)> = coding_tools::cli::grammars();
+    grammars.push(("deps", coding_tools::deps::check_grammar()));
+    grammars.push(("mods", coding_tools::modgraph::check_grammar()));
 
-    for (tool, flags) in grammars {
-        let cli: BTreeMap<String, String> =
-            flags.iter().map(|(n, k)| (n.clone(), normalize_kind(k))).collect();
-        let skip = non_flag_props(tool);
+    for (tool, grammar) in grammars {
         let v = read_json(tool);
-        let doc: BTreeMap<String, String> = v["input_schema"]["properties"]
+        let props = v["input_schema"]["properties"]
             .as_object()
-            .unwrap_or_else(|| panic!("{tool}.json input_schema.properties must be an object"))
+            .unwrap_or_else(|| panic!("{tool}.json input_schema.properties must be an object"));
+        let skip = non_flag_props(tool);
+
+        // 1. Names + kinds: the long flags must match the schema properties
+        //    (minus positional/trailing-argv inputs), with scalar types bucketed.
+        let cli_kinds: BTreeMap<String, String> =
+            grammar.flags.iter().map(|f| (f.name.clone(), normalize_kind(f.kind))).collect();
+        let doc_kinds: BTreeMap<String, String> = props
             .iter()
             .filter(|(k, _)| !skip.contains(&k.as_str()))
             .map(|(k, spec)| {
@@ -159,10 +165,45 @@ fn schema_matches_clap_grammar() {
             })
             .collect();
         assert_eq!(
-            doc, cli,
+            doc_kinds, cli_kinds,
             "{tool}: docs/explain/{tool}.json (left) disagrees with the clap grammar (right) \
              on flag names or kinds"
         );
+
+        // 2. Enum values: a value_enum flag's variants must equal the schema's
+        //    `enum` (at `.enum` for a scalar, `.items.enum` for an array).
+        //    Booleans are skipped — clap reports `[true, false]` for them, which
+        //    is not a schema enum.
+        for f in grammar.flags.iter().filter(|f| f.kind != "boolean" && !f.values.is_empty()) {
+            let spec = &props[&f.name];
+            let enum_node = if f.kind == "array" { &spec["items"]["enum"] } else { &spec["enum"] };
+            let doc_vals: BTreeSet<&str> = enum_node
+                .as_array()
+                .unwrap_or_else(|| panic!("{tool}.json: --{} should carry an enum array", f.name))
+                .iter()
+                .map(|x| x.as_str().expect("enum entries are strings"))
+                .collect();
+            let cli_vals: BTreeSet<&str> = f.values.iter().map(String::as_str).collect();
+            assert_eq!(
+                doc_vals, cli_vals,
+                "{tool}: --{} enum disagrees with the clap grammar",
+                f.name
+            );
+        }
+
+        // 3. Required: every argument clap structurally requires (flags and
+        //    positionals) must be listed in the schema's `required`. The schema
+        //    may additionally mark semantic requireds clap doesn't enforce.
+        let doc_required: BTreeSet<&str> = v["input_schema"]["required"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
+            .unwrap_or_default();
+        for name in &grammar.required {
+            assert!(
+                doc_required.contains(name.as_str()),
+                "{tool}: clap requires '{name}' but docs/explain/{tool}.json omits it from `required`"
+            );
+        }
     }
 }
 

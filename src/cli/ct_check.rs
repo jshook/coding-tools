@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use crate::explain::Format;
+use crate::pattern;
 use crate::pulse::HeartbeatOpts;
 
 #[derive(Parser, Debug)]
@@ -29,6 +30,10 @@ pub struct Cli {
     /// Select rules whose id matches (substring->glob->regex promoted, anchored).
     #[arg(long)]
     pub id: Option<String>,
+
+    /// Pin how --id is interpreted (promotion off): literal, glob, or regex.
+    #[arg(long, value_enum)]
+    pub mode: Option<pattern::Mode>,
 
     /// Select rules carrying any of these tags (comma-separated).
     #[arg(long, value_delimiter = ',')]
