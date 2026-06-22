@@ -175,6 +175,7 @@ for `--emit` / `--emit-stderr`: `{RESULT}` `{OK}` `{ERRORS}` `{SKIPPED}`
 | `--show-output` | —          | Also pass each child's stdout/stderr through verbatim. |
 | `--quiet`       | —          | Suppress the banner, default per-item lines, and default summary. |
 | `--json`        | —          | One structured JSON object instead of text (overrides the emit templates). |
+| `--json-pretty` | —          | Like `--json`, but pretty-printed (indented).                              |
 
 The `--json` result carries `tool`, `verdict`, `expect`, `ok`, `errors`,
 `skipped`, `total`, and an `items` array of `{index, item, cmd, code, result}`.

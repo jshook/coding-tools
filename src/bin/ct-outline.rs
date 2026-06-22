@@ -77,7 +77,12 @@ fn with_context(entries: &[Entry], matched: &[bool]) -> Vec<(usize, bool)> {
         .collect()
 }
 
-fn run(cli: Cli) -> Result<ExitCode, String> {
+fn run(mut cli: Cli) -> Result<ExitCode, String> {
+    // --json-pretty enables JSON output on its own; treat it as --json
+    // everywhere the text path is gated.
+    if cli.json_pretty {
+        cli.json = true;
+    }
     let _watchdog = pulse::watchdog("ct-outline", cli.timeout)?;
     let _pulse = cli.heartbeat.start("ct-outline", PulseState::new())?;
 
@@ -214,7 +219,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             "count": count,
             "files": file_objs,
         });
-        println!("{obj}");
+        coding_tools::jsonout::print(&obj, cli.json_pretty);
         return Ok(verdict.exit_code());
     }
 

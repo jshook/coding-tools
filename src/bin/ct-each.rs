@@ -151,7 +151,12 @@ fn run_item(p: &Planned, timeout: Option<std::time::Duration>) -> Result<Outcome
         .map_err(|e| format!("item {} ('{}'): {e}", p.index, p.item))
 }
 
-fn run(cli: Cli) -> Result<ExitCode, String> {
+fn run(mut cli: Cli) -> Result<ExitCode, String> {
+    // --json-pretty enables JSON output on its own; treat it as --json
+    // everywhere the text path is gated.
+    if cli.json_pretty {
+        cli.json = true;
+    }
     if cli.command.is_empty() {
         return Err("missing command: supply one after `--`, e.g. `ct-each --items a b -- ct-view {ITEM}`".to_string());
     }
@@ -364,7 +369,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             "total": total,
             "items": item_objs,
         });
-        println!("{obj}");
+        coding_tools::jsonout::print(&obj, cli.json_pretty);
     } else {
         if verdict == Verdict::Error {
             eprintln!("ct-each: {reason}");

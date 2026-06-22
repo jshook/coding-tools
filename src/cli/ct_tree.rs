@@ -106,6 +106,10 @@ pub struct Cli {
     #[arg(long)]
     pub json: bool,
 
+    /// Like `--json`, but pretty-printed (indented).
+    #[arg(long)]
+    pub json_pretty: bool,
+
     /// Abort with exit 2 if the report exceeds SECS seconds (fractional allowed).
     #[arg(long, value_name = "SECS")]
     pub timeout: Option<f64>,

@@ -309,10 +309,15 @@ fn render_json(cli: &Cli, rows: &[FileRow]) {
         "by_ext": by_ext,
         "totals": { "files": grand.files, "lines": grand.lines, "words": grand.words, "chars": grand.chars },
     });
-    println!("{obj}");
+    coding_tools::jsonout::print(&obj, cli.json_pretty);
 }
 
-fn run(cli: Cli) -> Result<ExitCode, String> {
+fn run(mut cli: Cli) -> Result<ExitCode, String> {
+    // --json-pretty enables JSON output on its own; treat it as --json
+    // everywhere the text path is gated.
+    if cli.json_pretty {
+        cli.json = true;
+    }
     let _watchdog = pulse::watchdog("ct-tree", cli.timeout)?;
     let _pulse = cli.heartbeat.start("ct-tree", PulseState::new())?;
     // --ext is sugar for additional name alternatives.

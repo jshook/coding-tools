@@ -107,6 +107,7 @@ src/patch.rs
 | `--flat`  | One grep-friendly row per matched entry: `path:start:end:kind:name` (`end` is `?` when unknown). |
 | `--quiet` | Print nothing; report via exit status (and `--emit`, which still fires). |
 | `--json`  | Structured result (below); overrides the text modes and `--emit`.   |
+| `--json-pretty` | Like `--json`, but pretty-printed (indented).                 |
 
 Spans are `start:end` (1-based, inclusive). The start line is exact; `?` marks
 an end the heuristic could not derive.

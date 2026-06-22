@@ -111,6 +111,10 @@ pub struct Cli {
     #[arg(long)]
     pub json: bool,
 
+    /// Like `--json`, but pretty-printed (indented).
+    #[arg(long)]
+    pub json_pretty: bool,
+
     /// Print agent usage docs (md or json) and exit.
     #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "md")]
     pub explain: Option<Format>,

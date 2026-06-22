@@ -24,7 +24,12 @@ use serde_json::json;
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-view.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-view.json");
 
-fn run(cli: Cli) -> Result<ExitCode, String> {
+fn run(mut cli: Cli) -> Result<ExitCode, String> {
+    // --json-pretty enables JSON output on its own; treat it as --json
+    // everywhere the text path is gated.
+    if cli.json_pretty {
+        cli.json = true;
+    }
     let _watchdog = pulse::watchdog("ct-view", cli.timeout)?;
     let _pulse = cli.heartbeat.start("ct-view", PulseState::new())?;
     let content = std::fs::read_to_string(&cli.path)
@@ -107,7 +112,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         if let Some(found) = matched {
             obj["matched"] = json!(found);
         }
-        println!("{obj}");
+        coding_tools::jsonout::print(&obj, cli.json_pretty);
     } else {
         let width = total.max(1).to_string().len();
         for (gi, (s, e)) in segments(&selected).iter().enumerate() {

@@ -46,7 +46,12 @@ fn patch_value(v: &str) -> Result<String, String> {
     })
 }
 
-fn run(cli: Cli) -> Result<ExitCode, String> {
+fn run(mut cli: Cli) -> Result<ExitCode, String> {
+    // --json-pretty enables JSON output on its own; treat it as --json
+    // everywhere the text path is gated.
+    if cli.json_pretty {
+        cli.json = true;
+    }
     let watchdog = pulse::watchdog("ct-patch", cli.timeout)?;
     let _pulse = cli.heartbeat.start("ct-patch", PulseState::new())?;
     let mut ops: Vec<Op> = Vec::new();
@@ -176,7 +181,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             "files_changed": changed_files.len(),
             "files": files,
         });
-        println!("{obj}");
+        coding_tools::jsonout::print(&obj, cli.json_pretty);
     } else {
         if !cli.quiet {
             for (path, _, n) in &changed_files {

@@ -103,6 +103,7 @@ producing malformed output.
 | `--dry-run` | Compute and report the changes and verdict, but write nothing. |
 | `--quiet`   | Suppress the per-file lines; print only the summary.            |
 | `--json`    | Emit a structured result (see below).                          |
+| `--json-pretty` | Like `--json`, but pretty-printed (indented).              |
 
 Text mode prints `path: N change(s)` per changed file, then a summary:
 `N change(s) in M file(s) -> RESULT (status)`. `--json` emits:

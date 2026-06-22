@@ -31,6 +31,7 @@ the equivalent MCP / tool-use definition.
 | `--limit`     | `N`      | Cap the number of lines emitted.                                                                 |
 | `--plain`     | —        | Suppress the line-number gutter in text output.                                                  |
 | `--json`      | —        | Emit a structured JSON result instead of text (see *JSON result*).                               |
+| `--json-pretty` | —      | Like `--json`, but pretty-printed (indented).                                                    |
 
 If neither `--range` nor `--match` is given, the whole file is shown (subject to
 `--limit`). `--match` and `--range` are independent selectors; `--match` takes

@@ -61,6 +61,10 @@
           "stdout"
         ],
         "description": "Stream heartbeat pulses are written to. Default: stderr."
+      },
+      "json-pretty": {
+        "type": "boolean",
+        "description": "Like --json, but pretty-printed (indented)."
       }
     },
     "required": [

@@ -55,6 +55,10 @@ pub struct Cli {
     #[arg(long)]
     pub json: bool,
 
+    /// Like `--json`, but pretty-printed (indented).
+    #[arg(long)]
+    pub json_pretty: bool,
+
     /// Per-rule template written to stdout. Tokens: {RESULT} {ID} {QUESTION} {CODE} {WHY} {CMD}.
     #[arg(long, value_name = "TEMPLATE")]
     pub emit_each: Option<String>,

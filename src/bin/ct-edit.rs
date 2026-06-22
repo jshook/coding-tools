@@ -248,7 +248,7 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
         {
             obj["nearest_miss"] = miss_json(path, m);
         }
-        println!("{obj}");
+        coding_tools::jsonout::print(&obj, cli.json_pretty);
     } else {
         if !cli.quiet {
             print_sites("", &sites);
@@ -358,7 +358,7 @@ fn run_script(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
             "files_changed": files_changed,
             "edits": edits,
         });
-        println!("{obj}");
+        coding_tools::jsonout::print(&obj, cli.json_pretty);
     } else {
         if !cli.quiet {
             for o in &outcomes {
@@ -411,7 +411,12 @@ fn outcome_json(o: &EditOutcome) -> serde_json::Value {
     obj
 }
 
-fn run(cli: Cli) -> Result<ExitCode, String> {
+fn run(mut cli: Cli) -> Result<ExitCode, String> {
+    // --json-pretty enables JSON output on its own; treat it as --json
+    // everywhere the text path is gated.
+    if cli.json_pretty {
+        cli.json = true;
+    }
     let watchdog = pulse::watchdog("ct-edit", cli.timeout)?;
     let _pulse = cli.heartbeat.start("ct-edit", PulseState::new())?;
     if cli.script.is_some() {

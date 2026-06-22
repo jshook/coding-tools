@@ -86,6 +86,10 @@ pub struct Cli {
     #[arg(long)]
     pub json: bool,
 
+    /// Like `--json`, but pretty-printed (indented).
+    #[arg(long)]
+    pub json_pretty: bool,
+
     /// Abort with exit 2 if the scan exceeds SECS seconds (fractional allowed). Never interrupts the write phase: once a SUCCESS verdict starts writing, every write completes.
     #[arg(long, value_name = "SECS")]
     pub timeout: Option<f64>,

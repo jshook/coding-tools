@@ -126,6 +126,7 @@ writes**, exit `1`; failing block edits carry their nearest miss.
 | --------- | --------------------------------------------------------------------- |
 | `--quiet` | Suppress the per-site diff; print only the summary line.              |
 | `--json`  | Emit a structured result instead of text.                            |
+| `--json-pretty` | Like `--json`, but pretty-printed (indented).                  |
 
 Text mode prints each changed line as `path:line:- before` then `path:line:+ after`
 (block sites print one row per payload line, at the block's start line),

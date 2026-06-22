@@ -117,7 +117,12 @@ fn head_lines(text: &str, n: usize) -> String {
     out
 }
 
-fn run(cli: Cli) -> Result<ExitCode, String> {
+fn run(mut cli: Cli) -> Result<ExitCode, String> {
+    // --json-pretty enables JSON output on its own; treat it as --json
+    // everywhere the text path is gated.
+    if cli.json_pretty {
+        cli.json = true;
+    }
     let store_file = resolve_store(&cli.file)?;
     let (store, expanded) = load_validated(&store_file)?;
 
@@ -270,18 +275,16 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 })
             })
             .collect();
-        println!(
-            "{}",
-            json!({
-                "tool": "ct-check",
-                "verdict": result,
-                "store": store_file.display().to_string(),
-                "ok": holds, "violated": violated, "warned": warned,
-                "pending": pending, "broken": broken, "skipped": skipped,
-                "total": total,
-                "rules": rule_objs,
-            })
-        );
+        let obj = json!({
+            "tool": "ct-check",
+            "verdict": result,
+            "store": store_file.display().to_string(),
+            "ok": holds, "violated": violated, "warned": warned,
+            "pending": pending, "broken": broken, "skipped": skipped,
+            "total": total,
+            "rules": rule_objs,
+        });
+        coding_tools::jsonout::print(&obj, cli.json_pretty);
         return Ok(exit);
     }
 

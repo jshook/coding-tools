@@ -21,8 +21,17 @@ ct <command> [args...]    run the matching ct-<command> tool
 ct help [<command>]       show this help, or a command's own --help
 ct <command> --explain    print one tool's definition (md or json)
 ct --explain [md|json]    describe the whole suite (json = a manifest of every tool)
+ct completions [shell]    print the shell completion script (bash/zsh/fish; auto-detects if omitted)
 ct --version
 ```
+
+## Shell completion
+
+`ct completions` prints a registration script (run `eval "$(ct completions)"`,
+or install it for your shell). Completion is **dynamic**: beyond subcommands,
+flags, and value_enum sets (`--mode`, `--type`, …), it offers live values read
+from `.ct/rules.jsonc` at completion time — rule ids for `ct check --id` /
+`ct rules --promote`/`--remove`, tags for `--tag`, and def names for `--def`.
 
 ## Commands
 

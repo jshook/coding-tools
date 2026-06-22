@@ -67,6 +67,7 @@ Mutually exclusive; default `--tree`.
 | `--flat`    | One matching file per line: `lines words chars  path`, then a totals line. Best for ranked lists. |
 | `--summary` | Aggregate counts only, grouped by `--group`.                                    |
 | `--json`    | Structured result (overrides the text modes).                                   |
+| `--json-pretty` | Like `--json`, but pretty-printed (indented).                               |
 
 | Option    | Argument                | Meaning                                              |
 | --------- | ----------------------- | --------------------------------------------------- |

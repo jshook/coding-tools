@@ -58,7 +58,7 @@
       "why": "musl cross-builds require pure-Rust TLS; this crate must stay C-free",
       "tags": ["deps","portability"],
       "added": "2026-06-11",
-      "probe": ["ct-deps","--deny","openssl","--deny","native-tls","--quiet"]
+      "probe": ["deps","--deny","openssl","--deny","native-tls"]
     }
   ]
 }

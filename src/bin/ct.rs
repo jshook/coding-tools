@@ -88,6 +88,7 @@ fn usage() -> String {
          ct help [<command>]       show this help, or a command's own --help\n  \
          ct <command> --explain    print one tool's definition (md or json)\n  \
          ct --explain [md|json]    describe the whole suite (json = a manifest of every tool)\n  \
+         ct completions [shell]    print the shell completion script (bash/zsh/fish; auto-detects if omitted)\n  \
          ct --version\n\
          \n\
          Commands:\n\
@@ -145,7 +146,49 @@ fn launch_error(sub: &str, err: std::io::Error) -> ExitCode {
     ExitCode::from(2)
 }
 
+/// Print the shell completion registration script. With no shell, emit the
+/// auto-detecting wrapper (which itself re-invokes `ct completions --shell
+/// <detected>`); a shell may be named with `--shell SHELL`, `--shell=SHELL`, or
+/// bare `SHELL`.
+fn completions(rest: &[String]) -> ExitCode {
+    let shell: Option<&str> = match rest.first().map(String::as_str) {
+        None => None,
+        Some("--shell") => match rest.get(1) {
+            Some(s) => Some(s.as_str()),
+            None => {
+                eprintln!("ct: --shell needs a value (bash, zsh, fish)");
+                return ExitCode::from(2);
+            }
+        },
+        Some(s) if s.starts_with("--shell=") => s.strip_prefix("--shell="),
+        Some(s) if !s.starts_with('-') => Some(s),
+        Some(other) => {
+            eprintln!("ct: unknown completions argument '{other}'");
+            return ExitCode::from(2);
+        }
+    };
+    match shell {
+        None => veks_completion::print_indirect_wrapper("ct"),
+        Some(name) => match veks_completion::Shell::from_name(name) {
+            Some(sh) => veks_completion::print_completions("ct", sh),
+            None => {
+                eprintln!("ct: unknown shell '{name}' (bash, zsh, fish)");
+                return ExitCode::from(2);
+            }
+        },
+    }
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
+    // Dynamic shell completion: when the registration script's callback sets
+    // `_CT_COMPLETE=bash`, veks-completion answers the request and we exit
+    // before any normal dispatch. A no-op on every ordinary invocation.
+    let tree = coding_tools::completion::command_tree();
+    if veks_completion::handle_complete_env("ct", &tree) {
+        return ExitCode::SUCCESS;
+    }
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(first) = args.first() else {
         // No command: a usage error, but show the banner so it is actionable.
@@ -190,6 +233,7 @@ fn main() -> ExitCode {
                 }
             }
         }
+        "completions" => completions(&args[1..]),
         flag if flag.starts_with('-') => {
             eprintln!("ct: unknown option '{flag}'");
             eprint!("\n{}", usage());

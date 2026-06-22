@@ -76,7 +76,12 @@ fn compile_grep(resolved: &payload::Resolved, mode: Option<pattern::Mode>) -> Re
         .map_err(|e| format!("invalid --grep pattern: {e}"))
 }
 
-fn run(cli: Cli) -> Result<ExitCode, String> {
+fn run(mut cli: Cli) -> Result<ExitCode, String> {
+    // --json-pretty enables JSON output on its own; treat it as --json
+    // everywhere the text path is gated.
+    if cli.json_pretty {
+        cli.json = true;
+    }
     let _watchdog = pulse::watchdog("ct-search", cli.timeout)?;
     let _pulse = cli.heartbeat.start("ct-search", PulseState::new())?;
     let names = match &cli.name {
@@ -243,7 +248,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             "lines": total_lines,
             "matches": match_paths,
         });
-        println!("{obj}");
+        coding_tools::jsonout::print(&obj, cli.json_pretty);
     } else if emit_present {
         let count = matched.to_string();
         let lines = total_lines.to_string();

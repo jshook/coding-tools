@@ -103,6 +103,10 @@
       "no-ignore": {
         "type": "boolean",
         "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
+      },
+      "json-pretty": {
+        "type": "boolean",
+        "description": "Like --json, but pretty-printed (indented)."
       }
     },
     "required": []

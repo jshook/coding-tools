@@ -105,6 +105,7 @@ and the head of the probe's own violation output go to stderr.
 | `--list`      | —        | Print the selected rules (id, flags, question, tags); run nothing. |
 | `--quiet`     | —        | Suppress per-rule lines and the default summary (stderr diagnostics remain). |
 | `--json`      | —        | One structured result; overrides text output and emit templates. |
+| `--json-pretty` | —      | Like `--json`, but pretty-printed (indented).                   |
 | `--timeout`   | `SECS`   | Default per-rule bound (fractional allowed); a rule's own `timeout` field overrides. A timed-out probe is `BROKEN`. |
 
 Rules run in store order, sequentially, each independent. `--heartbeat SECS`
