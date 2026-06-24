@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
+mod common;
+
 /// A unique, overwrite-friendly scratch dir under `target/` (never removed).
 fn scratch(tag: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -51,7 +53,8 @@ fn ct_each_dispatches_per_item_and_aggregates() {
         ct_each()
             .args(["--items", "alpha", "beta", "--expect", expect, "--quiet"])
             .args(["--emit", "{OK}/{TOTAL} -> {RESULT}"])
-            .args(["--", "grep", "-q", "{ITEM}", file.to_str().unwrap()])
+            .arg("--")
+            .args(common::grep(&file, "{ITEM}"))
             .output()
             .unwrap()
     };
@@ -73,7 +76,8 @@ fn ct_each_dispatches_per_item_and_aggregates() {
     // JSON carries the per-item classification.
     let json = ct_each()
         .args(["--items", "alpha", "beta", "--json"])
-        .args(["--", "grep", "-q", "{ITEM}", file.to_str().unwrap()])
+        .arg("--")
+        .args(common::grep(&file, "{ITEM}"))
         .output()
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(stdout(&json).trim()).unwrap();
@@ -86,26 +90,35 @@ fn ct_each_dispatches_per_item_and_aggregates() {
 
 #[test]
 fn ct_each_substitutes_item_and_index_in_argv_without_a_shell() {
-    // `; rm` inside an item must stay one literal argument to echo — if any
-    // shell interpreted the expansion, the output shape would change.
+    // `; rm` inside an item must stay one literal argument — if any shell
+    // interpreted the expansion, the item would be split/mangled and would no
+    // longer match its own literal line in the file. A clean per-item match
+    // (SUCCESS) proves the metacharacter-laden item reached the program as a
+    // single literal argv element.
+    let dir = scratch("ct-each-noshell");
+    let file = dir.join("hay.txt");
+    std::fs::write(&file, "a; rm -rf /\nplain\n").unwrap();
     let out = ct_each()
         .args(["--items", "a; rm -rf /", "plain", "--quiet"])
-        .args(["--emit-each", "[{INDEX}] {STDOUT}"])
-        .args(["--", "echo", "got:{ITEM}"])
+        .args(["--emit-each", "[{INDEX}] {RESULT}"])
+        .arg("--")
+        .args(common::grep(&file, "{ITEM}"))
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "stderr: {:?}", stderr(&out));
     let text = stdout(&out);
-    assert!(text.contains("[1] got:a; rm -rf /"), "got {text:?}");
-    assert!(text.contains("[2] got:plain"), "got {text:?}");
+    assert!(text.contains("[1] SUCCESS"), "got {text:?}");
+    assert!(text.contains("[2] SUCCESS"), "got {text:?}");
 }
 
 #[test]
 fn ct_each_reads_items_from_stdin() {
     use std::io::Write;
+    let dir = scratch("ct-each-stdin");
     let mut child = ct_each()
         .args(["--stdin", "--quiet", "--emit", "{OK}/{TOTAL}"])
-        .args(["--", "true"])
+        .arg("--")
+        .args(common::exit_ok(&dir))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -202,16 +215,17 @@ fn ct_each_gate_is_fixed_with_mutating_opt_in_for_suite_tools_only() {
 #[test]
 fn ct_test_timeout_is_a_decisive_error_verdict() {
     let dir = scratch("ct-test-timeout");
-    let file = dir.join("forever.txt");
-    std::fs::write(&file, "line\n").unwrap();
 
-    // `tail -f` never exits; the timeout must kill it promptly and classify
-    // ERROR with {CODE}=timeout — even though tail printed matching output.
+    // A command that blocks until killed; the timeout must end it promptly and
+    // classify ERROR with {CODE}=timeout (the matcher is moot once it times out).
     let started = Instant::now();
+    let blk = common::block(&dir);
     let out = ct_test()
-        .args(["--quiet", "--timeout", "0.3", "--ok-match", "line"])
+        .args(["--quiet", "--timeout", "0.3", "--ok-match", "BUILD SUCCESS"])
         .args(["--emit", "{RESULT} code={CODE}"])
-        .args(["--cmd", "tail", "--", "-f", file.to_str().unwrap()])
+        .args(["--cmd", &blk[0]])
+        .arg("--")
+        .args(&blk[1..])
         .output()
         .unwrap();
     assert!(
@@ -230,12 +244,11 @@ fn ct_test_timeout_is_a_decisive_error_verdict() {
 #[test]
 fn ct_each_timeout_marks_the_item_not_the_tool() {
     let dir = scratch("ct-each-timeout");
-    let file = dir.join("forever.txt");
-    std::fs::write(&file, "line\n").unwrap();
 
     let out = ct_each()
         .args(["--items", "x", "--timeout", "0.3", "--quiet", "--json"])
-        .args(["--", "tail", "-f", file.to_str().unwrap()])
+        .arg("--")
+        .args(common::block(&dir))
         .output()
         .unwrap();
     assert_eq!(code(&out), 1, "timed-out item fails --expect all");
@@ -244,6 +257,11 @@ fn ct_each_timeout_marks_the_item_not_the_tool() {
     assert_eq!(v["items"][0]["result"], "ERROR");
 }
 
+// Exercises ct-test's own (OS-agnostic) capture-tail truncation with exact,
+// LF-sensitive output content, which needs a raw stdin pass-through filter. Unix
+// `cat` is the clean fixture; the logic under test is platform-independent, so
+// Unix coverage suffices.
+#[cfg(unix)]
 #[test]
 fn ct_test_capture_tail_bounds_emit_tokens_but_not_matchers() {
     let out = ct_test()
@@ -264,13 +282,14 @@ fn ct_test_capture_tail_bounds_emit_tokens_but_not_matchers() {
 #[test]
 fn heartbeat_pulses_while_a_child_runs() {
     let dir = scratch("heartbeat");
-    let file = dir.join("forever.txt");
-    std::fs::write(&file, "line\n").unwrap();
 
     // Default pulse goes to stderr with the minimal [Ns] template.
+    let blk = common::block(&dir);
     let out = ct_test()
         .args(["--quiet", "--timeout", "0.7", "--heartbeat", "0.2"])
-        .args(["--cmd", "tail", "--", "-f", file.to_str().unwrap()])
+        .args(["--cmd", &blk[0]])
+        .arg("--")
+        .args(&blk[1..])
         .output()
         .unwrap();
     assert!(stderr(&out).contains("[0s]"), "default pulse: {:?}", stderr(&out));
@@ -280,7 +299,8 @@ fn heartbeat_pulses_while_a_child_runs() {
         .args(["--items", "thing", "--timeout", "0.7", "--quiet"])
         .args(["--heartbeat", "0.2", "--heartbeat-to", "stdout"])
         .args(["--heartbeat-emit", "tick {ELAPSED}s {TOOL} {ITEM} {DONE}/{TOTAL}"])
-        .args(["--", "tail", "-f", file.to_str().unwrap()])
+        .arg("--")
+        .args(common::block(&dir))
         .output()
         .unwrap();
     assert!(

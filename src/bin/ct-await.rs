@@ -33,7 +33,7 @@ const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-await.json");
 
 /// The refusal shown for a non-gated probe.
 fn deny_message(name: &str) -> String {
-    let base = allowlist::BUILTIN.join(" ");
+    let base = allowlist::builtin().join(" ");
     format!(
         "ct-await: '{name}' is not an allowed probe, so nothing was run.\n\
          \n\
@@ -50,7 +50,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         return Err("missing probe: supply one after `--`, e.g. `ct-await --timeout 600 -- ct-search --base target/build.log --grep 'BUILD SUCCESS' --quiet`".to_string());
     }
     let name = allowlist::gated_name(&cli.probe[0]);
+    // `ct-await` is on the read-only allowlist (so other tools can poll it), but
+    // it must not poll *itself* — no self-nesting, the same guard ct-each has.
     let gated_ok = allowlist::is_allowed_for_each(&name, false)
+        && name != "ct-await"
         && !(name == "ct-each" && cli.probe.iter().any(|a| a == "--mutating"));
     if !gated_ok {
         eprint!("{}", deny_message(&name));

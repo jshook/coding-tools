@@ -97,7 +97,7 @@ fn deny_message(name: &str, mutating: bool) -> String {
              one, use `ct rules -- {name} …` and `ct check`.\n"
         );
     }
-    let base = allowlist::BUILTIN.join(" ");
+    let base = allowlist::builtin().join(" ");
     let extra = allowlist::MUTATING_SUITE.join(" ");
     let hint = if mutating {
         String::new()

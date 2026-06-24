@@ -42,6 +42,15 @@ pub fn resolve_program(cmd: &str, name: &str) -> OsString {
         && let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
+        // On Windows the sibling carries an `.exe` suffix; try it first so a
+        // bare `ct-*` name resolves next to us before falling back to PATH.
+        #[cfg(windows)]
+        {
+            let win = dir.join(format!("{name}.exe"));
+            if win.is_file() {
+                return win.into_os_string();
+            }
+        }
         let candidate = dir.join(name);
         if candidate.is_file() {
             return candidate.into_os_string();

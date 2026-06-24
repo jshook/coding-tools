@@ -301,7 +301,8 @@ fn store_is_human_friendly_jsonc_with_prompt_retention_and_flatten() {
     let second = ct_rules(&dir)
         .args(["--add", "second", "--question", "q2"])
         .args(["--prompt", "second request"])
-        .args(["--", "true"])
+        // A probe that passes on every OS: the src file above contains `clean`.
+        .args(["--", "ct-search", "--base", "src", "--grep", "clean", "--quiet"])
         .output()
         .unwrap();
     assert_eq!(code(&second), 0);

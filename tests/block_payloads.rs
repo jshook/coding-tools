@@ -12,6 +12,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod common;
+
 /// A unique, overwrite-friendly scratch dir under `target/` (never removed).
 fn scratch(tag: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -540,9 +542,9 @@ fn patch_file_value_is_a_verbatim_string_and_each_expands_file_items() {
             "--quiet",
             "--emit",
             "{TOTAL} item(s)",
-            "--",
-            "true",
         ])
+        .arg("--")
+        .args(common::exit_ok(&dir))
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "{}", stderr(&out));
@@ -554,10 +556,10 @@ fn ct_test_stdin_accepts_a_file_payload() {
     let dir = scratch("test-stdin");
     std::fs::write(dir.join("input.txt"), "first\nMARKER here\nlast\n").unwrap();
 
+    let cat = common::cat_stdin();
     let out = tool("ct-test")
+        .args(["--cmd", &cat[0]])
         .args([
-            "--cmd",
-            "cat",
             "--stdin",
             &format!("file:{}", dir.join("input.txt").display()),
             "--ok-match",
@@ -566,6 +568,8 @@ fn ct_test_stdin_accepts_a_file_payload() {
             "--emit",
             "{RESULT}",
         ])
+        .arg("--")
+        .args(&cat[1..])
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "{}", stderr(&out));

@@ -1,5 +1,10 @@
 # Continuous checks on every push to main and every pull request: formatting,
 # lints, and the full test suite (unit + integration + doctests).
+#
+# The dispatching tools (ct-test/ct-each/ct-await) launch read-only commands per
+# platform, so the test suite is run in BOTH supported runtime environments:
+# native Windows (no MSYS2, the suite's cross-platform ct-* tools + stock Windows
+# utilities) and Unix/MSYS2 (coreutils on PATH). Lints/format run once on Linux.
 name: ci
 
 on:
@@ -15,7 +20,7 @@ env:
 
 jobs:
   check:
-    name: fmt · clippy · test
+    name: fmt · clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -33,5 +38,36 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
+  test:
+    name: test · ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Unix coreutils on PATH.
+          - { name: linux, os: ubuntu-latest, shell: bash, msys2: false }
+          # Native Windows: no MSYS2, the cross-platform ct-* core + stock
+          # Windows read-only utilities (findstr, where, …).
+          - { name: windows-native, os: windows-latest, shell: pwsh, msys2: false }
+          # Windows with MSYS2: coreutils on PATH (the Unix-tool path on Windows).
+          - { name: windows-msys2, os: windows-latest, shell: "msys2 {0}", msys2: true }
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install MSYS2 (coreutils on PATH)
+        if: matrix.msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          install: coreutils grep
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
       - name: Test (unit + integration + doctests)
+        shell: ${{ matrix.shell }}
         run: cargo test --locked

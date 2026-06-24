@@ -50,21 +50,29 @@ is a search (see `ct-search --explain`, especially `--expect`/`--emit`).
 ## Command allowlist
 
 Because `ct-test` runs an arbitrary program, it runs **only** commands on a fixed,
-compiled-in list of read-only commands:
+compiled-in list of read-only commands. The list is **platform-aware** so the
+tool works both on Unix/MSYS2 and on native Windows (no MSYS2 needed): a
+cross-platform core of the suite's own `ct-*` tools, plus the host OS's stock
+read-only utilities.
 
 ```
-cat ct-check ct-outline ct-search ct-tree ct-view echo false file grep head ls pwd stat tail true wc
+core (every OS):  ct-await ct-check ct-outline ct-search ct-tree ct-view
+unix / MSYS2:     cat echo false file grep head ls pwd stat tail true wc
+native Windows:   findstr hostname more where whoami
 ```
 
-The suite's read-only `ct-search`/`ct-outline`/`ct-tree`/`ct-view`/`ct-check` are
-included — so `ct-test` is a ready **conditional wrapper** around them (see
-*Composing with the suite*); the umbrella `ct` and the dispatching/mutating
-`ct-each`/`ct-edit`/`ct-patch`/`ct-rules` are not, since they can change state.
-**The list is static and immutable** — there is deliberately no flag or file to
-extend it, so an agent driving `ct-test` cannot grant itself new commands.
+The suite's read-only `ct-search`/`ct-outline`/`ct-tree`/`ct-view`/`ct-check`/`ct-await`
+are in the core — so `ct-test` is a ready **conditional wrapper** around them (see
+*Composing with the suite*) on any platform; the umbrella `ct` and the
+dispatching/mutating `ct-each`/`ct-edit`/`ct-patch`/`ct-rules` are not, since they
+can change state. **The list is static and immutable** — there is deliberately no
+flag or file to extend it, so an agent driving `ct-test` cannot grant itself new
+commands. (`ct-test --explain` / a refusal message prints the list for the
+current platform.)
 
 Gating is by **program name** — the file-name component of `--cmd` (so `ls`,
-`/bin/ls`, and `./ls` all gate on `ls`). There is **no shell mode**: the command
+`/bin/ls`, and `./ls` all gate on `ls`; on Windows a trailing `.exe` is stripped,
+so `ct-search.exe` gates on `ct-search`). There is **no shell mode**: the command
 is always launched directly with its arguments, never through `sh`, so pipes and
 redirection syntax have no meaning here (the match predicates and `--focus`
 replace the usual `| grep` post-processing). The gate guards against unintended

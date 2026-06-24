@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 use coding_tools::deps;
 use coding_tools::rules::ProbeOutcome;
 
+mod common;
+
 fn repo() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -150,14 +152,14 @@ fn await_matchers_are_decisive_and_timeout_is_hard() {
     let dir = scratch("await-abort");
     std::fs::write(dir.join("ci.log"), "step 1 ok\nBUILD FAILURE\n").unwrap();
 
-    // The probe surfaces the log content (cat is allowlisted); the failure
-    // marker ends the wait on the first tick, exit 1 — decisive over the
-    // missing success marker.
+    // The probe surfaces the log content (ct-view is read-only and
+    // cross-platform); the failure marker ends the wait on the first tick,
+    // exit 1 — decisive over the missing success marker.
     let started = Instant::now();
     let out = ct_await(&dir)
         .args(["--every", "0.2", "--timeout", "30", "--quiet"])
         .args(["--ok-match", "BUILD SUCCESS", "--err-match", "BUILD FAILURE"])
-        .args(["--", "cat", "ci.log"])
+        .args(["--", "ct-view", "ci.log"])
         .output()
         .unwrap();
     assert_eq!(code(&out), 1, "err-match => ERROR; stderr: {:?}", stderr(&out));
@@ -175,7 +177,7 @@ fn await_matchers_are_decisive_and_timeout_is_hard() {
     let out = ct_await(&dir)
         .args(["--every", "0.1", "--timeout", "10", "--quiet"])
         .args(["--ok-match", "BUILD SUCCESS", "--emit", "{RESULT} ticks={TICKS}"])
-        .args(["--", "cat", "slow.log"])
+        .args(["--", "ct-view", "slow.log"])
         .output()
         .unwrap();
     writer.join().unwrap();
@@ -191,7 +193,8 @@ fn await_matchers_are_decisive_and_timeout_is_hard() {
     let started = Instant::now();
     let out = ct_await(&dir)
         .args(["--every", "0.1", "--timeout", "0.5", "--quiet"])
-        .args(["--", "false"])
+        .arg("--")
+        .args(common::exit_err(&dir))
         .output()
         .unwrap();
     assert_eq!(code(&out), 1, "timeout => ERROR");

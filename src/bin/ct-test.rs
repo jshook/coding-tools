@@ -199,7 +199,7 @@ fn cmd_display(cli: &Cli) -> String {
 /// The refusal shown when a command is not on the fixed allowlist: what was
 /// blocked and the full set of commands `ct-test` is permitted to run.
 fn deny_message(name: &str) -> String {
-    let allowed = allowlist::BUILTIN.join(" ");
+    let allowed = allowlist::builtin().join(" ");
     format!(
         "ct-test: '{name}' is not on the allowlist, so nothing was run.\n\
          \n\
