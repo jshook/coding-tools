@@ -91,8 +91,7 @@ pub fn compile_item(item: &Item, ordinal: usize) -> Result<EditSpec, String> {
     }
 
     let expect_label = item.attr("expect").unwrap_or("=1").to_string();
-    let expect =
-        Expect::parse(&expect_label).map_err(|e| at(format!("invalid expect: {e}")))?;
+    let expect = Expect::parse(&expect_label).map_err(|e| at(format!("invalid expect: {e}")))?;
     let mode_label = item.attr("mode").unwrap_or("literal").to_string();
     let mode = match mode_label.as_str() {
         "literal" => Mode::Literal,
@@ -214,10 +213,7 @@ fn track_miss(
 /// write would have it. Buffers are updated even past a failing edit so the
 /// remaining diagnostics stay meaningful; the caller writes nothing unless
 /// every outcome is `SUCCESS`.
-pub fn run_cascade(
-    specs: &[EditSpec],
-    files: &mut [FileBuf],
-) -> Result<Vec<EditOutcome>, String> {
+pub fn run_cascade(specs: &[EditSpec], files: &mut [FileBuf]) -> Result<Vec<EditOutcome>, String> {
     let mut outcomes = Vec::with_capacity(specs.len());
     for spec in specs {
         let cand = candidates(spec, files)?;
@@ -288,9 +284,7 @@ pub fn run_no_cascade(
             for site in &s {
                 let (len, replacement) = match &spec.op {
                     Op::Block { find, replace } => (find.len(), replace.clone()),
-                    Op::Line { .. } => {
-                        (1, site.after.split('\n').map(str::to_string).collect())
-                    }
+                    Op::Line { .. } => (1, site.after.split('\n').map(str::to_string).collect()),
                 };
                 splices.push((
                     spec.ordinal,
@@ -357,7 +351,11 @@ fn splice_lines(content: &str, start: usize, len: usize, replacement: &[String])
             let last_term = segments[(start + len - 1).min(segments.len() - 1)].1;
             for (r, rl) in replacement.iter().enumerate() {
                 out.push_str(rl);
-                out.push_str(if r + 1 == replacement.len() { last_term } else { "\n" });
+                out.push_str(if r + 1 == replacement.len() {
+                    last_term
+                } else {
+                    "\n"
+                });
             }
         }
         if i < start || i >= start + len {

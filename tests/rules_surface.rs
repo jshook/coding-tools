@@ -64,25 +64,59 @@ fn add_verifies_now_strict_refuses_failing_candidates() {
 
     // A rule that holds records, with provenance.
     let ok = ct_rules(&dir)
-        .args(["--add", "no-dbg", "--question", "No dbg! in src?", "--why", "hygiene"])
-        .args(["--", "ct-search", "--base", "src", "--grep", "dbg!", "--expect", "none", "--quiet"])
+        .args([
+            "--add",
+            "no-dbg",
+            "--question",
+            "No dbg! in src?",
+            "--why",
+            "hygiene",
+        ])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "dbg!",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&ok), 0, "stderr: {:?}", stderr(&ok));
     let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
-    assert!(store.contains("// test store"), "comments preserved: {store:?}");
+    assert!(
+        store.contains("// test store"),
+        "comments preserved: {store:?}"
+    );
     assert!(store.contains("\"added\""), "provenance recorded");
 
     // A failing candidate is refused (exit 1) and NOT recorded.
     std::fs::write(dir.join("src/main.rs"), "fn main() { dbg!(1); }\n").unwrap();
     let refused = ct_rules(&dir)
         .args(["--add", "no-dbg-2", "--question", "q"])
-        .args(["--", "ct-search", "--base", "src", "--grep", "dbg!", "--expect", "none", "--quiet"])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "dbg!",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&refused), 1, "failing candidate refused");
     assert!(stderr(&refused).contains("not recorded"));
-    assert!(!std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap().contains("no-dbg-2"));
+    assert!(
+        !std::fs::read_to_string(dir.join(".ct/rules.jsonc"))
+            .unwrap()
+            .contains("no-dbg-2")
+    );
 
     // Duplicate ids are refused.
     let dup = ct_rules(&dir)
@@ -100,8 +134,24 @@ fn pending_lane_and_promotion() {
 
     // Record an aspiration that does not yet hold.
     let add = ct_rules(&dir)
-        .args(["--add", "no-unwrap", "--pending", "--question", "No unwrap?"])
-        .args(["--", "ct-search", "--base", "src", "--grep", "unwrap", "--expect", "none", "--quiet"])
+        .args([
+            "--add",
+            "no-unwrap",
+            "--pending",
+            "--question",
+            "No unwrap?",
+        ])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "unwrap",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&add), 0, "stderr: {:?}", stderr(&add));
@@ -109,20 +159,35 @@ fn pending_lane_and_promotion() {
 
     // PENDING never reddens the run.
     let check = ct_check(&dir).output().unwrap();
-    assert_eq!(code(&check), 0, "pending must not fail: {:?}", stderr(&check));
+    assert_eq!(
+        code(&check),
+        0,
+        "pending must not fail: {:?}",
+        stderr(&check)
+    );
     assert!(stdout(&check).contains("PENDING"));
     assert!(stdout(&check).contains("not yet held"));
 
     // Promotion is refused while it still fails...
-    let early = ct_rules(&dir).args(["--promote", "no-unwrap"]).output().unwrap();
+    let early = ct_rules(&dir)
+        .args(["--promote", "no-unwrap"])
+        .output()
+        .unwrap();
     assert_eq!(code(&early), 1, "premature promotion refused");
 
     // ...and succeeds (clearing the flag) once the code is clean.
     std::fs::write(dir.join("src/lib.rs"), "fn f() {}\n").unwrap();
-    let promote = ct_rules(&dir).args(["--promote", "no-unwrap"]).output().unwrap();
+    let promote = ct_rules(&dir)
+        .args(["--promote", "no-unwrap"])
+        .output()
+        .unwrap();
     assert_eq!(code(&promote), 0, "stderr: {:?}", stderr(&promote));
     let check = ct_check(&dir).output().unwrap();
-    assert!(stdout(&check).contains("SUCCESS  no-unwrap"), "now enforced: {:?}", stdout(&check));
+    assert!(
+        stdout(&check).contains("SUCCESS  no-unwrap"),
+        "now enforced: {:?}",
+        stdout(&check)
+    );
     assert!(!stdout(&check).contains("PENDING"));
 }
 
@@ -134,14 +199,35 @@ fn lanes_map_to_exit_status_warn_soft_broken_hard() {
 
     // severity warn: violated but soft.
     let add = ct_rules(&dir)
-        .args(["--add", "no-unwrap", "--severity", "warn", "--question", "No unwrap?", "--pending"])
-        .args(["--", "ct-search", "--base", "src", "--grep", "unwrap", "--expect", "none", "--quiet"])
+        .args([
+            "--add",
+            "no-unwrap",
+            "--severity",
+            "warn",
+            "--question",
+            "No unwrap?",
+            "--pending",
+        ])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "unwrap",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&add), 0);
     // Promote-by-hand for the test: rewrite store without the pending flag.
     let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
-    assert!(store.contains("\n      \"pending\": true,\n"), "pretty store: {store:?}");
+    assert!(
+        store.contains("\n      \"pending\": true,\n"),
+        "pretty store: {store:?}"
+    );
     std::fs::write(
         dir.join(".ct/rules.jsonc"),
         store.replace("\n      \"pending\": true,", ""),
@@ -151,7 +237,10 @@ fn lanes_map_to_exit_status_warn_soft_broken_hard() {
     let check = ct_check(&dir).output().unwrap();
     assert_eq!(code(&check), 0, "warn never reddens: {:?}", stderr(&check));
     assert!(stdout(&check).contains("WARN"), "got {:?}", stdout(&check));
-    assert!(stderr(&check).contains("'no-unwrap' WARN"), "explained on stderr");
+    assert!(
+        stderr(&check).contains("'no-unwrap' WARN"),
+        "explained on stderr"
+    );
 
     // A broken probe (missing file named directly) => BROKEN, exit 2.
     let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
@@ -194,8 +283,20 @@ fn probe_gate_is_immutable_and_def_expansion_works() {
         .unwrap();
     assert_eq!(code(&def), 0, "stderr: {:?}", stderr(&def));
     let add = ct_rules(&dir)
-        .args(["--add", "types-used", "--question", "Core types referenced?"])
-        .args(["--", "ct-each", "--items", "{def:core-types}", "--quiet", "--"])
+        .args([
+            "--add",
+            "types-used",
+            "--question",
+            "Core types referenced?",
+        ])
+        .args([
+            "--",
+            "ct-each",
+            "--items",
+            "{def:core-types}",
+            "--quiet",
+            "--",
+        ])
         .args(["ct-search", "--base", "src", "--grep", "{ITEM}", "--quiet"])
         .output()
         .unwrap();
@@ -213,7 +314,11 @@ fn probe_gate_is_immutable_and_def_expansion_works() {
     .unwrap();
     let check = ct_check(&dir).output().unwrap();
     assert_eq!(code(&check), 2);
-    assert!(stderr(&check).contains("unknown def"), "got {:?}", stderr(&check));
+    assert!(
+        stderr(&check).contains("unknown def"),
+        "got {:?}",
+        stderr(&check)
+    );
 }
 
 #[test]
@@ -223,7 +328,17 @@ fn store_discovery_is_upward_and_probes_run_from_the_root() {
     std::fs::write(dir.join("src/lib.rs"), "fn clean() {}\n").unwrap();
     let add = ct_rules(&dir)
         .args(["--add", "no-dbg", "--question", "q"])
-        .args(["--", "ct-search", "--base", "src", "--grep", "dbg!", "--expect", "none", "--quiet"])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "dbg!",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&add), 0, "stderr: {:?}", stderr(&add));
@@ -256,7 +371,17 @@ fn ct_check_is_allowlisted_and_composes() {
     std::fs::write(dir.join("src/lib.rs"), "fn clean() {}\n").unwrap();
     let add = ct_rules(&dir)
         .args(["--add", "no-dbg", "--question", "q"])
-        .args(["--", "ct-search", "--base", "src", "--grep", "dbg!", "--expect", "none", "--quiet"])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "dbg!",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&add), 0);
@@ -273,7 +398,8 @@ fn ct_check_is_allowlisted_and_composes() {
 
     // ct-rules is NOT a permitted ct-test command (it writes).
     let mut deny = Command::new(env!("CARGO_BIN_EXE_ct-test"));
-    deny.current_dir(&dir).args(["--cmd", "ct-rules", "--", "--list"]);
+    deny.current_dir(&dir)
+        .args(["--cmd", "ct-rules", "--", "--list"]);
     let out = deny.output().unwrap();
     assert_eq!(code(&out), 2, "ct-rules must stay off the allowlist");
 }
@@ -286,9 +412,29 @@ fn store_is_human_friendly_jsonc_with_prompt_retention_and_flatten() {
 
     // Recording with --prompt retains the verbatim request and says so.
     let add = ct_rules(&dir)
-        .args(["--add", "no-dbg", "--question", "No dbg! in src?", "--why", "hygiene"])
-        .args(["--prompt", "please make sure we never ship debug prints again"])
-        .args(["--", "ct-search", "--base", "src", "--grep", "dbg!", "--expect", "none", "--quiet"])
+        .args([
+            "--add",
+            "no-dbg",
+            "--question",
+            "No dbg! in src?",
+            "--why",
+            "hygiene",
+        ])
+        .args([
+            "--prompt",
+            "please make sure we never ship debug prints again",
+        ])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "dbg!",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&add), 0, "stderr: {:?}", stderr(&add));
@@ -302,7 +448,15 @@ fn store_is_human_friendly_jsonc_with_prompt_retention_and_flatten() {
         .args(["--add", "second", "--question", "q2"])
         .args(["--prompt", "second request"])
         // A probe that passes on every OS: the src file above contains `clean`.
-        .args(["--", "ct-search", "--base", "src", "--grep", "clean", "--quiet"])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "clean",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&second), 0);
@@ -311,15 +465,27 @@ fn store_is_human_friendly_jsonc_with_prompt_retention_and_flatten() {
     // field per line in stable order, blank line between rules, no
     // trailing whitespace, and the prompt verbatim.
     let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
-    assert!(store.starts_with("// ct rule store"), "header first: {store:?}");
+    assert!(
+        store.starts_with("// ct rule store"),
+        "header first: {store:?}"
+    );
     assert!(store.contains("// Managed by `ct rules`"));
-    assert!(store.contains("\n      \"id\": \"no-dbg\",\n      \"question\""), "one field per line");
+    assert!(
+        store.contains("\n      \"id\": \"no-dbg\",\n      \"question\""),
+        "one field per line"
+    );
     assert!(
         store.contains("\"prompt\": \"please make sure we never ship debug prints again\""),
         "prompt verbatim"
     );
-    assert!(store.contains("    },\n\n    {"), "blank line between rules: {store:?}");
-    assert!(!store.lines().any(|l| l.ends_with(' ')), "no trailing whitespace");
+    assert!(
+        store.contains("    },\n\n    {"),
+        "blank line between rules: {store:?}"
+    );
+    assert!(
+        !store.lines().any(|l| l.ends_with(' ')),
+        "no trailing whitespace"
+    );
 
     // A hand-vandalised store (header removed) gets it re-established on
     // the next write.
@@ -328,17 +494,32 @@ fn store_is_human_friendly_jsonc_with_prompt_retention_and_flatten() {
     let def = ct_rules(&dir).args(["--def", "x=src"]).output().unwrap();
     assert_eq!(code(&def), 0, "stderr: {:?}", stderr(&def));
     let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
-    assert!(store.starts_with("// ct rule store"), "header re-established");
+    assert!(
+        store.starts_with("// ct rule store"),
+        "header re-established"
+    );
 
     // --flatten strips every prompt, naming what it removed; definitions stay.
     let flat = ct_rules(&dir).args(["--flatten"]).output().unwrap();
     assert_eq!(code(&flat), 0, "stderr: {:?}", stderr(&flat));
-    assert!(stdout(&flat).contains("flattened 2 prompt(s)"), "got {:?}", stdout(&flat));
+    assert!(
+        stdout(&flat).contains("flattened 2 prompt(s)"),
+        "got {:?}",
+        stdout(&flat)
+    );
     let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
     assert!(!store.contains("\"prompt\""), "prompts gone: {store:?}");
-    assert!(store.contains("\"why\": \"hygiene\""), "mechanical definition intact");
+    assert!(
+        store.contains("\"why\": \"hygiene\""),
+        "mechanical definition intact"
+    );
     let check = ct_check(&dir).output().unwrap();
-    assert_eq!(code(&check), 0, "flattened store still verifies: {:?}", stderr(&check));
+    assert_eq!(
+        code(&check),
+        0,
+        "flattened store still verifies: {:?}",
+        stderr(&check)
+    );
 
     // Flattening twice is a clean no-op.
     let again = ct_rules(&dir).args(["--flatten"]).output().unwrap();
@@ -350,7 +531,11 @@ fn store_is_human_friendly_jsonc_with_prompt_retention_and_flatten() {
 fn cargo_hook_is_generated_and_refuses_foreign_files() {
     let dir = project("rules-hook");
     fresh_store(&dir);
-    std::fs::write(dir.join("Cargo.toml"), "[package]\nname=\"t\"\nversion=\"0.0.0\"\n").unwrap();
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname=\"t\"\nversion=\"0.0.0\"\n",
+    )
+    .unwrap();
 
     // Overwrite any prior generated shim: regeneration is fine.
     let _ = std::fs::remove_file(dir.join("tests/ct_invariants.rs"));
@@ -362,7 +547,10 @@ fn cargo_hook_is_generated_and_refuses_foreign_files() {
     assert!(shim.contains("could not run `ct`"), "degrades loudly");
 
     // Regenerating over our own shim is fine; a foreign file is refused.
-    assert_eq!(code(&ct_rules(&dir).args(["--hook", "cargo"]).output().unwrap()), 0);
+    assert_eq!(
+        code(&ct_rules(&dir).args(["--hook", "cargo"]).output().unwrap()),
+        0
+    );
     std::fs::write(dir.join("tests/ct_invariants.rs"), "// hand-written\n").unwrap();
     let refused = ct_rules(&dir).args(["--hook", "cargo"]).output().unwrap();
     assert_eq!(code(&refused), 2);
@@ -391,7 +579,12 @@ fn bridge_probes_run_real_cargo_with_hermetic_flags() {
     // Recording runs the probe through the bridge NOW — a real `cargo tree`
     // execution with --locked/--offline enforced by the compiled-in entry.
     let add = ct_rules(&dir)
-        .args(["--add", "no-duplicate-deps", "--question", "No duplicate crate versions?"])
+        .args([
+            "--add",
+            "no-duplicate-deps",
+            "--question",
+            "No duplicate crate versions?",
+        ])
         .args(["--expect", "empty"])
         .args(["--", "cargo", "tree", "-d"])
         .output()
@@ -400,7 +593,12 @@ fn bridge_probes_run_real_cargo_with_hermetic_flags() {
 
     // And `cargo metadata` through its bridge entry, read by the exit adapter.
     let add = ct_rules(&dir)
-        .args(["--add", "metadata-resolves", "--question", "Does the crate graph resolve?"])
+        .args([
+            "--add",
+            "metadata-resolves",
+            "--question",
+            "Does the crate graph resolve?",
+        ])
         .args(["--", "cargo", "metadata"])
         .output()
         .unwrap();
@@ -424,7 +622,12 @@ fn builtin_mods_check_records_runs_and_prototypes() {
     // --add runs the built-in `mods` check IN-PROCESS (gate -> run_probe Builtin)
     // and records it because it holds — exercising the consolidation glue.
     let add = ct_rules(&dir)
-        .args(["--add", "mods-acyclic", "--question", "Is the module graph acyclic?"])
+        .args([
+            "--add",
+            "mods-acyclic",
+            "--question",
+            "Is the module graph acyclic?",
+        ])
         .args(["--", "mods", "--acyclic"])
         .output()
         .unwrap();
@@ -441,7 +644,11 @@ fn builtin_mods_check_records_runs_and_prototypes() {
     // ct check runs the stored built-in rule via the same in-process dispatch.
     let check = ct_check(&dir).output().unwrap();
     assert_eq!(code(&check), 0, "stderr: {:?}", stderr(&check));
-    assert!(stdout(&check).contains("SUCCESS  mods-acyclic"), "{:?}", stdout(&check));
+    assert!(
+        stdout(&check).contains("SUCCESS  mods-acyclic"),
+        "{:?}",
+        stdout(&check)
+    );
 
     // The stored probe is the bare built-in head — no binary involved.
     let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
@@ -449,15 +656,25 @@ fn builtin_mods_check_records_runs_and_prototypes() {
     assert!(!store.contains("ct-mods"), "no binary reference: {store}");
 
     // Prototype mode: a bare probe runs + reports without saving.
-    let proto = ct_rules(&dir).args(["--", "mods", "--acyclic"]).output().unwrap();
+    let proto = ct_rules(&dir)
+        .args(["--", "mods", "--acyclic"])
+        .output()
+        .unwrap();
     assert_eq!(code(&proto), 0, "stderr: {:?}", stderr(&proto));
     assert!(stdout(&proto).contains("not saved"), "{:?}", stdout(&proto));
-    let proto_bad = ct_rules(&dir).args(["--", "mods", "--forbid", "a=>b"]).output().unwrap();
+    let proto_bad = ct_rules(&dir)
+        .args(["--", "mods", "--forbid", "a=>b"])
+        .output()
+        .unwrap();
     assert_eq!(code(&proto_bad), 1, "stderr: {:?}", stderr(&proto_bad));
 
     // Neither prototype wrote: still exactly the one recorded rule.
     let store2 = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
-    assert_eq!(store2.matches("\"id\"").count(), 1, "prototypes must not write: {store2}");
+    assert_eq!(
+        store2.matches("\"id\"").count(),
+        1,
+        "prototypes must not write: {store2}"
+    );
 
     // An --expect adapter on a built-in check is refused, not silently dropped.
     let guard = ct_rules(&dir)
@@ -483,7 +700,17 @@ fn prototyping_a_non_builtin_probe_runs_without_saving() {
     // built-in checks: it runs and reports, without recording. Holds here —
     // ZZZNOTHERE is absent, so --expect none is SUCCESS (exit 0).
     let hold = ct_rules(&dir)
-        .args(["--", "ct-search", "--base", "src", "--grep", "ZZZNOTHERE", "--expect", "none", "--quiet"])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "ZZZNOTHERE",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&hold), 0, "stderr: {:?}", stderr(&hold));
@@ -492,27 +719,63 @@ fn prototyping_a_non_builtin_probe_runs_without_saving() {
     // Violated: `clean` is present, so --expect none fails (exit 1) — and the
     // exit status follows the outcome so a prototype composes in &&/||.
     let viol = ct_rules(&dir)
-        .args(["--", "ct-search", "--base", "src", "--grep", "clean", "--expect", "none", "--quiet"])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "clean",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&viol), 1, "stderr: {:?}", stderr(&viol));
 
     // Neither prototype wrote to the store.
     let store = std::fs::read_to_string(dir.join(".ct/rules.jsonc")).unwrap();
-    assert_eq!(store.matches("\"id\"").count(), 0, "prototypes must not write: {store}");
+    assert_eq!(
+        store.matches("\"id\"").count(),
+        0,
+        "prototypes must not write: {store}"
+    );
 }
 
 #[test]
 fn ct_each_walker_source_feeds_per_file_rules() {
     let dir = project("rules-walker");
     fresh_store(&dir);
-    std::fs::write(dir.join("src/a.rs"), "// SPDX-License-Identifier: Apache-2.0\n").unwrap();
-    std::fs::write(dir.join("src/b.rs"), "// SPDX-License-Identifier: Apache-2.0\n").unwrap();
+    std::fs::write(
+        dir.join("src/a.rs"),
+        "// SPDX-License-Identifier: Apache-2.0\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("src/b.rs"),
+        "// SPDX-License-Identifier: Apache-2.0\n",
+    )
+    .unwrap();
 
     let add = ct_rules(&dir)
-        .args(["--add", "license-headers", "--question", "Every file carries the header?"])
-        .args(["--", "ct-each", "--base", "src", "--name", "*.rs", "--quiet", "--"])
-        .args(["ct-search", "--base", "{ITEM}", "--grep", "SPDX-License-Identifier", "--quiet"])
+        .args([
+            "--add",
+            "license-headers",
+            "--question",
+            "Every file carries the header?",
+        ])
+        .args([
+            "--", "ct-each", "--base", "src", "--name", "*.rs", "--quiet", "--",
+        ])
+        .args([
+            "ct-search",
+            "--base",
+            "{ITEM}",
+            "--grep",
+            "SPDX-License-Identifier",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&add), 0, "stderr: {:?}", stderr(&add));
@@ -532,17 +795,41 @@ fn ct_check_id_mode_pins_interpretation() {
     // One holding rule with id "abc".
     let add = ct_rules(&dir)
         .args(["--add", "abc", "--question", "q"])
-        .args(["--", "ct-search", "--base", "src", "--grep", "ZZZ", "--expect", "none", "--quiet"])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "src",
+            "--grep",
+            "ZZZ",
+            "--expect",
+            "none",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&add), 0, "stderr: {:?}", stderr(&add));
 
     // --mode pins how --id is read: 'a.c' as a regex matches "abc"; as a literal
     // it does not — so the same pattern selects the rule under one mode, not the other.
-    let re = ct_check(&dir).args(["--id", "a.c", "--mode", "regex", "--list"]).output().unwrap();
-    assert!(stdout(&re).contains("abc"), "regex --id should match: {:?}", stdout(&re));
-    let lit = ct_check(&dir).args(["--id", "a.c", "--mode", "literal", "--list"]).output().unwrap();
-    assert!(!stdout(&lit).contains("abc"), "literal --id must not match: {:?}", stdout(&lit));
+    let re = ct_check(&dir)
+        .args(["--id", "a.c", "--mode", "regex", "--list"])
+        .output()
+        .unwrap();
+    assert!(
+        stdout(&re).contains("abc"),
+        "regex --id should match: {:?}",
+        stdout(&re)
+    );
+    let lit = ct_check(&dir)
+        .args(["--id", "a.c", "--mode", "literal", "--list"])
+        .output()
+        .unwrap();
+    assert!(
+        !stdout(&lit).contains("abc"),
+        "literal --id must not match: {:?}",
+        stdout(&lit)
+    );
 }
 
 #[test]
@@ -558,5 +845,8 @@ fn ct_each_refuses_builtin_check_with_guidance() {
     assert_eq!(code(&out), 2, "refused dispatch => exit 2");
     let err = stderr(&out);
     assert!(err.contains("built-in check"), "{err:?}");
-    assert!(err.contains("deps --deny"), "should point to repeatable flags: {err:?}");
+    assert!(
+        err.contains("deps --deny"),
+        "should point to repeatable flags: {err:?}"
+    );
 }

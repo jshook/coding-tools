@@ -20,12 +20,18 @@ fn complete(line: &str, cwd: Option<&Path>) -> Vec<String> {
     let out = c.output().expect("run ct completion");
     // Candidates may carry a trailing space (the shell convention for advancing
     // to the next word); compare on the bare token.
-    String::from_utf8_lossy(&out.stdout).lines().map(|s| s.trim_end().to_string()).collect()
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|s| s.trim_end().to_string())
+        .collect()
 }
 
 /// Run `ct <args>` and return (stdout, stderr, exit code).
 fn run(args: &[&str]) -> (String, String, i32) {
-    let out = Command::new(env!("CARGO_BIN_EXE_ct")).args(args).output().expect("run ct");
+    let out = Command::new(env!("CARGO_BIN_EXE_ct"))
+        .args(args)
+        .output()
+        .expect("run ct");
     (
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -40,7 +46,10 @@ fn completions_command_emits_wrapper_and_script() {
     // positional only.
     let (wrap, _, code) = run(&["completions"]);
     assert_eq!(code, 0);
-    assert!(wrap.contains("completions --shell"), "wrapper must re-invoke --shell: {wrap:?}");
+    assert!(
+        wrap.contains("completions --shell"),
+        "wrapper must re-invoke --shell: {wrap:?}"
+    );
 
     // The `--shell` form the wrapper calls emits the registration script.
     let (script, _, code) = run(&["completions", "--shell", "bash"]);
@@ -65,7 +74,10 @@ fn completes_subcommands_flags_and_enum_sets() {
     // Subcommands come from the lib-hosted clap grammar, plus the meta-command.
     let subs = complete("ct ", None);
     for want in ["search", "check", "rules", "completions"] {
-        assert!(subs.iter().any(|s| s == want), "subcommand {want} missing from {subs:?}");
+        assert!(
+            subs.iter().any(|s| s == want),
+            "subcommand {want} missing from {subs:?}"
+        );
     }
     // A subcommand's flags.
     let flags = complete("ct search --", None);
@@ -74,7 +86,10 @@ fn completes_subcommands_flags_and_enum_sets() {
     // A value_enum's variants become its completion set.
     let modes = complete("ct search --mode ", None);
     for want in ["literal", "glob", "regex"] {
-        assert!(modes.iter().any(|s| s == want), "--mode set missing {want}: {modes:?}");
+        assert!(
+            modes.iter().any(|s| s == want),
+            "--mode set missing {want}: {modes:?}"
+        );
     }
 }
 
@@ -91,11 +106,20 @@ fn completes_ids_tags_and_defs_from_the_live_store() {
 
     // Runtime providers read that store — what static clap_complete cannot do.
     let ids = complete("ct check --id ", Some(&dir));
-    assert!(ids.iter().any(|s| s == "abc-rule"), "dynamic rule id: {ids:?}");
+    assert!(
+        ids.iter().any(|s| s == "abc-rule"),
+        "dynamic rule id: {ids:?}"
+    );
     let tags = complete("ct check --tag ", Some(&dir));
     assert!(tags.iter().any(|s| s == "hygiene"), "dynamic tag: {tags:?}");
     let defs = complete("ct rules --def ", Some(&dir));
-    assert!(defs.iter().any(|s| s == "core-types"), "dynamic def name: {defs:?}");
+    assert!(
+        defs.iter().any(|s| s == "core-types"),
+        "dynamic def name: {defs:?}"
+    );
     let promote = complete("ct rules --promote ", Some(&dir));
-    assert!(promote.iter().any(|s| s == "abc-rule"), "dynamic id for --promote: {promote:?}");
+    assert!(
+        promote.iter().any(|s| s == "abc-rule"),
+        "dynamic id for --promote: {promote:?}"
+    );
 }

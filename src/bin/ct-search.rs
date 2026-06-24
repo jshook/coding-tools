@@ -165,9 +165,9 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
                     let starts = block::find_starts(&file_lines, b);
                     if starts.is_empty() {
                         if let Some(miss) = block::nearest_miss(&file_lines, b)
-                            && nearest
-                                .as_ref()
-                                .is_none_or(|(_, n)| miss.first_diverging_line > n.first_diverging_line)
+                            && nearest.as_ref().is_none_or(|(_, n)| {
+                                miss.first_diverging_line > n.first_diverging_line
+                            })
                         {
                             nearest = Some((entry.path().display().to_string(), miss));
                         }

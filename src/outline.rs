@@ -688,7 +688,11 @@ macro_rules! declare {
         let rows: Vec<String> = markdown_outline(src).iter().map(row).collect();
         assert_eq!(
             rows,
-            ["1:13 h1 Title d1", "9:12 h2 Section A d2", "13:13 h2 Section B d2"]
+            [
+                "1:13 h1 Title d1",
+                "9:12 h2 Section A d2",
+                "13:13 h2 Section B d2"
+            ]
         );
     }
 

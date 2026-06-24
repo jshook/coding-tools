@@ -22,8 +22,8 @@ use coding_tools::cli::ct_each::Cli;
 use coding_tools::explain::Format;
 use coding_tools::pulse::{self, PulseState};
 use coding_tools::supervise::{self, Outcome};
-use coding_tools::walk::{self, EntryType};
 use coding_tools::verdict::{Expect, Verdict};
+use coding_tools::walk::{self, EntryType};
 use coding_tools::{pattern, payload, template};
 use serde_json::json;
 
@@ -158,7 +158,10 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         cli.json = true;
     }
     if cli.command.is_empty() {
-        return Err("missing command: supply one after `--`, e.g. `ct-each --items a b -- ct-view {ITEM}`".to_string());
+        return Err(
+            "missing command: supply one after `--`, e.g. `ct-each --items a b -- ct-view {ITEM}`"
+                .to_string(),
+        );
     }
     // Resolve the payload schemes per item: file:PATH expands to the file's
     // non-empty lines, text:VALUE stays one literal item.
@@ -233,7 +236,10 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
     }
 
     let expect = EachExpect::parse(cli.expect.as_deref())?;
-    let timeout = cli.timeout.map(|v| pulse::secs("--timeout", v)).transpose()?;
+    let timeout = cli
+        .timeout
+        .map(|v| pulse::secs("--timeout", v))
+        .transpose()?;
     let planned = plan(&cli, &items)?;
     let total = planned.len();
 

@@ -38,16 +38,28 @@ fn search(dir: &Path, extra: &[&str]) -> String {
 #[test]
 fn walk_skips_gitignored_and_dotgit_by_default() {
     let out = search(&fixture("default"), &[]);
-    assert!(out.contains("keep.rs"), "tracked file should be found: {out:?}");
-    assert!(!out.contains("skip.rs"), "gitignored file must be skipped: {out:?}");
-    assert!(!out.contains("config.rs"), ".git contents must be skipped: {out:?}");
+    assert!(
+        out.contains("keep.rs"),
+        "tracked file should be found: {out:?}"
+    );
+    assert!(
+        !out.contains("skip.rs"),
+        "gitignored file must be skipped: {out:?}"
+    );
+    assert!(
+        !out.contains("config.rs"),
+        ".git contents must be skipped: {out:?}"
+    );
 }
 
 #[test]
 fn no_ignore_reaches_gitignored_but_never_dotgit() {
     let out = search(&fixture("no-ignore"), &["--no-ignore"]);
     assert!(out.contains("keep.rs"), "{out:?}");
-    assert!(out.contains("skip.rs"), "--no-ignore should reach gitignored files: {out:?}");
+    assert!(
+        out.contains("skip.rs"),
+        "--no-ignore should reach gitignored files: {out:?}"
+    );
     assert!(
         !out.contains("config.rs"),
         ".git stays skipped even under --no-ignore: {out:?}"

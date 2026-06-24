@@ -202,7 +202,7 @@ fn chain_code<R: FnMut(&str, &[String]) -> i32>(
         }
     }
     match mode {
-        ChainMode::And => 0,  // every segment succeeded
+        ChainMode::And => 0,   // every segment succeeded
         ChainMode::Or => last, // none succeeded; mirror `a || b`'s last code
     }
 }

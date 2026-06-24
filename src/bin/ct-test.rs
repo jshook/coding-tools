@@ -237,7 +237,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::from(2));
     }
 
-    let timeout = cli.timeout.map(|v| pulse::secs("--timeout", v)).transpose()?;
+    let timeout = cli
+        .timeout
+        .map(|v| pulse::secs("--timeout", v))
+        .transpose()?;
     let cmdline = cmd_display(&cli);
 
     if !cli.quiet
@@ -362,9 +365,6 @@ mod tests {
     fn tail_lines_keeps_last_n_with_marker() {
         let text = "a\nb\nc\nd";
         assert_eq!(tail_lines(text, 4), text);
-        assert_eq!(
-            tail_lines(text, 2),
-            "(... 2 earlier line(s) omitted)\nc\nd"
-        );
+        assert_eq!(tail_lines(text, 2), "(... 2 earlier line(s) omitted)\nc\nd");
     }
 }

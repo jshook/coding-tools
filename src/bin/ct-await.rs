@@ -97,13 +97,15 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         if remaining.is_zero() {
             break (
                 Verdict::Error,
-                format!("timed out after {} ({ticks} probe run(s))", pulse::limit_label(limit)),
+                format!(
+                    "timed out after {} ({ticks} probe run(s))",
+                    pulse::limit_label(limit)
+                ),
             );
         }
         ticks += 1;
         state.set("TICKS", &ticks.to_string());
-        let mut command =
-            Command::new(supervise::resolve_program(&cli.probe[0], &name));
+        let mut command = Command::new(supervise::resolve_program(&cli.probe[0], &name));
         command.args(&cli.probe[1..]);
         // A single probe run may never outlive the overall bound.
         let outcome = supervise::run_captured(command, None, Some(remaining))
@@ -124,7 +126,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         if outcome.timed_out {
             break (
                 Verdict::Error,
-                format!("timed out after {} (probe run {ticks} killed)", pulse::limit_label(limit)),
+                format!(
+                    "timed out after {} (probe run {ticks} killed)",
+                    pulse::limit_label(limit)
+                ),
             );
         }
         let established = match &ok_re {

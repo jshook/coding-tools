@@ -62,7 +62,11 @@ fn ct_each_dispatches_per_item_and_aggregates() {
     // One of two items matches: --expect all fails, --expect 1 passes.
     let all = sweep("all");
     assert_eq!(code(&all), 1, "one miss must fail --expect all");
-    assert!(stdout(&all).contains("1/2 -> ERROR"), "got {:?}", stdout(&all));
+    assert!(
+        stdout(&all).contains("1/2 -> ERROR"),
+        "got {:?}",
+        stdout(&all)
+    );
     assert!(
         stderr(&all).contains("'beta' -> ERROR"),
         "the red item is named: {:?}",
@@ -132,7 +136,11 @@ fn ct_each_reads_items_from_stdin() {
         .unwrap();
     let out = child.wait_with_output().unwrap();
     assert_eq!(code(&out), 0);
-    assert!(stdout(&out).contains("2/2"), "blank line skipped: {:?}", stdout(&out));
+    assert!(
+        stdout(&out).contains("2/2"),
+        "blank line skipped: {:?}",
+        stdout(&out)
+    );
 }
 
 #[test]
@@ -156,8 +164,16 @@ fn ct_each_dry_run_previews_and_runs_nothing() {
         .output()
         .unwrap();
     assert_eq!(code(&out), 0);
-    assert!(stdout(&out).contains("would run: ct-edit"), "got {:?}", stdout(&out));
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), "old\n", "dry-run must not run");
+    assert!(
+        stdout(&out).contains("would run: ct-edit"),
+        "got {:?}",
+        stdout(&out)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "old\n",
+        "dry-run must not run"
+    );
 }
 
 #[test]
@@ -176,14 +192,31 @@ fn ct_each_gate_is_fixed_with_mutating_opt_in_for_suite_tools_only() {
         .args(["--items", "x", "--mutating", "--", "rm", "{ITEM}"])
         .output()
         .unwrap();
-    assert_eq!(code(&still_denied), 2, "--mutating must not unlock externals");
+    assert_eq!(
+        code(&still_denied),
+        2,
+        "--mutating must not unlock externals"
+    );
 
     // ct-edit needs --mutating...
     let edit_denied = ct_each()
-        .args(["--items", "x", "--", "ct-edit", "--find", "a", "--replace", "b"])
+        .args([
+            "--items",
+            "x",
+            "--",
+            "ct-edit",
+            "--find",
+            "a",
+            "--replace",
+            "b",
+        ])
         .output()
         .unwrap();
-    assert_eq!(code(&edit_denied), 2, "ct-edit without --mutating is refused");
+    assert_eq!(
+        code(&edit_denied),
+        2,
+        "ct-edit without --mutating is refused"
+    );
 
     // ...and works with it (sibling resolution, real edit, per-item gating kept).
     let dir = scratch("ct-each-mutating");
@@ -233,7 +266,11 @@ fn ct_test_timeout_is_a_decisive_error_verdict() {
         "timeout must bound the run"
     );
     assert_eq!(code(&out), 1, "timeout => verdict ERROR");
-    assert!(stdout(&out).contains("ERROR code=timeout"), "got {:?}", stdout(&out));
+    assert!(
+        stdout(&out).contains("ERROR code=timeout"),
+        "got {:?}",
+        stdout(&out)
+    );
     assert!(
         stderr(&out).contains("timed out after 0.3s"),
         "reason names the bound: {:?}",
@@ -273,10 +310,16 @@ fn ct_test_capture_tail_bounds_emit_tokens_but_not_matchers() {
         .unwrap();
     assert_eq!(code(&out), 0, "stderr: {:?}", stderr(&out));
     let text = stdout(&out);
-    assert!(text.contains("SUCCESS|"), "matcher saw full output: {text:?}");
+    assert!(
+        text.contains("SUCCESS|"),
+        "matcher saw full output: {text:?}"
+    );
     assert!(text.contains("2 earlier line(s) omitted"), "got {text:?}");
     assert!(text.contains("third\nfourth"), "got {text:?}");
-    assert!(!text.contains("|first"), "token must be truncated: {text:?}");
+    assert!(
+        !text.contains("|first"),
+        "token must be truncated: {text:?}"
+    );
 }
 
 #[test]
@@ -292,13 +335,20 @@ fn heartbeat_pulses_while_a_child_runs() {
         .args(&blk[1..])
         .output()
         .unwrap();
-    assert!(stderr(&out).contains("[0s]"), "default pulse: {:?}", stderr(&out));
+    assert!(
+        stderr(&out).contains("[0s]"),
+        "default pulse: {:?}",
+        stderr(&out)
+    );
 
     // Custom template and stdout routing, with ct-each's dynamic tokens.
     let out = ct_each()
         .args(["--items", "thing", "--timeout", "0.7", "--quiet"])
         .args(["--heartbeat", "0.2", "--heartbeat-to", "stdout"])
-        .args(["--heartbeat-emit", "tick {ELAPSED}s {TOOL} {ITEM} {DONE}/{TOTAL}"])
+        .args([
+            "--heartbeat-emit",
+            "tick {ELAPSED}s {TOOL} {ITEM} {DONE}/{TOTAL}",
+        ])
         .arg("--")
         .args(common::block(&dir))
         .output()
@@ -314,7 +364,10 @@ fn heartbeat_pulses_while_a_child_runs() {
 fn there_is_no_shell_mode_anywhere() {
     // --shell is not a recognised option on the dispatching tools (exit 2,
     // clap usage error), and sh is not a permitted command name.
-    let test_shell = ct_test().args(["--shell", "--cmd", "echo hi"]).output().unwrap();
+    let test_shell = ct_test()
+        .args(["--shell", "--cmd", "echo hi"])
+        .output()
+        .unwrap();
     assert_eq!(code(&test_shell), 2, "--shell must not exist on ct-test");
 
     let each_shell = ct_each()
@@ -323,7 +376,10 @@ fn there_is_no_shell_mode_anywhere() {
         .unwrap();
     assert_eq!(code(&each_shell), 2, "--shell must not exist on ct-each");
 
-    let sh_denied = ct_test().args(["--cmd", "sh", "--", "-c", "true"]).output().unwrap();
+    let sh_denied = ct_test()
+        .args(["--cmd", "sh", "--", "-c", "true"])
+        .output()
+        .unwrap();
     assert_eq!(code(&sh_denied), 2, "sh is never runnable");
     assert!(stderr(&sh_denied).contains("no shell mode"));
 }
@@ -336,7 +392,15 @@ fn self_bounded_tools_accept_timeout_and_finish_cleanly_under_it() {
     std::fs::write(dir.join("a.txt"), "needle\n").unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_ct-search"))
         .args(["--base", dir.to_str().unwrap()])
-        .args(["--type", "f", "--grep", "needle", "--timeout", "30", "--quiet"])
+        .args([
+            "--type",
+            "f",
+            "--grep",
+            "needle",
+            "--timeout",
+            "30",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "stderr: {:?}", stderr(&out));

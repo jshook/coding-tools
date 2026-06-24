@@ -126,8 +126,7 @@ fn site_json(s: &Site) -> serde_json::Value {
 /// payload schemes. A `file:`-sourced find defaults to literal; a multi-line
 /// find is a literal block.
 fn compile_argv_op(cli: &Cli) -> Result<Op, String> {
-    let (Some(find_raw), Some(replace_raw)) = (cli.find.as_deref(), cli.replace.as_deref())
-    else {
+    let (Some(find_raw), Some(replace_raw)) = (cli.find.as_deref(), cli.replace.as_deref()) else {
         return Err("missing --find/--replace (or run a batch with --script)".to_string());
     };
     let find = payload::resolve(find_raw)?;

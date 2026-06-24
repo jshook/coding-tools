@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 use clap::{CommandFactory, Parser};
 use regex::Regex;
 
-use crate::deps::{grammar, EdgeKind, Graph, Package};
+use crate::deps::{EdgeKind, Graph, Package, grammar};
 use crate::pattern;
 use crate::rules::ProbeOutcome;
 use crate::walk::{self, EntryType};
@@ -91,7 +91,10 @@ pub fn build_graph(files: &[(String, String)]) -> Graph {
     for (name, content) in files {
         packages.insert(
             name.clone(),
-            Package { name: name.clone(), version: String::new() },
+            Package {
+                name: name.clone(),
+                version: String::new(),
+            },
         );
         members.push(name.clone());
         let current = name_segs(name);
@@ -105,12 +108,19 @@ pub fn build_graph(files: &[(String, String)]) -> Graph {
         }
         edges.insert(
             name.clone(),
-            targets.into_iter().map(|t| (t, vec![EdgeKind::Normal])).collect(),
+            targets
+                .into_iter()
+                .map(|t| (t, vec![EdgeKind::Normal]))
+                .collect(),
         );
     }
     members.sort();
     members.dedup();
-    Graph { packages, edges, members }
+    Graph {
+        packages,
+        edges,
+        members,
+    }
 }
 
 /// The intra-crate `use` targets in a source file: each returned string is a
@@ -134,7 +144,11 @@ pub fn use_targets(content: &str) -> Vec<String> {
 /// known module names, relative to the `current` module's segments. Returns the
 /// longest known module prefix, or `None` for an unresolvable / external path.
 fn resolve(raw: &str, current: &[String], modules: &HashSet<&str>) -> Option<String> {
-    let parts: Vec<&str> = raw.split("::").map(str::trim).filter(|s| !s.is_empty()).collect();
+    let parts: Vec<&str> = raw
+        .split("::")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
     let mut abs: Vec<String> = Vec::new();
     let mut i = 0;
     match *parts.first()? {
@@ -160,7 +174,11 @@ fn resolve(raw: &str, current: &[String], modules: &HashSet<&str>) -> Option<Str
     }
     // Longest-prefix match: the trailing segments are usually item names.
     loop {
-        let name = if abs.is_empty() { "crate".to_string() } else { abs.join("::") };
+        let name = if abs.is_empty() {
+            "crate".to_string()
+        } else {
+            abs.join("::")
+        };
         if modules.contains(name.as_str()) {
             return Some(name);
         }
@@ -341,13 +359,22 @@ pub fn check_grammar() -> crate::deps::Grammar {
 /// build the module-use graph, and assert against it. Returns the probe
 /// outcome, a one-line reason, and the violation report. Spec / walk errors are
 /// [`ProbeOutcome::Broken`].
-pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeOutcome, String, String) {
+pub fn check(
+    args: &[String],
+    root: &Path,
+    timeout: Option<Duration>,
+) -> (ProbeOutcome, String, String) {
     let started = Instant::now();
     let broken = |msg: String| (ProbeOutcome::Broken, msg, String::new());
     let cli = match ModsCheck::try_parse_from(args.iter().map(String::as_str)) {
         Ok(c) => c,
         Err(e) => {
-            let valid = check_grammar().flags.iter().map(|s| format!("--{}", s.name)).collect::<Vec<_>>().join(" ");
+            let valid = check_grammar()
+                .flags
+                .iter()
+                .map(|s| format!("--{}", s.name))
+                .collect::<Vec<_>>()
+                .join(" ");
             return broken(format!(
                 "mods: {} (valid flags: {valid})",
                 e.to_string().lines().next().unwrap_or("bad arguments")
@@ -376,7 +403,11 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
     };
 
     let mut name_spec = cli.name.clone().unwrap_or_default();
-    let exts: Vec<String> = if cli.ext.is_empty() { vec!["rs".to_string()] } else { cli.ext.clone() };
+    let exts: Vec<String> = if cli.ext.is_empty() {
+        vec!["rs".to_string()]
+    } else {
+        cli.ext.clone()
+    };
     for e in &exts {
         let e = e.trim().trim_start_matches('.');
         if e.is_empty() {
@@ -430,7 +461,9 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
     }
     let graph = build_graph(&files);
 
-    let allowed: HashSet<EdgeKind> = [EdgeKind::Normal, EdgeKind::Build, EdgeKind::Dev].into_iter().collect();
+    let allowed: HashSet<EdgeKind> = [EdgeKind::Normal, EdgeKind::Build, EdgeKind::Dev]
+        .into_iter()
+        .collect();
     let mut violations: Vec<crate::deps::Violation> = Vec::new();
     for (from, to) in &forbids {
         match crate::deps::forbid_path(&graph, from, to, &allowed) {
@@ -442,7 +475,12 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
         violations.extend(crate::deps::cycles(&graph, &allowed, false));
     }
     if !cli.layers.is_empty() {
-        let compiled = match cli.layers.iter().map(|p| pattern::compile_anchored(p)).collect::<Result<Vec<_>, _>>() {
+        let compiled = match cli
+            .layers
+            .iter()
+            .map(|p| pattern::compile_anchored(p))
+            .collect::<Result<Vec<_>, _>>()
+        {
             Ok(c) => c,
             Err(e) => return broken(format!("mods: --layers invalid pattern: {e}")),
         };
@@ -470,7 +508,9 @@ mod tests {
     use crate::deps::{self, EdgeKind};
 
     fn all_edges() -> HashSet<EdgeKind> {
-        [EdgeKind::Normal, EdgeKind::Build, EdgeKind::Dev].into_iter().collect()
+        [EdgeKind::Normal, EdgeKind::Build, EdgeKind::Dev]
+            .into_iter()
+            .collect()
     }
 
     #[test]
@@ -518,22 +558,40 @@ mod tests {
     fn resolve_picks_the_longest_known_module() {
         let modules: HashSet<&str> = ["crate", "a", "a::b", "domain"].into_iter().collect();
         // `a::b::Item` -> module `a::b`; `a::Item` -> module `a`.
-        assert_eq!(resolve("crate::a::b::Item", &[], &modules).as_deref(), Some("a::b"));
-        assert_eq!(resolve("crate::a::Item", &[], &modules).as_deref(), Some("a"));
+        assert_eq!(
+            resolve("crate::a::b::Item", &[], &modules).as_deref(),
+            Some("a::b")
+        );
+        assert_eq!(
+            resolve("crate::a::Item", &[], &modules).as_deref(),
+            Some("a")
+        );
         // self/super resolve relative to the current module.
         let cur = name_segs("a::b");
         assert_eq!(resolve("super::Item", &cur, &modules).as_deref(), Some("a"));
-        assert_eq!(resolve("self::Item", &cur, &modules).as_deref(), Some("a::b"));
+        assert_eq!(
+            resolve("self::Item", &cur, &modules).as_deref(),
+            Some("a::b")
+        );
         // An item in the crate root folds to `crate`; externals are None.
-        assert_eq!(resolve("crate::TopItem", &[], &modules).as_deref(), Some("crate"));
+        assert_eq!(
+            resolve("crate::TopItem", &[], &modules).as_deref(),
+            Some("crate")
+        );
         assert_eq!(resolve("serde::Deserialize", &[], &modules), None);
     }
 
     /// crate -> domain -> infra (a clean three-module layering).
     fn sample_crate() -> Vec<(String, String)> {
         vec![
-            ("crate".into(), "mod domain;\nmod infra;\nuse crate::domain::Entity;\n".into()),
-            ("domain".into(), "use crate::infra::Db;\npub struct Entity;\n".into()),
+            (
+                "crate".into(),
+                "mod domain;\nmod infra;\nuse crate::domain::Entity;\n".into(),
+            ),
+            (
+                "domain".into(),
+                "use crate::infra::Db;\npub struct Entity;\n".into(),
+            ),
             ("infra".into(), "pub struct Db;\n".into()),
         ]
     }
@@ -542,10 +600,16 @@ mod tests {
     fn build_graph_edges_and_forbid() {
         let g = build_graph(&sample_crate());
         // domain reaches infra; the reverse does not hold.
-        let v = deps::forbid_path(&g, "domain", "infra", &all_edges()).unwrap().unwrap();
+        let v = deps::forbid_path(&g, "domain", "infra", &all_edges())
+            .unwrap()
+            .unwrap();
         assert_eq!(v.subject, "domain=>infra");
         assert_eq!(v.evidence, "domain -> infra");
-        assert!(deps::forbid_path(&g, "infra", "domain", &all_edges()).unwrap().is_none());
+        assert!(
+            deps::forbid_path(&g, "infra", "domain", &all_edges())
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

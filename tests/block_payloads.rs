@@ -153,7 +153,12 @@ fn mode_literal_matches_verbatim_code_that_promotion_would_break() {
         ])
         .output()
         .unwrap();
-    assert_eq!(code(&promoted), 1, "promotion should miss: {}", stderr(&promoted));
+    assert_eq!(
+        code(&promoted),
+        1,
+        "promotion should miss: {}",
+        stderr(&promoted)
+    );
 
     // --mode literal pins it: the same text matches.
     let literal = tool("ct-search")
@@ -175,8 +180,16 @@ fn mode_literal_matches_verbatim_code_that_promotion_would_break() {
 fn block_grep_counts_occurrences_and_reports_nearest_miss_on_detail() {
     let dir = scratch("block-grep");
     std::fs::write(dir.join("ast.rs"), SAMPLE).unwrap();
-    std::fs::write(dir.join("hit.block"), "    match v {\n        Value::U64(v) => v.to_string(),\n").unwrap();
-    std::fs::write(dir.join("miss.block"), "    match v {\n        Value::F64(v) => v.to_string(),\n").unwrap();
+    std::fs::write(
+        dir.join("hit.block"),
+        "    match v {\n        Value::U64(v) => v.to_string(),\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("miss.block"),
+        "    match v {\n        Value::F64(v) => v.to_string(),\n",
+    )
+    .unwrap();
 
     let hit = tool("ct-search")
         .args([
@@ -191,7 +204,11 @@ fn block_grep_counts_occurrences_and_reports_nearest_miss_on_detail() {
         .output()
         .unwrap();
     assert_eq!(code(&hit), 0, "{}", stderr(&hit));
-    assert!(stdout(&hit).contains("ast.rs:6:"), "block start line: {}", stdout(&hit));
+    assert!(
+        stdout(&hit).contains("ast.rs:6:"),
+        "block start line: {}",
+        stdout(&hit)
+    );
 
     let miss = tool("ct-search")
         .args([
@@ -468,7 +485,10 @@ fn cascade_lets_later_edits_see_earlier_output_and_no_cascade_rejects_overlap() 
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "{}", stderr(&out));
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), "base()\nadded(1)\n");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "base()\nadded(1)\n"
+    );
 
     // --no-cascade: the same chain is invalid — edit 2 matches nothing in
     // pristine content, so the batch fails with zero writes.

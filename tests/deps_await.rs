@@ -56,8 +56,14 @@ fn deps_deny_reports_an_evidence_path_for_a_real_dependency() {
     // clap IS a dependency of this crate: the check violates with proof.
     let (o, _reason, report) = deps_check(&["--deny", "clap"]);
     assert_eq!(o, ProbeOutcome::Violated);
-    assert!(report.contains("deny: clap: coding-tools v"), "evidence: {report:?}");
-    assert!(report.contains("-> clap v"), "reaches the crate: {report:?}");
+    assert!(
+        report.contains("deny: clap: coding-tools v"),
+        "evidence: {report:?}"
+    );
+    assert!(
+        report.contains("-> clap v"),
+        "reaches the crate: {report:?}"
+    );
 
     // An absent crate holds.
     assert_eq!(deps_check(&["--deny", "openssl"]).0, ProbeOutcome::Holds);
@@ -68,10 +74,16 @@ fn deps_forbid_duplicates_and_defective_assertions() {
     // A real reachable pair: this crate depends on walkdir.
     let (o, _, report) = deps_check(&["--forbid", "coding-tools=>walkdir"]);
     assert_eq!(o, ProbeOutcome::Violated);
-    assert!(report.contains("forbid: coding-tools=>walkdir:"), "{report:?}");
+    assert!(
+        report.contains("forbid: coding-tools=>walkdir:"),
+        "{report:?}"
+    );
 
     // No path in the reverse direction.
-    assert_eq!(deps_check(&["--forbid", "walkdir=>coding-tools"]).0, ProbeOutcome::Holds);
+    assert_eq!(
+        deps_check(&["--forbid", "walkdir=>coding-tools"]).0,
+        ProbeOutcome::Holds
+    );
 
     // A source package that does not exist is a defective assertion (Broken).
     let (o, reason, _) = deps_check(&["--forbid", "ghost=>walkdir"]);
@@ -94,30 +106,51 @@ fn deps_rejects_unknown_flag_with_a_valid_flags_hint() {
     let (o, reason, _) = deps_check(&["--bogus"]);
     assert_eq!(o, ProbeOutcome::Broken);
     assert!(reason.contains("valid flags"), "{reason:?}");
-    assert!(reason.contains("--deny") && reason.contains("--acyclic"), "{reason:?}");
+    assert!(
+        reason.contains("--deny") && reason.contains("--acyclic"),
+        "{reason:?}"
+    );
 }
 
 #[test]
 fn deps_acyclic_and_layers_over_this_workspace() {
-    assert_eq!(deps_check(&["--acyclic", "--edges", "normal"]).0, ProbeOutcome::Holds);
+    assert_eq!(
+        deps_check(&["--acyclic", "--edges", "normal"]).0,
+        ProbeOutcome::Holds
+    );
     // Member-scoped: this single-crate workspace has no member-to-member cycle.
-    assert_eq!(deps_check(&["--acyclic", "--members"]).0, ProbeOutcome::Holds);
+    assert_eq!(
+        deps_check(&["--acyclic", "--members"]).0,
+        ProbeOutcome::Holds
+    );
     // A single matching layer is trivially clean (no pair to violate).
-    assert_eq!(deps_check(&["--layers", "coding-tools"]).0, ProbeOutcome::Holds);
+    assert_eq!(
+        deps_check(&["--layers", "coding-tools"]).0,
+        ProbeOutcome::Holds
+    );
 
     // A layer matching no member is a defective spec (the typo guard).
     let (o, reason, _) = deps_check(&["--layers", "coding-tools,ghost"]);
     assert_eq!(o, ProbeOutcome::Broken);
-    assert!(reason.contains("layer 'ghost' matches nothing"), "{reason:?}");
+    assert!(
+        reason.contains("layer 'ghost' matches nothing"),
+        "{reason:?}"
+    );
 
     // Spec errors are Broken with a specific reason.
     let (o, reason, _) = deps_check(&["--members"]);
     assert_eq!(o, ProbeOutcome::Broken);
-    assert!(reason.contains("--members applies to --acyclic"), "{reason:?}");
+    assert!(
+        reason.contains("--members applies to --acyclic"),
+        "{reason:?}"
+    );
 
     let (o, reason, _) = deps_check(&["--layers-closed"]);
     assert_eq!(o, ProbeOutcome::Broken);
-    assert!(reason.contains("--layers-closed requires --layers"), "{reason:?}");
+    assert!(
+        reason.contains("--layers-closed requires --layers"),
+        "{reason:?}"
+    );
 }
 
 #[test]
@@ -138,7 +171,15 @@ fn await_succeeds_when_the_condition_becomes_true() {
     let out = ct_await(&dir)
         .args(["--every", "0.1", "--timeout", "10", "--quiet"])
         .args(["--emit", "{RESULT} after {TICKS} tick(s)"])
-        .args(["--", "ct-search", "--base", "build.log", "--grep", "BUILD SUCCESS", "--quiet"])
+        .args([
+            "--",
+            "ct-search",
+            "--base",
+            "build.log",
+            "--grep",
+            "BUILD SUCCESS",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     writer.join().unwrap();
@@ -158,12 +199,25 @@ fn await_matchers_are_decisive_and_timeout_is_hard() {
     let started = Instant::now();
     let out = ct_await(&dir)
         .args(["--every", "0.2", "--timeout", "30", "--quiet"])
-        .args(["--ok-match", "BUILD SUCCESS", "--err-match", "BUILD FAILURE"])
+        .args([
+            "--ok-match",
+            "BUILD SUCCESS",
+            "--err-match",
+            "BUILD FAILURE",
+        ])
         .args(["--", "ct-view", "ci.log"])
         .output()
         .unwrap();
-    assert_eq!(code(&out), 1, "err-match => ERROR; stderr: {:?}", stderr(&out));
-    assert!(started.elapsed() < Duration::from_secs(10), "abort is immediate");
+    assert_eq!(
+        code(&out),
+        1,
+        "err-match => ERROR; stderr: {:?}",
+        stderr(&out)
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "abort is immediate"
+    );
     assert!(stderr(&out).contains("--err-match 'BUILD FAILURE' matched"));
 
     // A required ok-match is fail-closed: the probe exiting 0 without the
@@ -176,7 +230,12 @@ fn await_matchers_are_decisive_and_timeout_is_hard() {
     });
     let out = ct_await(&dir)
         .args(["--every", "0.1", "--timeout", "10", "--quiet"])
-        .args(["--ok-match", "BUILD SUCCESS", "--emit", "{RESULT} ticks={TICKS}"])
+        .args([
+            "--ok-match",
+            "BUILD SUCCESS",
+            "--emit",
+            "{RESULT} ticks={TICKS}",
+        ])
         .args(["--", "ct-view", "slow.log"])
         .output()
         .unwrap();
@@ -187,7 +246,10 @@ fn await_matchers_are_decisive_and_timeout_is_hard() {
         .nth(1)
         .and_then(|s| s.trim().parse().ok())
         .unwrap();
-    assert!(ticks > 1, "exit 0 alone must not satisfy a required ok-match");
+    assert!(
+        ticks > 1,
+        "exit 0 alone must not satisfy a required ok-match"
+    );
 
     // A condition that never comes true ends at the bound, exit 1, reasoned.
     let started = Instant::now();
@@ -199,7 +261,11 @@ fn await_matchers_are_decisive_and_timeout_is_hard() {
         .unwrap();
     assert_eq!(code(&out), 1, "timeout => ERROR");
     assert!(started.elapsed() < Duration::from_secs(10), "bound is hard");
-    assert!(stderr(&out).contains("timed out after 0.5s"), "got {:?}", stderr(&out));
+    assert!(
+        stderr(&out).contains("timed out after 0.5s"),
+        "got {:?}",
+        stderr(&out)
+    );
 }
 
 #[test]
@@ -227,7 +293,16 @@ fn await_probe_gate_is_the_read_only_set() {
     )
     .unwrap();
     let out = ct_await(&dir)
-        .args(["--every", "0.1", "--timeout", "5", "--quiet", "--", "ct-check", "--quiet"])
+        .args([
+            "--every",
+            "0.1",
+            "--timeout",
+            "5",
+            "--quiet",
+            "--",
+            "ct-check",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "stderr: {:?}", stderr(&out));

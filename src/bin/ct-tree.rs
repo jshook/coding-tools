@@ -87,14 +87,24 @@ fn count_widths(t: &Totals) -> Widths {
 /// The right-aligned count-column header, with `bytes` appended when shown.
 fn count_headers(show_bytes: bool, (wl, ww, wc, wb): Widths) -> String {
     if show_bytes {
-        format!("{:>wl$} {:>ww$} {:>wc$} {:>wb$}", "lines", "words", "chars", "bytes")
+        format!(
+            "{:>wl$} {:>ww$} {:>wc$} {:>wb$}",
+            "lines", "words", "chars", "bytes"
+        )
     } else {
         format!("{:>wl$} {:>ww$} {:>wc$}", "lines", "words", "chars")
     }
 }
 
 /// One row's right-aligned count columns, with `bytes` appended when shown.
-fn count_cols(show_bytes: bool, lines: u64, words: u64, chars: u64, bytes: u64, w: Widths) -> String {
+fn count_cols(
+    show_bytes: bool,
+    lines: u64,
+    words: u64,
+    chars: u64,
+    bytes: u64,
+    w: Widths,
+) -> String {
     let (wl, ww, wc, wb) = w;
     if show_bytes {
         format!("{lines:>wl$} {words:>ww$} {chars:>wc$} {bytes:>wb$}")
@@ -226,7 +236,14 @@ fn render_flat(rows: &[FileRow], show_bytes: bool) {
     }
     println!(
         "{}  {} file(s)",
-        count_cols(show_bytes, grand.lines, grand.words, grand.chars, grand.bytes, w),
+        count_cols(
+            show_bytes,
+            grand.lines,
+            grand.words,
+            grand.chars,
+            grand.bytes,
+            w
+        ),
         grand.files
     );
 }
@@ -316,7 +333,14 @@ fn render_summary(rows: &[FileRow], group: GroupBy, show_bytes: bool) {
         "{:<label_w$}  {:>wf$} {}",
         "total",
         grand.files,
-        count_cols(show_bytes, grand.lines, grand.words, grand.chars, grand.bytes, w)
+        count_cols(
+            show_bytes,
+            grand.lines,
+            grand.words,
+            grand.chars,
+            grand.bytes,
+            w
+        )
     );
 }
 
