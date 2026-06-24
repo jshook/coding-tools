@@ -6,9 +6,10 @@
 
 `ct` is a thin launcher: it locates `ct-<command>` (beside the `ct` executable, or
 on your `PATH`) and hands off, passing the child's stdout, stderr, and **exit
-status** through unchanged. It adds no behaviour of its own. Installing the suite
-gives you `ct` plus the `ct-*` tools; you can drive everything through `ct`, or
-call a tool directly by its full name.
+status** through unchanged. Its only built-in behaviour is the boolean chains
+`ct and` / `ct or` (below), which sequence several sub-commands in one argv.
+Installing the suite gives you `ct` plus the `ct-*` tools; you can drive everything
+through `ct`, or call a tool directly by its full name.
 
 This document is the canonical reference for `ct`. It is also what the tool prints
 for `ct --explain` (`--explain md`); `ct --explain json` prints a machine-readable
@@ -17,13 +18,45 @@ for `ct --explain` (`--explain md`); `ct --explain json` prints a machine-readab
 ## Usage
 
 ```
-ct <command> [args...]    run the matching ct-<command> tool
-ct help [<command>]       show this help, or a command's own --help
-ct <command> --explain    print one tool's definition (md or json)
-ct --explain [md|json]    describe the whole suite (json = a manifest of every tool)
-ct completions [shell]    print the shell completion script (bash/zsh/fish; auto-detects if omitted)
+ct <command> [args...]         run the matching ct-<command> tool
+ct and <cmd...> ::: <cmd...>    run each in turn, stop at the first failure (shell-less &&)
+ct or  <cmd...> ::: <cmd...>    run each in turn, stop at the first success (shell-less ||)
+ct help [<command>]            show this help, or a command's own --help
+ct <command> --explain         print one tool's definition (md or json)
+ct --explain [md|json]         describe the whole suite (json = a manifest of every tool)
+ct completions [shell]         print the shell completion script (bash/zsh/fish; auto-detects if omitted)
 ct --version
 ```
+
+## Boolean chains (`ct and` / `ct or`)
+
+When you have a shell, compose tools with its own short-circuit operators —
+`ct search … --quiet && ct edit …` runs the edit only if the search found
+something. `ct and` / `ct or` give you the **same** short-circuit semantics in a
+**single argv**, for callers with no shell to interpret `&&`/`||` (an agent or MCP
+client invoking one command, an `exec` without `/bin/sh`).
+
+Write the sub-commands one after another, separated by the literal token `:::`
+(distinctive so it won't collide with a flag value; `--` is avoided because some
+tools consume it for their own trailing argv):
+
+```
+ct and search --grep 'Foo::new' --quiet ::: edit --from x --to y --mutating
+```
+
+- `ct and` runs each segment left to right and **stops at the first failure**
+  (non-zero exit), returning that exit code; if every segment succeeds it returns
+  `0`. This is `&&`.
+- `ct or` runs left to right and **stops at the first success** (exit `0`),
+  returning `0`; if every segment fails it returns the **last** segment's exit
+  code. This is `||`.
+
+Because the chain reads the suite-wide `0`/`1`/`2` contract, a clean negative
+(`1`, e.g. a search that found nothing) short-circuits an `and` without looking
+like a crash, while a `2` (usage/abort) halts it the same way the shell would.
+A blank segment (a leading, trailing, or doubled `:::`, or no commands at all) is
+a usage error (exit `2`). Chains do not nest; each segment is a single
+`ct-<command>` invocation.
 
 ## Shell completion
 
@@ -51,7 +84,9 @@ from `.ct/rules.jsonc` at completion time — rule ids for `ct check --id` /
 
 Dispatch is **generic**: `ct <name>` runs `ct-<name>`, so any `ct-*` tool you add
 to your `PATH` is reachable through `ct` without changing `ct` itself. An unknown
-command (no matching `ct-<name>`) is a usage error (exit `2`).
+command (no matching `ct-<name>`) is a usage error (exit `2`). The words `and`,
+`or`, `help`, and `completions` are reserved by `ct` itself, so a `ct-and` tool on
+`PATH` is reachable only by its full name, not through `ct and`.
 
 ## Discovering each tool
 
@@ -101,6 +136,12 @@ ct test --question "Is the config free of deprecated keys?" \
 
 # Dispatch one check over several items (no shell loop).
 ct each --items Parser Lexer -- ct-search --base src --grep '{ITEM}' --quiet
+
+# Shell-less AND: edit only if the marker is present (one argv, no && needed).
+ct and search --base src --grep 'Foo::new' --quiet ::: edit --from Foo::new --to Foo::create --mutating
+
+# Shell-less OR: fall back to a second probe if the first finds nothing.
+ct or search --base src --grep 'TODO' --quiet ::: search --base src --grep 'FIXME' --quiet
 
 # Per-tool and whole-suite agent definitions.
 ct search --explain json     # one tool

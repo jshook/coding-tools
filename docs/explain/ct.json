@@ -1,12 +1,12 @@
 {
   "name": "ct",
-  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
+  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). Two built-in boolean chains sequence several sub-commands in a single argv without a shell, using the separator ::: between segments: `ct and A ::: B ::: C` runs each in turn and stops at the first non-zero exit (shell-less &&, returning that code; 0 if all succeed); `ct or A ::: B` runs each in turn and stops at the first zero exit (shell-less ||, returning 0; the last segment's code if all fail). A blank segment is a usage error (exit 2), and chains do not nest. To invoke a chain through this schema set command to 'and' or 'or' and put the segments (with ::: separators) in args. This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
   "input_schema": {
     "type": "object",
     "properties": {
       "command": {
         "type": "string",
-        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), edit (ct-edit), patch (ct-patch), test (ct-test), each (ct-each), outline (ct-outline), rules (ct-rules), check (ct-check), await (ct-await). Any other ct-* tool on PATH also works.",
+        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), edit (ct-edit), patch (ct-patch), test (ct-test), each (ct-each), outline (ct-outline), rules (ct-rules), check (ct-check), await (ct-await). Any other ct-* tool on PATH also works. The reserved words 'and' and 'or' run a shell-less boolean chain over the segments in args (separated by ':::') instead of a single tool.",
         "enum": [
           "search",
           "view",
@@ -18,7 +18,9 @@
           "outline",
           "rules",
           "check",
-          "await"
+          "await",
+          "and",
+          "or"
         ]
       },
       "args": {
