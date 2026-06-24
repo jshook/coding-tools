@@ -38,25 +38,34 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
+  # Linux (Unix coreutils) and native Windows (no MSYS2: the cross-platform ct-*
+  # core + stock Windows read-only utilities). Each uses its OS's default shell.
   test:
-    name: test · ${{ matrix.name }}
+    name: test · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Unix coreutils on PATH.
-          - { name: linux, os: ubuntu-latest, shell: bash, msys2: false }
-          # Native Windows: no MSYS2, the cross-platform ct-* core + stock
-          # Windows read-only utilities (findstr, where, …).
-          - { name: windows-native, os: windows-latest, shell: pwsh, msys2: false }
-          # Windows with MSYS2: coreutils on PATH (the Unix-tool path on Windows).
-          - { name: windows-msys2, os: windows-latest, shell: "msys2 {0}", msys2: true }
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test (unit + integration + doctests)
+        run: cargo test --locked
+
+  # Windows with MSYS2: coreutils on PATH (the Unix-tool path on Windows).
+  test-windows-msys2:
+    name: test · windows-msys2
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
 
       - name: Install MSYS2 (coreutils on PATH)
-        if: matrix.msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -69,5 +78,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Test (unit + integration + doctests)
-        shell: ${{ matrix.shell }}
+        shell: "msys2 {0}"
         run: cargo test --locked
