@@ -149,16 +149,23 @@ pub fn compile_item(item: &Item, ordinal: usize) -> Result<EditSpec, String> {
 }
 
 /// The file indices an edit applies to, honouring its `file=` narrowing
-/// (exact path or whole-component suffix within the selection).
+/// (exact path or whole-component suffix within the selection). The match is
+/// separator-agnostic — `/` and `\` are treated as equivalent — so narrowing
+/// works against the OS-native paths the walker yields on Windows too.
 fn candidates(spec: &EditSpec, files: &[FileBuf]) -> Result<Vec<usize>, String> {
     let Some(f) = &spec.file else {
         return Ok((0..files.len()).collect());
     };
-    let suffix = format!("/{f}");
+    let norm = |p: &str| p.replace('\\', "/");
+    let target = norm(f);
+    let suffix = format!("/{target}");
     let cand: Vec<usize> = files
         .iter()
         .enumerate()
-        .filter(|(_, fb)| fb.path == *f || fb.path.ends_with(&suffix))
+        .filter(|(_, fb)| {
+            let p = norm(&fb.path);
+            p == target || p.ends_with(&suffix)
+        })
         .map(|(i, _)| i)
         .collect();
     if cand.is_empty() {
@@ -491,5 +498,22 @@ c
         let missing = specs("#% edit file=zzz.rs\n#% find\nx\n#% replace\ny\n#% end\n");
         let mut files = bufs(&[("./src/a.rs", "x\n")]);
         assert!(run_cascade(&missing, &mut files).is_err());
+    }
+
+    #[test]
+    fn file_narrowing_matches_backslash_paths() {
+        // The walker yields OS-native paths; on Windows that means backslashes,
+        // which the `/`-suffix match must still narrow against. A forward-slash
+        // `file=` selects the right backslash path and leaves the others alone.
+        let doc = "#% edit file=b.rs\n#% find\nx\n#% replace\ny\n#% end\n";
+        let s = specs(doc);
+        let mut files = bufs(&[
+            ("C:\\proj\\src\\a.rs", "x\n"),
+            ("C:\\proj\\src\\b.rs", "x\n"),
+        ]);
+        let out = run_cascade(&s, &mut files).unwrap();
+        assert_eq!(out[0].replacements, 1);
+        assert_eq!(files[0].content, "x\n"); // a.rs untouched
+        assert_eq!(files[1].content, "y\n"); // b.rs edited
     }
 }

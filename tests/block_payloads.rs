@@ -21,6 +21,33 @@ fn scratch(tag: &str) -> PathBuf {
     dir
 }
 
+/// Clear the read-only attribute on `p` if it exists, so an overwrite can't
+/// fail. Scratch dirs persist across runs (and Windows enforces the read-only
+/// bit on writes), so a file a prior run left read-only must be cleared before
+/// it is rewritten. Cross-platform and best-effort.
+fn make_writable(p: &Path) {
+    let Ok(meta) = std::fs::metadata(p) else {
+        return;
+    };
+    let mut perms = meta.permissions();
+    if !perms.readonly() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(perms.mode() | 0o200); // restore owner write only
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows has no mode bits; clearing the read-only attribute is the
+        // only way to make the file writable again.
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+    }
+    let _ = std::fs::set_permissions(p, perms);
+}
+
 fn code(out: &Output) -> i32 {
     out.status.code().expect("child exited via a signal")
 }
@@ -374,11 +401,16 @@ fn script_write_preflight_refuses_a_readonly_target_with_zero_writes() {
     let dir = scratch("script-preflight");
     let ok = dir.join("a.rs");
     let ro = dir.join("b.rs");
+    // A prior run may have left b.rs read-only (scratch dirs persist, and the
+    // restore at the end is skipped on a panic), so clear it before setup —
+    // this makes the test self-healing rather than wedged after one failure.
+    make_writable(&ok);
+    make_writable(&ro);
     std::fs::write(&ok, "alpha()\n").unwrap();
     std::fs::write(&ro, "beta()\n").unwrap();
     let mut perms = std::fs::metadata(&ro).unwrap().permissions();
     perms.set_readonly(true);
-    std::fs::set_permissions(&ro, perms.clone()).unwrap();
+    std::fs::set_permissions(&ro, perms).unwrap();
 
     let script = dir.join("two.ctb");
     std::fs::write(
@@ -404,13 +436,9 @@ fn script_write_preflight_refuses_a_readonly_target_with_zero_writes() {
     assert_eq!(std::fs::read_to_string(&ok).unwrap(), "alpha()\n");
     assert_eq!(std::fs::read_to_string(&ro).unwrap(), "beta()\n");
 
-    // Restore writability (owner only) so reruns can overwrite the scratch
-    // files.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o644)).unwrap();
-    }
+    // Restore writability so reruns can overwrite the scratch files (and so a
+    // leftover read-only file doesn't wedge an unrelated test). Cross-platform.
+    make_writable(&ro);
 }
 
 #[test]
