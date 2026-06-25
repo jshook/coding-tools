@@ -55,6 +55,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The built-in `deps`/`mods` checks run `cargo metadata --locked --offline`
+      # in-process; warm the registry index first so that offline resolution
+      # succeeds (rust-cache restores sources but not the index .cache).
+      - name: Warm cargo registry index
+        run: cargo fetch --locked
+
       - name: Test (unit + integration + doctests)
         run: cargo test --locked
 
@@ -76,6 +82,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Warm cargo registry index
+        run: cargo fetch --locked
 
       - name: Test (unit + integration + doctests)
         shell: "msys2 {0}"
