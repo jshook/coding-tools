@@ -44,7 +44,10 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         let hits: Vec<usize> = if pat_lines.len() > 1 {
             // A multi-line pattern is a line-anchored literal block; the
             // context window expands around the whole matched region.
-            if matches!(cli.mode, Some(pattern::Mode::Glob) | Some(pattern::Mode::Regex)) {
+            if matches!(
+                cli.mode,
+                Some(pattern::Mode::Glob) | Some(pattern::Mode::Regex)
+            ) {
                 return Err(
                     "a multi-line pattern matches as a literal block; --mode glob/regex is reserved"
                         .to_string(),

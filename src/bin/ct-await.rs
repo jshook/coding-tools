@@ -33,7 +33,7 @@ const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-await.json");
 
 /// The refusal shown for a non-gated probe.
 fn deny_message(name: &str) -> String {
-    let base = allowlist::BUILTIN.join(" ");
+    let base = allowlist::builtin().join(" ");
     format!(
         "ct-await: '{name}' is not an allowed probe, so nothing was run.\n\
          \n\
@@ -50,7 +50,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         return Err("missing probe: supply one after `--`, e.g. `ct-await --timeout 600 -- ct-search --base target/build.log --grep 'BUILD SUCCESS' --quiet`".to_string());
     }
     let name = allowlist::gated_name(&cli.probe[0]);
+    // `ct-await` is on the read-only allowlist (so other tools can poll it), but
+    // it must not poll *itself* — no self-nesting, the same guard ct-each has.
     let gated_ok = allowlist::is_allowed_for_each(&name, false)
+        && name != "ct-await"
         && !(name == "ct-each" && cli.probe.iter().any(|a| a == "--mutating"));
     if !gated_ok {
         eprint!("{}", deny_message(&name));
@@ -94,13 +97,15 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         if remaining.is_zero() {
             break (
                 Verdict::Error,
-                format!("timed out after {} ({ticks} probe run(s))", pulse::limit_label(limit)),
+                format!(
+                    "timed out after {} ({ticks} probe run(s))",
+                    pulse::limit_label(limit)
+                ),
             );
         }
         ticks += 1;
         state.set("TICKS", &ticks.to_string());
-        let mut command =
-            Command::new(supervise::resolve_program(&cli.probe[0], &name));
+        let mut command = Command::new(supervise::resolve_program(&cli.probe[0], &name));
         command.args(&cli.probe[1..]);
         // A single probe run may never outlive the overall bound.
         let outcome = supervise::run_captured(command, None, Some(remaining))
@@ -121,7 +126,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         if outcome.timed_out {
             break (
                 Verdict::Error,
-                format!("timed out after {} (probe run {ticks} killed)", pulse::limit_label(limit)),
+                format!(
+                    "timed out after {} (probe run {ticks} killed)",
+                    pulse::limit_label(limit)
+                ),
             );
         }
         let established = match &ok_re {

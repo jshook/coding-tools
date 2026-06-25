@@ -321,6 +321,9 @@ mod tests {
     #[test]
     fn absent_mode_keeps_promotion() {
         assert_eq!(classify_with("*.rs", None), PatternKind::Glob);
-        assert_eq!(classify_with("*.rs", Some(Mode::Literal)), PatternKind::Literal);
+        assert_eq!(
+            classify_with("*.rs", Some(Mode::Literal)),
+            PatternKind::Literal
+        );
     }
 }

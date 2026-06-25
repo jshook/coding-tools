@@ -46,16 +46,18 @@ files. All are AND-combined.
 | `--min-lines` / `--max-lines`                | line count is `>= ` / `<=` N           |
 | `--min-words` / `--max-words`                | word count is `>=` / `<=` N            |
 | `--min-chars` / `--max-chars`                | character count is `>=` / `<=` N       |
+| `--min-bytes` / `--max-bytes`                | byte size is `>=` / `<=` N             |
 | `--min-files-per-folder` / `--max-files-per-folder` | its directory directly holds `>=` / `<=` N matching files |
 
 ## Sorting
 
 | Option   | Argument                                  | Meaning                          |
 | -------- | ----------------------------------------- | -------------------------------- |
-| `--sort` | `path`\|`name`\|`lines`\|`words`\|`chars`\|`ext` | Sort key. Default `path`.   |
+| `--sort` | `path`\|`name`\|`lines`\|`words`\|`chars`\|`bytes`\|`ext` | Sort key. Default `path`. |
 | `--desc` | —                                         | Sort descending (default ascending). |
 
 In `--flat` the sort is global; in `--tree` it orders entries within each folder.
+Sorting by `bytes` also turns the byte column on (see `--bytes` below).
 
 ## Output mode & summarisation
 
@@ -72,6 +74,7 @@ Mutually exclusive; default `--tree`.
 | Option    | Argument                | Meaning                                              |
 | --------- | ----------------------- | --------------------------------------------------- |
 | `--group` | `ext`\|`dir`\|`none`    | Grouping for `--summary`: by file extension *(default)*, by immediate directory, or a single grand total. |
+| `--bytes` | —                       | Add a `bytes` (on-disk size) column after `chars` in the text modes. Independent of the `--min-bytes`/`--max-bytes` filters; also switched on by `--sort bytes`. The JSON modes always carry `bytes`. |
 
 ### Documentation
 
@@ -89,9 +92,9 @@ Mutually exclusive; default `--tree`.
 {
   "tool": "ct-tree",
   "base": "src",
-  "files": [ { "path": "big.rs", "ext": "rs", "lines": 5321, "words": 18234, "chars": 142000 } ],
-  "by_ext": [ { "group": ".rs", "files": 12, "lines": 40000, "words": 0, "chars": 0 } ],
-  "totals": { "files": 12, "lines": 40000, "words": 0, "chars": 0 }
+  "files": [ { "path": "big.rs", "ext": "rs", "lines": 5321, "words": 18234, "chars": 142000, "bytes": 142512 } ],
+  "by_ext": [ { "group": ".rs", "files": 12, "lines": 40000, "words": 0, "chars": 0, "bytes": 0 } ],
+  "totals": { "files": 12, "lines": 40000, "words": 0, "chars": 0, "bytes": 0 }
 }
 ```
 
@@ -128,4 +131,10 @@ ct-tree --ext rs,toml,md --summary --group ext
 
 # Only folders that hold at least 10 matching files.
 ct-tree --ext rs --min-files-per-folder 10 --summary --group dir
+
+# Biggest files on disk, with a byte-size column (an `ls -l`-style ranking).
+ct-tree --base assets --flat --sort bytes --desc
+
+# Find suspiciously tiny files — e.g. blank placeholder PNGs of at most 256 bytes.
+ct-tree --base assets/cache --ext png --max-bytes 256 --bytes --flat
 ```

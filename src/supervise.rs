@@ -42,6 +42,15 @@ pub fn resolve_program(cmd: &str, name: &str) -> OsString {
         && let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
+        // On Windows the sibling carries an `.exe` suffix; try it first so a
+        // bare `ct-*` name resolves next to us before falling back to PATH.
+        #[cfg(windows)]
+        {
+            let win = dir.join(format!("{name}.exe"));
+            if win.is_file() {
+                return win.into_os_string();
+            }
+        }
         let candidate = dir.join(name);
         if candidate.is_file() {
             return candidate.into_os_string();
@@ -86,7 +95,9 @@ pub fn run_captured(
         command.process_group(0);
     }
 
-    let mut child = command.spawn().map_err(|e| format!("failed to launch: {e}"))?;
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("failed to launch: {e}"))?;
 
     // Feed stdin from a thread so a child that never reads cannot deadlock the
     // supervisor. With no input the pipe handle drops here unused, closing the
@@ -157,10 +168,7 @@ mod tests {
         // Not a ct-* tool: resolution must hand back the name for PATH lookup.
         assert_eq!(resolve_program("grep", "grep"), OsString::from("grep"));
         // A pathed command is never sibling-resolved.
-        assert_eq!(
-            resolve_program("/bin/ls", "ls"),
-            OsString::from("/bin/ls")
-        );
+        assert_eq!(resolve_program("/bin/ls", "ls"), OsString::from("/bin/ls"));
     }
 
     #[cfg(unix)]

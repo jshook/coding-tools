@@ -1,5 +1,10 @@
 # Continuous checks on every push to main and every pull request: formatting,
 # lints, and the full test suite (unit + integration + doctests).
+#
+# The dispatching tools (ct-test/ct-each/ct-await) launch read-only commands per
+# platform, so the test suite is run in BOTH supported runtime environments:
+# native Windows (no MSYS2, the suite's cross-platform ct-* tools + stock Windows
+# utilities) and Unix/MSYS2 (coreutils on PATH). Lints/format run once on Linux.
 name: ci
 
 on:
@@ -15,7 +20,7 @@ env:
 
 jobs:
   check:
-    name: fmt · clippy · test
+    name: fmt · clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -33,5 +38,54 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
+  # Linux (Unix coreutils) and native Windows (no MSYS2: the cross-platform ct-*
+  # core + stock Windows read-only utilities). Each uses its OS's default shell.
+  test:
+    name: test · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The built-in `deps`/`mods` checks run `cargo metadata --locked --offline`
+      # in-process; warm the registry index first so that offline resolution
+      # succeeds (rust-cache restores sources but not the index .cache).
+      - name: Warm cargo registry index
+        run: cargo fetch --locked
+
       - name: Test (unit + integration + doctests)
+        run: cargo test --locked
+
+  # Windows with MSYS2: coreutils on PATH (the Unix-tool path on Windows).
+  test-windows-msys2:
+    name: test · windows-msys2
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install MSYS2 (coreutils on PATH)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          install: coreutils grep
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Warm cargo registry index
+        run: cargo fetch --locked
+
+      - name: Test (unit + integration + doctests)
+        shell: "msys2 {0}"
         run: cargo test --locked

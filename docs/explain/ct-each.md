@@ -80,11 +80,16 @@ nothing — preview the sweep before committing to it.
 ## Command gate
 
 Dispatch targets are gated by **program name** (the file-name component of the
-expanded command), against a fixed, compiled-in set:
+expanded command, with a Windows `.exe` suffix stripped), against a fixed,
+compiled-in set. The read-only allowlist is **platform-aware** so sweeps run both
+on Unix/MSYS2 and on native Windows:
 
-- **Default:** the read-only allowlist (`cat ct-check ct-outline ct-search ct-tree ct-view echo
-  false file grep head ls pwd stat tail true wc`) plus `ct-test` — which is
-  itself gated to read-only commands, so dispatching it stays read-only.
+- **Default:** the read-only allowlist plus `ct-test` (itself gated to read-only
+  commands, so dispatching it stays read-only). The allowlist is a cross-platform
+  core — `ct-await ct-check ct-outline ct-search ct-tree ct-view` — plus the host
+  OS's stock read-only utilities: `cat echo false file grep head ls pwd stat tail
+  true wc` on Unix/MSYS2, or `findstr hostname more where whoami` on native
+  Windows.
 - **With `--mutating`:** additionally `ct-edit` and `ct-patch` — the suite's
   own mutating tools, each of which still enforces its own `--expect` /
   `--dry-run` gates per invocation.

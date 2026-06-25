@@ -80,8 +80,12 @@ fn resolve_store(file: &Option<PathBuf>) -> Result<PathBuf, String> {
 /// Load, parse, and statically validate the store: every rule's probe must
 /// def-expand and pass the gate before anything runs.
 fn load_validated(path: &PathBuf) -> Result<(Store, Vec<Vec<String>>), String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("read {}: {e} (create it with `ct rules --init`)", path.display()))?;
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        format!(
+            "read {}: {e} (create it with `ct rules --init`)",
+            path.display()
+        )
+    })?;
     let store = rules::parse_store(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut expanded = Vec::with_capacity(store.rules.len());
     for rule in &store.rules {
@@ -127,9 +131,10 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
     let (store, expanded) = load_validated(&store_file)?;
 
     let id_re = match &cli.id {
-        Some(p) => {
-            Some(pattern::compile_anchored_with(p, cli.mode).map_err(|e| format!("invalid --id: {e}"))?)
-        }
+        Some(p) => Some(
+            pattern::compile_anchored_with(p, cli.mode)
+                .map_err(|e| format!("invalid --id: {e}"))?,
+        ),
         None => None,
     };
     let picked: Vec<usize> = (0..store.rules.len())
@@ -238,7 +243,12 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
                 .and_then(|s| s.code())
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| {
-                    if captured.timed_out { "timeout" } else { "none" }.to_string()
+                    if captured.timed_out {
+                        "timeout"
+                    } else {
+                        "none"
+                    }
+                    .to_string()
                 }),
             reason,
             why: rule.why.clone(),
@@ -253,8 +263,16 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
     drop(pulse_guard);
 
     let count = |lane: Lane| reports.iter().filter(|r| r.lane == lane).count();
-    let (holds, violated, warned) = (count(Lane::Holds), count(Lane::Violated), count(Lane::Warned));
-    let (pending, broken, skipped) = (count(Lane::Pending), count(Lane::Broken), count(Lane::Skipped));
+    let (holds, violated, warned) = (
+        count(Lane::Holds),
+        count(Lane::Violated),
+        count(Lane::Warned),
+    );
+    let (pending, broken, skipped) = (
+        count(Lane::Pending),
+        count(Lane::Broken),
+        count(Lane::Skipped),
+    );
     let enforced = holds + violated + skipped; // fail-severity, non-pending rules
     let exit = if broken > 0 {
         ExitCode::from(2)
@@ -263,7 +281,11 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
     } else {
         ExitCode::SUCCESS
     };
-    let result = if broken > 0 || violated > 0 { "ERROR" } else { "SUCCESS" };
+    let result = if broken > 0 || violated > 0 {
+        "ERROR"
+    } else {
+        "SUCCESS"
+    };
 
     if cli.json {
         let rule_objs: Vec<_> = reports
@@ -313,7 +335,12 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
                     .as_deref()
                     .map(|w| format!(" — why: {w}"))
                     .unwrap_or_default();
-                eprintln!("ct-check: '{}' {} ({}){why}", r.id, r.lane.label(), r.reason);
+                eprintln!(
+                    "ct-check: '{}' {} ({}){why}",
+                    r.id,
+                    r.lane.label(),
+                    r.reason
+                );
                 if !r.detail.is_empty() {
                     for line in r.detail.lines() {
                         eprintln!("  {line}");

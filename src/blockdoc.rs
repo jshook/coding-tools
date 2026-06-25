@@ -268,7 +268,10 @@ mod tests {
         assert_eq!(it.attr("mode"), Some("literal"));
         assert_eq!(it.attr("file"), Some("src/a.rs"));
         assert_eq!(it.section("find"), Some("    old(\"$x\");\n"));
-        assert_eq!(it.section("replace"), Some("    new(\"$x\");\n    extra();\n"));
+        assert_eq!(
+            it.section("replace"),
+            Some("    new(\"$x\");\n    extra();\n")
+        );
         assert_eq!(it.line, 3);
     }
 

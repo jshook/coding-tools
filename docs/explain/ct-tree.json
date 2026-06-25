@@ -1,6 +1,6 @@
 {
   "name": "ct-tree",
-  "description": "Walk a directory for chosen file types and report the effective file tree with per-file line, word, and character counts. Select files with --base/--name/--ext (--ext is a comma list of extensions added to --name as alternatives), filter with metric predicates (--min-lines/--max-lines/--min-words/--max-words/--min-chars/--max-chars) and per-folder predicates (--min-files-per-folder/--max-files-per-folder, counting matching files in a file's immediate directory), sort by path|name|lines|words|chars|ext (--desc for descending), and choose a summarisation level: --tree (indented tree with per-file counts and per-folder subtotals; default), --flat (one file per line: lines words chars path; best for ranked lists), or --summary (aggregates grouped by --group ext|dir|none). --json emits {tool, base, files:[{path,ext,lines,words,chars}], by_ext, totals}. Exit: 0 if any file is in the report, 1 if none, 2 on error. Read-only. Invoke as `ct tree ...` or `ct-tree ...`. Example: all *.rs files over 5000 lines sorted by line count descending = --ext rs --min-lines 5001 --flat --sort lines --desc.",
+  "description": "Walk a directory for chosen file types and report the effective file tree with per-file line, word, and character counts (and on-disk byte size). Select files with --base/--name/--ext (--ext is a comma list of extensions added to --name as alternatives), filter with metric predicates (--min-lines/--max-lines/--min-words/--max-words/--min-chars/--max-chars/--min-bytes/--max-bytes) and per-folder predicates (--min-files-per-folder/--max-files-per-folder, counting matching files in a file's immediate directory), sort by path|name|lines|words|chars|bytes|ext (--desc for descending), and choose a summarisation level: --tree (indented tree with per-file counts and per-folder subtotals; default), --flat (one file per line: lines words chars path; best for ranked lists), or --summary (aggregates grouped by --group ext|dir|none). --bytes adds a byte-size column to the text modes (also enabled by --sort bytes). --json emits {tool, base, files:[{path,ext,lines,words,chars,bytes}], by_ext, totals}. Exit: 0 if any file is in the report, 1 if none, 2 on error. Read-only. Invoke as `ct tree ...` or `ct-tree ...`. Example: all *.rs files over 5000 lines sorted by line count descending = --ext rs --min-lines 5001 --flat --sort lines --desc.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -61,6 +61,14 @@
         "type": "integer",
         "description": "Only include files with at most N characters."
       },
+      "min-bytes": {
+        "type": "integer",
+        "description": "Only include files of at least N bytes."
+      },
+      "max-bytes": {
+        "type": "integer",
+        "description": "Only include files of at most N bytes."
+      },
       "min-files-per-folder": {
         "type": "integer",
         "description": "Only include folders that directly contain at least N matching files."
@@ -77,9 +85,10 @@
           "lines",
           "words",
           "chars",
+          "bytes",
           "ext"
         ],
-        "description": "Sort key. Default 'path'. In --flat the sort is global; in --tree it orders entries within each folder."
+        "description": "Sort key. Default 'path'. In --flat the sort is global; in --tree it orders entries within each folder. Sorting by bytes also turns on the byte column."
       },
       "desc": {
         "type": "boolean",
@@ -96,6 +105,10 @@
       "summary": {
         "type": "boolean",
         "description": "Output mode: aggregate counts only, grouped by --group. Mutually exclusive with the other modes."
+      },
+      "bytes": {
+        "type": "boolean",
+        "description": "Add a byte-size (on-disk) column after chars in the text modes. Independent of --min-bytes/--max-bytes; also enabled by --sort bytes. JSON always includes bytes."
       },
       "group": {
         "type": "string",

@@ -39,7 +39,10 @@ fn mods_acyclic_and_layers_hold_for_a_clean_crate() {
     let dir = fixture("clean");
     // api -> svc -> db is acyclic and respects the declared (highest-first) order.
     assert_eq!(mods_check(&dir, &["--acyclic"]).0, ProbeOutcome::Holds);
-    assert_eq!(mods_check(&dir, &["--layers", "api,svc,db"]).0, ProbeOutcome::Holds);
+    assert_eq!(
+        mods_check(&dir, &["--layers", "api,svc,db"]).0,
+        ProbeOutcome::Holds
+    );
 }
 
 #[test]
@@ -48,9 +51,15 @@ fn mods_forbid_catches_a_transitive_module_edge() {
     // api reaches db only through svc: the evidence path proves the hop.
     let (o, _reason, report) = mods_check(&dir, &["--forbid", "api=>db"]);
     assert_eq!(o, ProbeOutcome::Violated);
-    assert!(report.contains("forbid: api=>db: api -> svc -> db"), "{report:?}");
+    assert!(
+        report.contains("forbid: api=>db: api -> svc -> db"),
+        "{report:?}"
+    );
     // The reverse does not hold.
-    assert_eq!(mods_check(&dir, &["--forbid", "db=>api"]).0, ProbeOutcome::Holds);
+    assert_eq!(
+        mods_check(&dir, &["--forbid", "db=>api"]).0,
+        ProbeOutcome::Holds
+    );
 }
 
 #[test]
@@ -74,7 +83,10 @@ fn mods_rejects_unknown_flag_with_a_valid_flags_hint() {
     let (o, reason, _) = mods_check(&dir, &["--bogus"]);
     assert_eq!(o, ProbeOutcome::Broken);
     assert!(reason.contains("valid flags"), "{reason:?}");
-    assert!(reason.contains("--acyclic") && reason.contains("--layers"), "{reason:?}");
+    assert!(
+        reason.contains("--acyclic") && reason.contains("--layers"),
+        "{reason:?}"
+    );
 }
 
 #[test]
@@ -83,7 +95,11 @@ fn mods_honors_timeout() {
     // A zero bound trips on the first file the walk yields: --timeout is honored
     // (mods walks the tree itself, so the deadline is checked cooperatively),
     // not silently ignored as it once was.
-    let argv = vec!["--base".to_string(), ".".to_string(), "--acyclic".to_string()];
+    let argv = vec![
+        "--base".to_string(),
+        ".".to_string(),
+        "--acyclic".to_string(),
+    ];
     let (o, reason, _) = modgraph::check(&argv, &dir, Some(Duration::ZERO));
     assert_eq!(o, ProbeOutcome::Broken);
     assert!(reason.contains("timed out"), "{reason:?}");

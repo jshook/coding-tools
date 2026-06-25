@@ -11,7 +11,10 @@ use serde_json::Value;
 /// compact on a single line.
 pub fn print(value: &Value, pretty: bool) {
     if pretty {
-        println!("{}", serde_json::to_string_pretty(value).expect("a JSON value serializes"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(value).expect("a JSON value serializes")
+        );
     } else {
         println!("{value}");
     }

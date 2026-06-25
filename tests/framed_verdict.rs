@@ -9,6 +9,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod common;
+
 /// A unique, overwrite-friendly scratch dir under `target/` (never removed).
 fn scratch(tag: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -229,9 +231,13 @@ fn ct_test_allow_gate_is_fixed_and_immutable() {
     let no_allow = ct_test().args(["--allow", "seq"]).output().unwrap();
     assert_eq!(code(&no_allow), 2, "--allow must no longer exist");
 
-    // A built-in read-only command runs.
+    // A built-in read-only command runs (a suite ct-* tool, allowed on every OS).
+    let dir = scratch("ct-test-gate");
+    let ok = common::exit_ok(&dir);
     let builtin = ct_test()
-        .args(["--quiet", "--cmd", "true", "--emit", "{RESULT}"])
+        .args(["--quiet", "--cmd", &ok[0], "--emit", "{RESULT}"])
+        .arg("--")
+        .args(&ok[1..])
         .output()
         .unwrap();
     assert_eq!(code(&builtin), 0, "built-in command should run");
@@ -240,19 +246,25 @@ fn ct_test_allow_gate_is_fixed_and_immutable() {
 
 #[test]
 fn ct_test_diagnoses_and_lets_caller_set_inconclusive_outcome() {
-    // echo writes to stdout and exits 0; --ok-match-stderr searches only stderr,
-    // so the required success proof is "not found" — an inconclusive run.
+    // ct-view writes the file's contents to stdout and exits 0; --ok-match-stderr
+    // searches only stderr, so the required success proof is "not found" — an
+    // inconclusive run. (ct-view stands in for a plain echo, cross-platform.)
+    let dir = scratch("ct-test-inconclusive");
+    let hi = dir.join("hi.txt");
+    std::fs::write(&hi, "hi\n").unwrap();
+    let hi = hi.to_string_lossy().into_owned();
     let run = |extra: &[&str]| -> Output {
         let mut args = vec![
             "--ok-match-stderr",
             "hi",
             "--cmd",
-            "echo",
+            "ct-view",
             "--emit",
             "{RESULT}",
         ];
         args.extend_from_slice(extra);
-        args.extend_from_slice(&["--", "hi"]);
+        args.push("--");
+        args.push(hi.as_str());
         Command::new(env!("CARGO_BIN_EXE_ct-test"))
             .args(args)
             .output()
@@ -285,6 +297,8 @@ fn ct_test_diagnoses_and_lets_caller_set_inconclusive_outcome() {
     assert_eq!(code(&run(&["--otherwise", "error"])), 1, "error policy");
 
     // A failure signal stays decisive regardless of --otherwise.
+    let bad = dir.join("bad.txt");
+    std::fs::write(&bad, "BAD news\n").unwrap();
     let err = Command::new(env!("CARGO_BIN_EXE_ct-test"))
         .args([
             "--err-match",
@@ -292,11 +306,11 @@ fn ct_test_diagnoses_and_lets_caller_set_inconclusive_outcome() {
             "--otherwise",
             "success",
             "--cmd",
-            "echo",
+            "ct-view",
             "--emit",
             "{RESULT}",
             "--",
-            "BAD news",
+            bad.to_str().unwrap(),
         ])
         .output()
         .unwrap();

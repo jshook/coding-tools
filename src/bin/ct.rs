@@ -85,6 +85,8 @@ fn usage() -> String {
          \n\
          Usage:\n  \
          ct <command> [args...]    run the matching ct-<command> tool\n  \
+         ct and <cmd...> ::: <cmd...>   run each in turn, stop at the first failure (shell-less &&)\n  \
+         ct or  <cmd...> ::: <cmd...>   run each in turn, stop at the first success (shell-less ||)\n  \
          ct help [<command>]       show this help, or a command's own --help\n  \
          ct <command> --explain    print one tool's definition (md or json)\n  \
          ct --explain [md|json]    describe the whole suite (json = a manifest of every tool)\n  \
@@ -135,15 +137,105 @@ fn dispatch(sub: &str, rest: &[String]) -> ExitCode {
     }
 }
 
-/// Turn a failed hand-off into a friendly message and exit `2`.
-fn launch_error(sub: &str, err: std::io::Error) -> ExitCode {
+/// Print the friendly message for a failed hand-off (no exit).
+fn print_launch_error(sub: &str, err: &std::io::Error) {
     if err.kind() == std::io::ErrorKind::NotFound {
         eprintln!("ct: unknown command '{sub}' — no 'ct-{sub}' found beside ct or on PATH");
         eprint!("\n{}", usage());
     } else {
         eprintln!("ct: could not run 'ct-{sub}': {err}");
     }
+}
+
+/// Turn a failed hand-off into a friendly message and exit `2`.
+fn launch_error(sub: &str, err: std::io::Error) -> ExitCode {
+    print_launch_error(sub, &err);
     ExitCode::from(2)
+}
+
+// ----- Boolean chains: `ct and` / `ct or` -------------------------------------
+
+/// The separator between sub-command segments in a `ct and` / `ct or` chain.
+/// Distinctive enough (GNU-parallel style) to not collide with ordinary flag
+/// values; `--` is avoided because leaf tools consume it for trailing argv.
+const CHAIN_SEP: &str = ":::";
+
+/// Short-circuit boolean mode for a chain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChainMode {
+    /// Run left to right; stop at the first failure (non-zero) and return it.
+    And,
+    /// Run left to right; stop at the first success (zero) and return `0`.
+    Or,
+}
+
+/// Split a chain's argv into segments on [`CHAIN_SEP`], rejecting blank ones
+/// (a leading/trailing/doubled separator, or no commands at all).
+fn split_segments(rest: &[String]) -> Result<Vec<&[String]>, String> {
+    let segs: Vec<&[String]> = rest.split(|a| a == CHAIN_SEP).collect();
+    if segs.iter().any(|s| s.is_empty()) {
+        return Err(format!(
+            "empty segment — separate sub-commands with '{CHAIN_SEP}' and don't leave one blank \
+             (e.g. `ct and search … {CHAIN_SEP} edit …`)"
+        ));
+    }
+    Ok(segs)
+}
+
+/// Run the segments under the short-circuit `mode`, deferring each segment's
+/// execution to `run` (which returns its exit code). Pure control flow — the
+/// real `run` spawns a child; tests inject codes — so the short-circuit logic
+/// is verifiable without launching processes.
+fn chain_code<R: FnMut(&str, &[String]) -> i32>(
+    mode: ChainMode,
+    segs: &[&[String]],
+    mut run: R,
+) -> i32 {
+    let mut last = 0;
+    for seg in segs {
+        let code = run(seg[0].as_str(), &seg[1..]);
+        match mode {
+            ChainMode::And if code != 0 => return code,
+            ChainMode::Or if code == 0 => return 0,
+            ChainMode::Or => last = code,
+            ChainMode::And => {}
+        }
+    }
+    match mode {
+        ChainMode::And => 0,   // every segment succeeded
+        ChainMode::Or => last, // none succeeded; mirror `a || b`'s last code
+    }
+}
+
+/// Spawn one `ct-<sub> [args…]` segment and wait, returning its exit code; a
+/// launch failure prints the usual message and counts as `2`. Always spawns
+/// (never `exec`s) so the chain can continue to later segments.
+fn run_segment(sub: &str, args: &[String]) -> i32 {
+    let program = resolve(&format!("ct-{sub}"));
+    match Command::new(&program).args(args).status() {
+        Ok(status) => status.code().unwrap_or(2),
+        Err(e) => {
+            print_launch_error(sub, &e);
+            2
+        }
+    }
+}
+
+/// Map a raw exit code to a process `ExitCode` (clamping to a byte).
+fn code_to_exit(code: i32) -> ExitCode {
+    ExitCode::from(u8::try_from(code).unwrap_or(2))
+}
+
+/// Entry point for `ct and …` / `ct or …`: split into segments and run them
+/// under the chosen short-circuit mode.
+fn run_chain(mode: ChainMode, kw: &str, rest: &[String]) -> ExitCode {
+    match split_segments(rest) {
+        Ok(segs) => code_to_exit(chain_code(mode, &segs, run_segment)),
+        Err(msg) => {
+            eprintln!("ct {kw}: {msg}");
+            ExitCode::from(2)
+        }
+    }
 }
 
 /// Print the shell completion registration script. With no shell, emit the
@@ -234,11 +326,103 @@ fn main() -> ExitCode {
             }
         }
         "completions" => completions(&args[1..]),
+        // Shell-less boolean chains: run several ct sub-commands in one argv,
+        // short-circuiting like `&&` / `||` but without a shell to interpret them.
+        "and" => run_chain(ChainMode::And, "and", &args[1..]),
+        "or" => run_chain(ChainMode::Or, "or", &args[1..]),
         flag if flag.starts_with('-') => {
             eprintln!("ct: unknown option '{flag}'");
             eprint!("\n{}", usage());
             ExitCode::from(2)
         }
         sub => dispatch(sub, &args[1..]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build owned segments and a borrowing view for `chain_code`.
+    fn segs(parts: &[&[&str]]) -> Vec<Vec<String>> {
+        parts
+            .iter()
+            .map(|seg| seg.iter().map(|s| s.to_string()).collect())
+            .collect()
+    }
+
+    /// Run `chain_code` over `codes` (one per segment), recording which
+    /// sub-commands actually ran. Returns (final code, ran subs).
+    fn run(mode: ChainMode, names: &[&str], codes: &[i32]) -> (i32, Vec<String>) {
+        let storage = segs(&names.iter().map(std::slice::from_ref).collect::<Vec<_>>());
+        let view: Vec<&[String]> = storage.iter().map(Vec::as_slice).collect();
+        let mut ran = Vec::new();
+        let mut i = 0;
+        let code = chain_code(mode, &view, |sub, _| {
+            ran.push(sub.to_string());
+            let c = codes[i];
+            i += 1;
+            c
+        });
+        (code, ran)
+    }
+
+    #[test]
+    fn and_stops_at_first_failure_and_returns_it() {
+        let (code, ran) = run(ChainMode::And, &["a", "b", "c"], &[0, 1, 0]);
+        assert_eq!(code, 1);
+        assert_eq!(ran, ["a", "b"]); // c never runs
+    }
+
+    #[test]
+    fn and_runs_all_when_every_segment_succeeds() {
+        let (code, ran) = run(ChainMode::And, &["a", "b"], &[0, 0]);
+        assert_eq!(code, 0);
+        assert_eq!(ran, ["a", "b"]);
+    }
+
+    #[test]
+    fn and_propagates_a_two_abort_and_halts() {
+        let (code, ran) = run(ChainMode::And, &["a", "b", "c"], &[0, 2, 0]);
+        assert_eq!(code, 2);
+        assert_eq!(ran, ["a", "b"]);
+    }
+
+    #[test]
+    fn or_stops_at_first_success() {
+        let (code, ran) = run(ChainMode::Or, &["a", "b", "c"], &[1, 0, 1]);
+        assert_eq!(code, 0);
+        assert_eq!(ran, ["a", "b"]); // c never runs
+    }
+
+    #[test]
+    fn or_returns_last_code_when_all_fail() {
+        let (code, ran) = run(ChainMode::Or, &["a", "b"], &[1, 2]);
+        assert_eq!(code, 2);
+        assert_eq!(ran, ["a", "b"]);
+    }
+
+    #[test]
+    fn split_segments_breaks_on_the_separator() {
+        let argv: Vec<String> = ["search", "--quiet", ":::", "edit", "--mutating"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let segs = split_segments(&argv).unwrap();
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[0], ["search", "--quiet"]);
+        assert_eq!(segs[1], ["edit", "--mutating"]);
+    }
+
+    #[test]
+    fn split_segments_rejects_blank_segments() {
+        let blank = |parts: &[&str]| {
+            let argv: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
+            split_segments(&argv).is_err()
+        };
+        assert!(blank(&[])); // `ct and` with nothing
+        assert!(blank(&[":::", "edit"])); // leading separator
+        assert!(blank(&["search", ":::"])); // trailing separator
+        assert!(blank(&["search", ":::", ":::", "edit"])); // doubled
     }
 }

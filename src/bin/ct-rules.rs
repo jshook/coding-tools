@@ -129,9 +129,10 @@ fn scaffold(path: &PathBuf, quiet: bool) -> Result<bool, String> {
 /// Apply patch ops to the store file, comment-preservingly, ensuring the
 /// explanatory header survives (or is re-established) on every write.
 fn patch_store(path: &PathBuf, ops: &[Op]) -> Result<(), String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    let (patched, changes) =
-        coding_tools::patch::apply_doc(&text, ops).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let (patched, changes) = coding_tools::patch::apply_doc(&text, ops)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
     if changes == 0 {
         return Err("store edit made no change".to_string());
     }
@@ -227,15 +228,24 @@ fn cmd_add(cli: &Cli, id: &str) -> Result<ExitCode, String> {
     };
 
     let path = resolve_store(&cli.file, true, cli.quiet)?;
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let store = rules::parse_store(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     if store.rules.iter().any(|r| r.id == id) {
-        return Err(format!("rule '{id}' already exists (use --remove first; ids are history)"));
+        return Err(format!(
+            "rule '{id}' already exists (use --remove first; ids are history)"
+        ));
     }
 
     // The probe runs NOW: an enforced rule records an established truth.
-    let (outcome, reason, detail) =
-        verify(&path, &cli.probe, &store.defs, &adapter, cli.network, cli.timeout)?;
+    let (outcome, reason, detail) = verify(
+        &path,
+        &cli.probe,
+        &store.defs,
+        &adapter,
+        cli.network,
+        cli.timeout,
+    )?;
     match (&outcome, cli.pending) {
         (ProbeOutcome::Broken, _) => {
             eprintln!("ct-rules: candidate probe is BROKEN ({reason}); not recorded");
@@ -337,7 +347,10 @@ fn cmd_prototype(cli: &Cli) -> Result<ExitCode, String> {
         }
         (Some(s), None, None) => Adapter::from_value(&json!(s))?,
         (None, None, None) => Adapter::Exit,
-        (None, ok, err) => Adapter::Match { ok: ok.clone(), err: err.clone() },
+        (None, ok, err) => Adapter::Match {
+            ok: ok.clone(),
+            err: err.clone(),
+        },
     };
     let path = resolve_store(&cli.file, false, true)?;
     let defs = match std::fs::read_to_string(&path) {
@@ -364,7 +377,9 @@ fn cmd_prototype(cli: &Cli) -> Result<ExitCode, String> {
             ProbeOutcome::Violated => "VIOLATED",
             ProbeOutcome::Broken => "BROKEN",
         };
-        println!("prototype: {label} ({reason}); not saved — add `--add ID --question …` to record it");
+        println!(
+            "prototype: {label} ({reason}); not saved — add `--add ID --question …` to record it"
+        );
     }
     Ok(match outcome {
         ProbeOutcome::Holds => ExitCode::SUCCESS,
@@ -375,7 +390,8 @@ fn cmd_prototype(cli: &Cli) -> Result<ExitCode, String> {
 
 fn cmd_flatten(cli: &Cli) -> Result<ExitCode, String> {
     let path = resolve_store(&cli.file, false, cli.quiet)?;
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let store = rules::parse_store(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     let with_prompts: Vec<&str> = store
         .rules
@@ -412,7 +428,8 @@ fn cmd_flatten(cli: &Cli) -> Result<ExitCode, String> {
 
 fn cmd_promote(cli: &Cli, id: &str) -> Result<ExitCode, String> {
     let path = resolve_store(&cli.file, false, cli.quiet)?;
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let store = rules::parse_store(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     let rule = store
         .rules
@@ -435,7 +452,11 @@ fn cmd_promote(cli: &Cli, id: &str) -> Result<ExitCode, String> {
         if !detail.is_empty() {
             eprintln!("{detail}");
         }
-        return Ok(ExitCode::from(if outcome == ProbeOutcome::Broken { 2 } else { 1 }));
+        return Ok(ExitCode::from(if outcome == ProbeOutcome::Broken {
+            2
+        } else {
+            1
+        }));
     }
     let spec = format!(".rules[id={id}].pending");
     patch_store(
@@ -453,7 +474,8 @@ fn cmd_promote(cli: &Cli, id: &str) -> Result<ExitCode, String> {
 
 fn cmd_remove(cli: &Cli, id: &str) -> Result<ExitCode, String> {
     let path = resolve_store(&cli.file, false, cli.quiet)?;
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let store = rules::parse_store(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     if !store.rules.iter().any(|r| r.id == id) {
         return Err(format!("no rule '{id}' in {}", path.display()));
@@ -496,7 +518,8 @@ fn cmd_def(cli: &Cli, spec: &str) -> Result<ExitCode, String> {
 
 fn cmd_list(cli: &Cli) -> Result<ExitCode, String> {
     let path = resolve_store(&cli.file, false, cli.quiet)?;
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let store = rules::parse_store(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     if !store.defs.is_empty() {
         println!("defs:");
@@ -533,7 +556,9 @@ fn cmd_list(cli: &Cli) -> Result<ExitCode, String> {
 
 fn cmd_hook(cli: &Cli, ecosystem: &str) -> Result<ExitCode, String> {
     if ecosystem != "cargo" {
-        return Err(format!("unknown --hook ecosystem '{ecosystem}' (supported: cargo)"));
+        return Err(format!(
+            "unknown --hook ecosystem '{ecosystem}' (supported: cargo)"
+        ));
     }
     // The hook lives at the project root: where .ct is.
     let store = resolve_store(&cli.file, false, cli.quiet)?;
@@ -587,7 +612,10 @@ fn cmd_hook(cli: &Cli, ecosystem: &str) -> Result<ExitCode, String> {
     );
     std::fs::write(&shim, body).map_err(|e| format!("write {}: {e}", shim.display()))?;
     if !cli.quiet {
-        println!("wrote {} — `cargo test` now enforces the rule store", shim.display());
+        println!(
+            "wrote {} — `cargo test` now enforces the rule store",
+            shim.display()
+        );
     }
     Ok(ExitCode::SUCCESS)
 }

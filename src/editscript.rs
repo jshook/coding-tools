@@ -91,8 +91,7 @@ pub fn compile_item(item: &Item, ordinal: usize) -> Result<EditSpec, String> {
     }
 
     let expect_label = item.attr("expect").unwrap_or("=1").to_string();
-    let expect =
-        Expect::parse(&expect_label).map_err(|e| at(format!("invalid expect: {e}")))?;
+    let expect = Expect::parse(&expect_label).map_err(|e| at(format!("invalid expect: {e}")))?;
     let mode_label = item.attr("mode").unwrap_or("literal").to_string();
     let mode = match mode_label.as_str() {
         "literal" => Mode::Literal,
@@ -149,16 +148,23 @@ pub fn compile_item(item: &Item, ordinal: usize) -> Result<EditSpec, String> {
 }
 
 /// The file indices an edit applies to, honouring its `file=` narrowing
-/// (exact path or whole-component suffix within the selection).
+/// (exact path or whole-component suffix within the selection). The match is
+/// separator-agnostic — `/` and `\` are treated as equivalent — so narrowing
+/// works against the OS-native paths the walker yields on Windows too.
 fn candidates(spec: &EditSpec, files: &[FileBuf]) -> Result<Vec<usize>, String> {
     let Some(f) = &spec.file else {
         return Ok((0..files.len()).collect());
     };
-    let suffix = format!("/{f}");
+    let norm = |p: &str| p.replace('\\', "/");
+    let target = norm(f);
+    let suffix = format!("/{target}");
     let cand: Vec<usize> = files
         .iter()
         .enumerate()
-        .filter(|(_, fb)| fb.path == *f || fb.path.ends_with(&suffix))
+        .filter(|(_, fb)| {
+            let p = norm(&fb.path);
+            p == target || p.ends_with(&suffix)
+        })
         .map(|(i, _)| i)
         .collect();
     if cand.is_empty() {
@@ -207,10 +213,7 @@ fn track_miss(
 /// write would have it. Buffers are updated even past a failing edit so the
 /// remaining diagnostics stay meaningful; the caller writes nothing unless
 /// every outcome is `SUCCESS`.
-pub fn run_cascade(
-    specs: &[EditSpec],
-    files: &mut [FileBuf],
-) -> Result<Vec<EditOutcome>, String> {
+pub fn run_cascade(specs: &[EditSpec], files: &mut [FileBuf]) -> Result<Vec<EditOutcome>, String> {
     let mut outcomes = Vec::with_capacity(specs.len());
     for spec in specs {
         let cand = candidates(spec, files)?;
@@ -281,9 +284,7 @@ pub fn run_no_cascade(
             for site in &s {
                 let (len, replacement) = match &spec.op {
                     Op::Block { find, replace } => (find.len(), replace.clone()),
-                    Op::Line { .. } => {
-                        (1, site.after.split('\n').map(str::to_string).collect())
-                    }
+                    Op::Line { .. } => (1, site.after.split('\n').map(str::to_string).collect()),
                 };
                 splices.push((
                     spec.ordinal,
@@ -350,7 +351,11 @@ fn splice_lines(content: &str, start: usize, len: usize, replacement: &[String])
             let last_term = segments[(start + len - 1).min(segments.len() - 1)].1;
             for (r, rl) in replacement.iter().enumerate() {
                 out.push_str(rl);
-                out.push_str(if r + 1 == replacement.len() { last_term } else { "\n" });
+                out.push_str(if r + 1 == replacement.len() {
+                    last_term
+                } else {
+                    "\n"
+                });
             }
         }
         if i < start || i >= start + len {
@@ -491,5 +496,22 @@ c
         let missing = specs("#% edit file=zzz.rs\n#% find\nx\n#% replace\ny\n#% end\n");
         let mut files = bufs(&[("./src/a.rs", "x\n")]);
         assert!(run_cascade(&missing, &mut files).is_err());
+    }
+
+    #[test]
+    fn file_narrowing_matches_backslash_paths() {
+        // The walker yields OS-native paths; on Windows that means backslashes,
+        // which the `/`-suffix match must still narrow against. A forward-slash
+        // `file=` selects the right backslash path and leaves the others alone.
+        let doc = "#% edit file=b.rs\n#% find\nx\n#% replace\ny\n#% end\n";
+        let s = specs(doc);
+        let mut files = bufs(&[
+            ("C:\\proj\\src\\a.rs", "x\n"),
+            ("C:\\proj\\src\\b.rs", "x\n"),
+        ]);
+        let out = run_cascade(&s, &mut files).unwrap();
+        assert_eq!(out[0].replacements, 1);
+        assert_eq!(files[0].content, "x\n"); // a.rs untouched
+        assert_eq!(files[1].content, "y\n"); // b.rs edited
     }
 }

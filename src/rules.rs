@@ -133,7 +133,9 @@ impl Adapter {
             serde_json::Value::String(s) => match s.as_str() {
                 "exit" => Ok(Adapter::Exit),
                 "empty" => Ok(Adapter::Empty),
-                other => Err(format!("invalid expect '{other}' (use exit, empty, or a matcher object)")),
+                other => Err(format!(
+                    "invalid expect '{other}' (use exit, empty, or a matcher object)"
+                )),
             },
             serde_json::Value::Object(o) => {
                 let get = |k: &str| -> Result<Option<String>, String> {
@@ -235,7 +237,11 @@ pub fn parse_store(text: &str) -> Result<Store, String> {
                 serde_json::Value::Array(_) => {
                     Def::Many(as_str_list(val, &format!("def '{name}'"))?)
                 }
-                _ => return Err(format!("def '{name}' must be a string or a list of strings")),
+                _ => {
+                    return Err(format!(
+                        "def '{name}' must be a string or a list of strings"
+                    ));
+                }
             };
             defs.insert(name.clone(), def);
         }
@@ -249,7 +255,11 @@ pub fn parse_store(text: &str) -> Result<Store, String> {
             let o = entry
                 .as_object()
                 .ok_or_else(|| format!("rules[{i}] must be an object"))?;
-            let id = as_str(o.get("id").ok_or_else(|| format!("rules[{i}]: missing id"))?, "id")?;
+            let id = as_str(
+                o.get("id")
+                    .ok_or_else(|| format!("rules[{i}]: missing id"))?,
+                "id",
+            )?;
             if id.is_empty() || id.contains(char::is_whitespace) {
                 return Err(format!("rules[{i}]: invalid id '{id}'"));
             }
@@ -263,7 +273,8 @@ pub fn parse_store(text: &str) -> Result<Store, String> {
                 "question",
             )?;
             let probe = as_str_list(
-                o.get("probe").ok_or_else(|| format!("{where_}: missing probe"))?,
+                o.get("probe")
+                    .ok_or_else(|| format!("{where_}: missing probe"))?,
                 "probe",
             )?;
             if probe.is_empty() {
@@ -281,7 +292,10 @@ pub fn parse_store(text: &str) -> Result<Store, String> {
                 },
                 added: o.get("added").map(|v| as_str(v, "added")).transpose()?,
                 timeout: match o.get("timeout") {
-                    Some(v) => Some(v.as_f64().ok_or_else(|| format!("{where_}: timeout must be a number"))?),
+                    Some(v) => Some(
+                        v.as_f64()
+                            .ok_or_else(|| format!("{where_}: timeout must be a number"))?,
+                    ),
                     None => None,
                 },
                 pending: o.get("pending").and_then(|v| v.as_bool()).unwrap_or(false),
@@ -299,8 +313,10 @@ pub fn parse_store(text: &str) -> Result<Store, String> {
             // Built-in checks (`deps`/`mods`) classify their own outcome, so an
             // `expect` adapter is meaningless for them — reject it at load
             // rather than silently ignore it (matches the ct-rules add guard).
-            if matches!(rule.probe.first().map(String::as_str), Some("deps") | Some("mods"))
-                && rule.expect != Adapter::Exit
+            if matches!(
+                rule.probe.first().map(String::as_str),
+                Some("deps") | Some("mods")
+            ) && rule.expect != Adapter::Exit
             {
                 return Err(format!(
                     "{where_}: built-in check '{}' takes no expect adapter (it classifies its own outcome)",
@@ -479,15 +495,19 @@ pub fn gate_probe(argv: &[String]) -> Result<Gated<'static>, String> {
         return Ok(Gated::Builtin(Builtin::Mods));
     }
     if name == "ct-check" {
-        return Err("a probe may not run ct-check (no self-recursion through the store)".to_string());
+        return Err(
+            "a probe may not run ct-check (no self-recursion through the store)".to_string(),
+        );
     }
     if name == "ct-rules" {
         return Err("a probe may not run ct-rules (probes observe; they never write)".to_string());
     }
     if name == "ct-each" {
         if argv.iter().any(|a| a == "--mutating") {
-            return Err("a probe may not pass --mutating (rules observe; they never change anything)"
-                .to_string());
+            return Err(
+                "a probe may not pass --mutating (rules observe; they never change anything)"
+                    .to_string(),
+            );
         }
         return Ok(Gated::Observer);
     }
@@ -604,7 +624,8 @@ pub fn run_probe(
         Gated::Builtin(_) => unreachable!("built-in checks handled above"),
     };
     let name = allowlist::gated_name(&argv[0]);
-    let mut command = std::process::Command::new(crate::supervise::resolve_program(&argv[0], &name));
+    let mut command =
+        std::process::Command::new(crate::supervise::resolve_program(&argv[0], &name));
     command.args(&argv[1..]).current_dir(root);
     let empty = || crate::supervise::Outcome {
         stdout: String::new(),
@@ -696,10 +717,7 @@ pub fn classify(
             if let Some(p) = ok {
                 return match hit(p) {
                     Ok(true) => (ProbeOutcome::Holds, format!("ok-match '{p}' matched")),
-                    Ok(false) => (
-                        ProbeOutcome::Violated,
-                        format!("ok-match '{p}' not found"),
-                    ),
+                    Ok(false) => (ProbeOutcome::Violated, format!("ok-match '{p}' not found")),
                     Err(e) => (ProbeOutcome::Broken, e),
                 };
             }
@@ -761,24 +779,45 @@ mod tests {
         let bad = r#"{"rules":[{"id":"x","question":"q","probe":[]}]}"#;
         assert!(parse_store(bad).unwrap_err().contains("must not be empty"));
         let unknown = r#"{"stuff": 1}"#;
-        assert!(parse_store(unknown).unwrap_err().contains("unknown store key"));
+        assert!(
+            parse_store(unknown)
+                .unwrap_err()
+                .contains("unknown store key")
+        );
         let badsev = r#"{"rules":[{"id":"x","question":"q","probe":["ls"],"severity":"high"}]}"#;
-        assert!(parse_store(badsev).unwrap_err().contains("invalid severity"));
+        assert!(
+            parse_store(badsev)
+                .unwrap_err()
+                .contains("invalid severity")
+        );
         // A built-in check carries its own outcome; an expect adapter on one is
         // rejected at load, not silently ignored (mirrors the ct-rules guard).
-        let builtin_adapter =
-            r#"{"rules":[{"id":"x","question":"q","probe":["deps","--acyclic"],"expect":"empty"}]}"#;
-        assert!(parse_store(builtin_adapter)
-            .unwrap_err()
-            .contains("takes no expect adapter"));
+        let builtin_adapter = r#"{"rules":[{"id":"x","question":"q","probe":["deps","--acyclic"],"expect":"empty"}]}"#;
+        assert!(
+            parse_store(builtin_adapter)
+                .unwrap_err()
+                .contains("takes no expect adapter")
+        );
     }
 
     #[test]
     fn adapter_parsing_accepts_strings_and_matcher_objects() {
-        assert_eq!(Adapter::from_value(&serde_json::json!("exit")).unwrap(), Adapter::Exit);
-        assert_eq!(Adapter::from_value(&serde_json::json!("empty")).unwrap(), Adapter::Empty);
+        assert_eq!(
+            Adapter::from_value(&serde_json::json!("exit")).unwrap(),
+            Adapter::Exit
+        );
+        assert_eq!(
+            Adapter::from_value(&serde_json::json!("empty")).unwrap(),
+            Adapter::Empty
+        );
         let m = Adapter::from_value(&serde_json::json!({"ok-match": "fine"})).unwrap();
-        assert_eq!(m, Adapter::Match { ok: Some("fine".into()), err: None });
+        assert_eq!(
+            m,
+            Adapter::Match {
+                ok: Some("fine".into()),
+                err: None
+            }
+        );
         assert!(Adapter::from_value(&serde_json::json!("sometimes")).is_err());
         assert!(Adapter::from_value(&serde_json::json!({})).is_err());
         assert!(Adapter::from_value(&serde_json::json!({"oops": "x"})).is_err());
@@ -787,10 +826,22 @@ mod tests {
     #[test]
     fn gate_admits_observers_and_bridge_only() {
         let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert!(matches!(gate_probe(&argv(&["ct-outline", "--base", "."])), Ok(Gated::Observer)));
-        assert!(matches!(gate_probe(&argv(&["ct-test", "--cmd", "cat"])), Ok(Gated::Observer)));
-        assert!(matches!(gate_probe(&argv(&["cargo", "deny", "check", "bans"])), Ok(Gated::Bridge(_))));
-        assert!(matches!(gate_probe(&argv(&["rust-analyzer", "symbols"])), Ok(Gated::Bridge(_))));
+        assert!(matches!(
+            gate_probe(&argv(&["ct-outline", "--base", "."])),
+            Ok(Gated::Observer)
+        ));
+        assert!(matches!(
+            gate_probe(&argv(&["ct-test", "--cmd", "cat"])),
+            Ok(Gated::Observer)
+        ));
+        assert!(matches!(
+            gate_probe(&argv(&["cargo", "deny", "check", "bans"])),
+            Ok(Gated::Bridge(_))
+        ));
+        assert!(matches!(
+            gate_probe(&argv(&["rust-analyzer", "symbols"])),
+            Ok(Gated::Bridge(_))
+        ));
         // Refusals: mutating tools, self-recursion, unlisted prefixes.
         assert!(gate_probe(&argv(&["ct-edit", "--find", "a", "--replace", "b"])).is_err());
         assert!(gate_probe(&argv(&["cargo", "build"])).is_err());
@@ -823,18 +874,33 @@ mod tests {
         assert_eq!(classify(&Adapter::Exit, Some(101), "", "").0, Broken);
 
         assert_eq!(classify(&Adapter::Empty, Some(0), " \n", "").0, Holds);
-        assert_eq!(classify(&Adapter::Empty, Some(0), "dupe v1\n", "").0, Violated);
+        assert_eq!(
+            classify(&Adapter::Empty, Some(0), "dupe v1\n", "").0,
+            Violated
+        );
         assert_eq!(classify(&Adapter::Empty, Some(2), "", "").0, Broken);
 
-        let m = Adapter::Match { ok: Some("did not match any packages".into()), err: None };
+        let m = Adapter::Match {
+            ok: Some("did not match any packages".into()),
+            err: None,
+        };
         // cargo tree -i on an absent crate: error exit, but the ok proof appears.
-        assert_eq!(classify(&m, Some(101), "", "error: ... did not match any packages").0, Holds);
-        let m = Adapter::Match { ok: None, err: Some("^openssl".into()) };
+        assert_eq!(
+            classify(&m, Some(101), "", "error: ... did not match any packages").0,
+            Holds
+        );
+        let m = Adapter::Match {
+            ok: None,
+            err: Some("^openssl".into()),
+        };
         assert_eq!(classify(&m, Some(0), "openssl v1.0\n", "").0, Violated);
         // No hit, only err supplied: fall back to exit.
         assert_eq!(classify(&m, Some(0), "clean", "").0, Holds);
         // Required ok absent: violated even on exit 0 (fail-closed).
-        let m = Adapter::Match { ok: Some("proof".into()), err: None };
+        let m = Adapter::Match {
+            ok: Some("proof".into()),
+            err: None,
+        };
         assert_eq!(classify(&m, Some(0), "no luck", "").0, Violated);
     }
 }

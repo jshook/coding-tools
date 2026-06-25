@@ -199,7 +199,7 @@ fn cmd_display(cli: &Cli) -> String {
 /// The refusal shown when a command is not on the fixed allowlist: what was
 /// blocked and the full set of commands `ct-test` is permitted to run.
 fn deny_message(name: &str) -> String {
-    let allowed = allowlist::BUILTIN.join(" ");
+    let allowed = allowlist::builtin().join(" ");
     format!(
         "ct-test: '{name}' is not on the allowlist, so nothing was run.\n\
          \n\
@@ -237,7 +237,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::from(2));
     }
 
-    let timeout = cli.timeout.map(|v| pulse::secs("--timeout", v)).transpose()?;
+    let timeout = cli
+        .timeout
+        .map(|v| pulse::secs("--timeout", v))
+        .transpose()?;
     let cmdline = cmd_display(&cli);
 
     if !cli.quiet
@@ -362,9 +365,6 @@ mod tests {
     fn tail_lines_keeps_last_n_with_marker() {
         let text = "a\nb\nc\nd";
         assert_eq!(tail_lines(text, 4), text);
-        assert_eq!(
-            tail_lines(text, 2),
-            "(... 2 earlier line(s) omitted)\nc\nd"
-        );
+        assert_eq!(tail_lines(text, 2), "(... 2 earlier line(s) omitted)\nc\nd");
     }
 }

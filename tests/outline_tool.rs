@@ -51,9 +51,15 @@ fn matched_only_counting_with_context_ancestors() {
     assert_eq!(code(&out), 0, "stderr: {:?}", stderr(&out));
     let text = stdout(&out);
     // The enclosing impl is visible but marked, and does not count.
-    assert!(text.contains("impl    Point      (context)"), "got {text:?}");
+    assert!(
+        text.contains("impl    Point      (context)"),
+        "got {text:?}"
+    );
     assert!(text.contains("fn      norm"), "got {text:?}");
-    assert!(text.contains("count=1 SUCCESS"), "ancestors must not count: {text:?}");
+    assert!(
+        text.contains("count=1 SUCCESS"),
+        "ancestors must not count: {text:?}"
+    );
 
     // --flat and --json carry only the matched entry, agreeing on the count.
     let flat = ct_outline()
@@ -108,7 +114,11 @@ fn underivable_end_renders_as_question_mark_never_a_guess() {
         .args(["--base", dir.to_str().unwrap(), "--flat"])
         .output()
         .unwrap();
-    assert!(stdout(&out).contains(":1:?:fn:broken"), "got {:?}", stdout(&out));
+    assert!(
+        stdout(&out).contains(":1:?:fn:broken"),
+        "got {:?}",
+        stdout(&out)
+    );
 
     let json = ct_outline()
         .args(["--base", dir.to_str().unwrap(), "--json"])
@@ -130,7 +140,11 @@ fn unrecognised_language_errors_directly_but_skips_in_walks() {
         .output()
         .unwrap();
     assert_eq!(code(&direct), 2);
-    assert!(stderr(&direct).contains("no outline rules"), "got {:?}", stderr(&direct));
+    assert!(
+        stderr(&direct).contains("no outline rules"),
+        "got {:?}",
+        stderr(&direct)
+    );
 
     // In a walk: silently skipped; the recognised file still outlines.
     let walked = ct_outline()
@@ -138,8 +152,15 @@ fn unrecognised_language_errors_directly_but_skips_in_walks() {
         .output()
         .unwrap();
     assert_eq!(code(&walked), 0);
-    assert!(stdout(&walked).contains(":1:2:def:f"), "got {:?}", stdout(&walked));
-    assert!(!stdout(&walked).contains("zig"), "unrecognised file skipped");
+    assert!(
+        stdout(&walked).contains(":1:2:def:f"),
+        "got {:?}",
+        stdout(&walked)
+    );
+    assert!(
+        !stdout(&walked).contains("zig"),
+        "unrecognised file skipped"
+    );
 }
 
 #[test]
@@ -152,7 +173,9 @@ fn composes_through_ct_test_and_ct_each() {
     let wrapped = Command::new(env!("CARGO_BIN_EXE_ct-test"))
         .args(["--quiet", "--emit", "{RESULT}"])
         .args(["--cmd", "ct-outline", "--"])
-        .args(["--base", base, "--match", "Point", "--kind", "struct", "--expect", "=1", "--quiet"])
+        .args([
+            "--base", base, "--match", "Point", "--kind", "struct", "--expect", "=1", "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&wrapped), 0, "stderr: {:?}", stderr(&wrapped));
@@ -160,8 +183,23 @@ fn composes_through_ct_test_and_ct_each() {
 
     // ...and ct-each dispatches it per item without --mutating.
     let swept = Command::new(env!("CARGO_BIN_EXE_ct-each"))
-        .args(["--items", "Point", "norm", "--quiet", "--emit", "{OK}/{TOTAL}"])
-        .args(["--", "ct-outline", "--base", base, "--match", "{ITEM}", "--quiet"])
+        .args([
+            "--items",
+            "Point",
+            "norm",
+            "--quiet",
+            "--emit",
+            "{OK}/{TOTAL}",
+        ])
+        .args([
+            "--",
+            "ct-outline",
+            "--base",
+            base,
+            "--match",
+            "{ITEM}",
+            "--quiet",
+        ])
         .output()
         .unwrap();
     assert_eq!(code(&swept), 0, "stderr: {:?}", stderr(&swept));

@@ -172,11 +172,7 @@ impl HeartbeatOpts {
     /// Start the pulse if `--heartbeat` was given. `state` carries the dynamic
     /// tokens; the `{TOOL}` token is set here. Returns the guard that stops the
     /// pulse on drop (`None` when no heartbeat was requested).
-    pub fn start(
-        &self,
-        tool: &str,
-        state: Arc<PulseState>,
-    ) -> Result<Option<Heartbeat>, String> {
+    pub fn start(&self, tool: &str, state: Arc<PulseState>) -> Result<Option<Heartbeat>, String> {
         let Some(every) = self.heartbeat else {
             return Ok(None);
         };
@@ -270,10 +266,7 @@ mod tests {
 
     #[test]
     fn secs_accepts_positive_fractions_only() {
-        assert_eq!(
-            secs("--timeout", 0.25).unwrap(),
-            Duration::from_millis(250)
-        );
+        assert_eq!(secs("--timeout", 0.25).unwrap(), Duration::from_millis(250));
         assert!(secs("--timeout", 0.0).is_err());
         assert!(secs("--timeout", -1.0).is_err());
         assert!(secs("--timeout", f64::NAN).is_err());

@@ -68,12 +68,16 @@ template and `--heartbeat-to` picks the stream (`stderr`, the default, or
 
 ## What a probe may be
 
-The same fixed, immutable read-only set `ct-each` dispatches by default: the
-allowlist (`cat ct-check ct-outline ct-search ct-tree ct-view echo
-false file grep head ls pwd stat tail true wc`) plus `ct-test` and `ct-each`
-(without `--mutating`). `ct-check` being included means *"wait until the
-project's invariants hold"* is one command. `ct-await` itself stays off every
-gate — it is a dispatcher, like `ct-each`.
+The same fixed, immutable read-only set `ct-each` dispatches by default — a
+**platform-aware** allowlist, so probes work on Unix/MSYS2 and on native Windows
+alike. It is a cross-platform core (`ct-await ct-check ct-outline ct-search
+ct-tree ct-view`) plus the host OS's stock read-only utilities (`cat echo false
+file grep head ls pwd stat tail true wc` on Unix/MSYS2, or `findstr hostname more
+where whoami` on native Windows), plus `ct-test` and `ct-each` (without
+`--mutating`). `ct-check` being included means *"wait until the project's
+invariants hold"* is one command. `ct-await` will dispatch the read-only `ct-*`
+tools — including `ct-await` itself as a bounded poll — but it never polls
+**itself** (no self-nesting), the same guard `ct-each` has.
 
 ## Reporting
 

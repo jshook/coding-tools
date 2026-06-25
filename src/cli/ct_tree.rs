@@ -73,6 +73,12 @@ pub struct Cli {
     /// Only include files with at most N characters.
     #[arg(long)]
     pub max_chars: Option<u64>,
+    /// Only include files of at least N bytes.
+    #[arg(long)]
+    pub min_bytes: Option<u64>,
+    /// Only include files of at most N bytes.
+    #[arg(long)]
+    pub max_bytes: Option<u64>,
 
     /// Only include folders that directly contain at least N matching files.
     #[arg(long)]
@@ -81,7 +87,7 @@ pub struct Cli {
     #[arg(long)]
     pub max_files_per_folder: Option<usize>,
 
-    /// Sort key: path, name, lines, words, chars, or ext.
+    /// Sort key: path, name, lines, words, chars, bytes, or ext.
     #[arg(long, value_enum, default_value_t = SortKey::Path)]
     pub sort: SortKey,
     /// Sort descending instead of ascending.
@@ -97,6 +103,10 @@ pub struct Cli {
     /// Output mode: aggregate counts only, grouped by --group.
     #[arg(long)]
     pub summary: bool,
+
+    /// Add a byte-size column to the report (also enabled by --sort bytes).
+    #[arg(long)]
+    pub bytes: bool,
 
     /// Grouping for --summary: ext, dir, or none (grand total only).
     #[arg(long, value_enum, default_value_t = GroupBy::Ext)]
@@ -129,6 +139,7 @@ pub enum SortKey {
     Lines,
     Words,
     Chars,
+    Bytes,
     Ext,
 }
 

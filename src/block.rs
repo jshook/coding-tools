@@ -45,7 +45,11 @@ pub fn find_starts<S: AsRef<str>>(lines: &[S], block: &[String]) -> Vec<usize> {
     let mut starts = Vec::new();
     let mut i = 0usize;
     while i + k <= lines.len() {
-        if block.iter().zip(&lines[i..i + k]).all(|(b, l)| b == l.as_ref()) {
+        if block
+            .iter()
+            .zip(&lines[i..i + k])
+            .all(|(b, l)| b == l.as_ref())
+        {
             starts.push(i);
             i += k; // non-overlapping: continue past the match
         } else {
@@ -166,7 +170,11 @@ pub fn edit_blocks(
             let last_nl = segments[i + block.len() - 1].1;
             for (r, rl) in replacement.iter().enumerate() {
                 out.push_str(rl);
-                out.push_str(if r + 1 == replacement.len() { last_nl } else { "\n" });
+                out.push_str(if r + 1 == replacement.len() {
+                    last_nl
+                } else {
+                    "\n"
+                });
             }
             sites.push(Site {
                 path: path.to_string(),

@@ -45,8 +45,11 @@ fn store_values(field: Field) -> Vec<String> {
     match field {
         Field::Id => store.rules.iter().map(|r| r.id.clone()).collect(),
         Field::Tag => {
-            let mut tags: Vec<String> =
-                store.rules.iter().flat_map(|r| r.tags.iter().cloned()).collect();
+            let mut tags: Vec<String> = store
+                .rules
+                .iter()
+                .flat_map(|r| r.tags.iter().cloned())
+                .collect();
             tags.sort();
             tags.dedup();
             tags
@@ -58,14 +61,21 @@ fn store_values(field: Field) -> Vec<String> {
 /// A provider over a live store field, filtered by the partial word.
 fn store_provider(field: Field) -> ValueProvider {
     Arc::new(move |partial: &str, _: &[&str]| {
-        store_values(field).into_iter().filter(|v| v.starts_with(partial)).collect()
+        store_values(field)
+            .into_iter()
+            .filter(|v| v.starts_with(partial))
+            .collect()
     })
 }
 
 /// A provider over a fixed value set (a value_enum's variants).
 fn set_provider(values: Vec<String>) -> ValueProvider {
     Arc::new(move |partial: &str, _: &[&str]| {
-        values.iter().filter(|v| v.starts_with(partial)).cloned().collect()
+        values
+            .iter()
+            .filter(|v| v.starts_with(partial))
+            .cloned()
+            .collect()
     })
 }
 
@@ -108,15 +118,23 @@ pub fn command_tree() -> CommandTree {
         let bf: Vec<&str> = bool_flags.iter().map(String::as_str).collect();
 
         let mut node = Node::leaf_with_flags(&vf, &bf);
-        for f in grammar.flags.iter().filter(|f| f.kind != "boolean" && !f.values.is_empty()) {
-            node = node.with_value_provider(&format!("--{}", f.name), set_provider(f.values.clone()));
+        for f in grammar
+            .flags
+            .iter()
+            .filter(|f| f.kind != "boolean" && !f.values.is_empty())
+        {
+            node =
+                node.with_value_provider(&format!("--{}", f.name), set_provider(f.values.clone()));
         }
         node = with_store_providers(sub, node);
         tree = tree.command(sub, node);
     }
     // The meta-command that prints the shell registration script; its single
     // positional is the shell name.
-    let shells = ["bash", "zsh", "fish"].iter().map(|s| s.to_string()).collect();
+    let shells = ["bash", "zsh", "fish"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     tree = tree.command(
         "completions",
         Node::leaf(&[]).with_positional_provider(set_provider(shells)),

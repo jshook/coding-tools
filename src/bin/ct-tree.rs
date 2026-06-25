@@ -35,6 +35,7 @@ struct FileRow {
     lines: u64,
     words: u64,
     chars: u64,
+    bytes: u64,
 }
 
 /// Order `rows` in place by the sort key and direction.
@@ -44,6 +45,7 @@ fn sort_rows(rows: &mut [FileRow], key: SortKey, desc: bool) {
             SortKey::Lines => a.lines.cmp(&b.lines),
             SortKey::Words => a.words.cmp(&b.words),
             SortKey::Chars => a.chars.cmp(&b.chars),
+            SortKey::Bytes => a.bytes.cmp(&b.bytes),
             SortKey::Name => a.name.cmp(&b.name),
             SortKey::Ext => a.ext.cmp(&b.ext).then_with(|| a.rel.cmp(&b.rel)),
             SortKey::Path => a.rel.cmp(&b.rel),
@@ -55,6 +57,60 @@ fn sort_rows(rows: &mut [FileRow], key: SortKey, desc: bool) {
 /// Decimal width of `n` (at least 1).
 fn digits(n: u64) -> usize {
     n.to_string().len()
+}
+
+/// Grand totals over a flat row slice.
+fn grand_totals(rows: &[FileRow]) -> Totals {
+    rows.iter().fold(Totals::default(), |mut t, r| {
+        t.files += 1;
+        t.lines += r.lines;
+        t.words += r.words;
+        t.chars += r.chars;
+        t.bytes += r.bytes;
+        t
+    })
+}
+
+/// The right-aligned widths of the lines/words/chars/bytes columns.
+type Widths = (usize, usize, usize, usize);
+
+/// Column widths for the count columns, sized to their headers and `t`'s values.
+fn count_widths(t: &Totals) -> Widths {
+    (
+        "lines".len().max(digits(t.lines)),
+        "words".len().max(digits(t.words)),
+        "chars".len().max(digits(t.chars)),
+        "bytes".len().max(digits(t.bytes)),
+    )
+}
+
+/// The right-aligned count-column header, with `bytes` appended when shown.
+fn count_headers(show_bytes: bool, (wl, ww, wc, wb): Widths) -> String {
+    if show_bytes {
+        format!(
+            "{:>wl$} {:>ww$} {:>wc$} {:>wb$}",
+            "lines", "words", "chars", "bytes"
+        )
+    } else {
+        format!("{:>wl$} {:>ww$} {:>wc$}", "lines", "words", "chars")
+    }
+}
+
+/// One row's right-aligned count columns, with `bytes` appended when shown.
+fn count_cols(
+    show_bytes: bool,
+    lines: u64,
+    words: u64,
+    chars: u64,
+    bytes: u64,
+    w: Widths,
+) -> String {
+    let (wl, ww, wc, wb) = w;
+    if show_bytes {
+        format!("{lines:>wl$} {words:>ww$} {chars:>wc$} {bytes:>wb$}")
+    } else {
+        format!("{lines:>wl$} {words:>ww$} {chars:>wc$}")
+    }
 }
 
 // ----- Tree model -------------------------------------------------------------
@@ -71,6 +127,7 @@ struct Totals {
     lines: u64,
     words: u64,
     chars: u64,
+    bytes: u64,
 }
 
 impl Dir {
@@ -93,6 +150,7 @@ impl Dir {
             t.lines += f.lines;
             t.words += f.words;
             t.chars += f.chars;
+            t.bytes += f.bytes;
         }
         for d in self.subdirs.values() {
             let s = d.totals();
@@ -100,6 +158,7 @@ impl Dir {
             t.lines += s.lines;
             t.words += s.words;
             t.chars += s.chars;
+            t.bytes += s.bytes;
         }
         t
     }
@@ -111,6 +170,7 @@ struct TreeLine {
     lines: u64,
     words: u64,
     chars: u64,
+    bytes: u64,
 }
 
 /// Append the ordered tree lines for `dir`'s children under `prefix`.
@@ -122,6 +182,7 @@ fn tree_lines(dir: &Dir, prefix: &str, key: SortKey, desc: bool, out: &mut Vec<T
             SortKey::Lines => ta.lines.cmp(&tb.lines),
             SortKey::Words => ta.words.cmp(&tb.words),
             SortKey::Chars => ta.chars.cmp(&tb.chars),
+            SortKey::Bytes => ta.bytes.cmp(&tb.bytes),
             _ => a.0.cmp(b.0),
         };
         if desc { ord.reverse() } else { ord }
@@ -140,6 +201,7 @@ fn tree_lines(dir: &Dir, prefix: &str, key: SortKey, desc: bool, out: &mut Vec<T
             lines: t.lines,
             words: t.words,
             chars: t.chars,
+            bytes: t.bytes,
         });
         let child_prefix = format!("{prefix}{}", if last { "   " } else { "│  " });
         tree_lines(sub, &child_prefix, key, desc, out);
@@ -153,6 +215,7 @@ fn tree_lines(dir: &Dir, prefix: &str, key: SortKey, desc: bool, out: &mut Vec<T
             lines: f.lines,
             words: f.words,
             chars: f.chars,
+            bytes: f.bytes,
         });
         i += 1;
     }
@@ -160,37 +223,39 @@ fn tree_lines(dir: &Dir, prefix: &str, key: SortKey, desc: bool, out: &mut Vec<T
 
 // ----- Rendering --------------------------------------------------------------
 
-fn render_flat(rows: &[FileRow]) {
-    let grand = rows.iter().fold(Totals::default(), |mut t, r| {
-        t.files += 1;
-        t.lines += r.lines;
-        t.words += r.words;
-        t.chars += r.chars;
-        t
-    });
-    let wl = "lines".len().max(digits(grand.lines));
-    let ww = "words".len().max(digits(grand.words));
-    let wc = "chars".len().max(digits(grand.chars));
-    println!("{:>wl$} {:>ww$} {:>wc$}  file", "lines", "words", "chars");
+fn render_flat(rows: &[FileRow], show_bytes: bool) {
+    let grand = grand_totals(rows);
+    let w = count_widths(&grand);
+    println!("{}  file", count_headers(show_bytes, w));
     for r in rows {
         println!(
-            "{:>wl$} {:>ww$} {:>wc$}  {}",
-            r.lines, r.words, r.chars, r.rel
+            "{}  {}",
+            count_cols(show_bytes, r.lines, r.words, r.chars, r.bytes, w),
+            r.rel
         );
     }
     println!(
-        "{:>wl$} {:>ww$} {:>wc$}  {} file(s)",
-        grand.lines, grand.words, grand.chars, grand.files
+        "{}  {} file(s)",
+        count_cols(
+            show_bytes,
+            grand.lines,
+            grand.words,
+            grand.chars,
+            grand.bytes,
+            w
+        ),
+        grand.files
     );
 }
 
-fn render_tree(base: &str, root: &Dir, key: SortKey, desc: bool) {
+fn render_tree(base: &str, root: &Dir, key: SortKey, desc: bool, show_bytes: bool) {
     let grand = root.totals();
     let mut lines = vec![TreeLine {
         label: format!("{base}/"),
         lines: grand.lines,
         words: grand.words,
         chars: grand.chars,
+        bytes: grand.bytes,
     }];
     tree_lines(root, "", key, desc, &mut lines);
 
@@ -199,17 +264,13 @@ fn render_tree(base: &str, root: &Dir, key: SortKey, desc: bool) {
         .map(|l| l.label.chars().count())
         .max()
         .unwrap_or(0);
-    let wl = "lines".len().max(digits(grand.lines));
-    let ww = "words".len().max(digits(grand.words));
-    let wc = "chars".len().max(digits(grand.chars));
-    println!(
-        "{:<label_w$}  {:>wl$} {:>ww$} {:>wc$}",
-        "", "lines", "words", "chars"
-    );
+    let w = count_widths(&grand);
+    println!("{:<label_w$}  {}", "", count_headers(show_bytes, w));
     for l in &lines {
         println!(
-            "{:<label_w$}  {:>wl$} {:>ww$} {:>wc$}",
-            l.label, l.lines, l.words, l.chars
+            "{:<label_w$}  {}",
+            l.label,
+            count_cols(show_bytes, l.lines, l.words, l.chars, l.bytes, w)
         );
     }
     println!("{} file(s) total", grand.files);
@@ -218,14 +279,7 @@ fn render_tree(base: &str, root: &Dir, key: SortKey, desc: bool) {
 /// (group label, totals) pairs for the summary mode.
 fn summary_groups(rows: &[FileRow], group: GroupBy) -> Vec<(String, Totals)> {
     if matches!(group, GroupBy::None) {
-        let t = rows.iter().fold(Totals::default(), |mut t, r| {
-            t.files += 1;
-            t.lines += r.lines;
-            t.words += r.words;
-            t.chars += r.chars;
-            t
-        });
-        return vec![("(all)".to_string(), t)];
+        return vec![("(all)".to_string(), grand_totals(rows))];
     }
     let mut map: BTreeMap<String, Totals> = BTreeMap::new();
     for r in rows {
@@ -245,19 +299,14 @@ fn summary_groups(rows: &[FileRow], group: GroupBy) -> Vec<(String, Totals)> {
         t.lines += r.lines;
         t.words += r.words;
         t.chars += r.chars;
+        t.bytes += r.bytes;
     }
     map.into_iter().collect()
 }
 
-fn render_summary(rows: &[FileRow], group: GroupBy) {
+fn render_summary(rows: &[FileRow], group: GroupBy, show_bytes: bool) {
     let groups = summary_groups(rows, group);
-    let grand = rows.iter().fold(Totals::default(), |mut t, r| {
-        t.files += 1;
-        t.lines += r.lines;
-        t.words += r.words;
-        t.chars += r.chars;
-        t
-    });
+    let grand = grand_totals(rows);
     let label_w = groups
         .iter()
         .map(|(k, _)| k.chars().count())
@@ -265,49 +314,54 @@ fn render_summary(rows: &[FileRow], group: GroupBy) {
         .max()
         .unwrap_or(0);
     let wf = "files".len().max(digits(grand.files));
-    let wl = "lines".len().max(digits(grand.lines));
-    let ww = "words".len().max(digits(grand.words));
-    let wc = "chars".len().max(digits(grand.chars));
+    let w = count_widths(&grand);
     println!(
-        "{:<label_w$}  {:>wf$} {:>wl$} {:>ww$} {:>wc$}",
-        "", "files", "lines", "words", "chars"
+        "{:<label_w$}  {:>wf$} {}",
+        "",
+        "files",
+        count_headers(show_bytes, w)
     );
     for (k, t) in &groups {
         println!(
-            "{:<label_w$}  {:>wf$} {:>wl$} {:>ww$} {:>wc$}",
-            k, t.files, t.lines, t.words, t.chars
+            "{:<label_w$}  {:>wf$} {}",
+            k,
+            t.files,
+            count_cols(show_bytes, t.lines, t.words, t.chars, t.bytes, w)
         );
     }
     println!(
-        "{:<label_w$}  {:>wf$} {:>wl$} {:>ww$} {:>wc$}",
-        "total", grand.files, grand.lines, grand.words, grand.chars
+        "{:<label_w$}  {:>wf$} {}",
+        "total",
+        grand.files,
+        count_cols(
+            show_bytes,
+            grand.lines,
+            grand.words,
+            grand.chars,
+            grand.bytes,
+            w
+        )
     );
 }
 
 fn render_json(cli: &Cli, rows: &[FileRow]) {
-    let grand = rows.iter().fold(Totals::default(), |mut t, r| {
-        t.files += 1;
-        t.lines += r.lines;
-        t.words += r.words;
-        t.chars += r.chars;
-        t
-    });
+    let grand = grand_totals(rows);
     let files: Vec<_> = rows
         .iter()
         .map(|r| {
-            json!({ "path": r.rel, "ext": r.ext, "lines": r.lines, "words": r.words, "chars": r.chars })
+            json!({ "path": r.rel, "ext": r.ext, "lines": r.lines, "words": r.words, "chars": r.chars, "bytes": r.bytes })
         })
         .collect();
     let by_ext: Vec<_> = summary_groups(rows, GroupBy::Ext)
         .into_iter()
-        .map(|(k, t)| json!({ "group": k, "files": t.files, "lines": t.lines, "words": t.words, "chars": t.chars }))
+        .map(|(k, t)| json!({ "group": k, "files": t.files, "lines": t.lines, "words": t.words, "chars": t.chars, "bytes": t.bytes }))
         .collect();
     let obj = json!({
         "tool": "ct-tree",
         "base": cli.base.display().to_string(),
         "files": files,
         "by_ext": by_ext,
-        "totals": { "files": grand.files, "lines": grand.lines, "words": grand.words, "chars": grand.chars },
+        "totals": { "files": grand.files, "lines": grand.lines, "words": grand.words, "chars": grand.chars, "bytes": grand.bytes },
     });
     coding_tools::jsonout::print(&obj, cli.json_pretty);
 }
@@ -365,11 +419,13 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
             Ok(b) => b,
             Err(_) => continue,
         };
+        let byte_len = bytes.len() as u64;
         let content = String::from_utf8_lossy(&bytes);
         let (lines, words, chars) = metrics(&content);
         if !within(lines, cli.min_lines, cli.max_lines)
             || !within(words, cli.min_words, cli.max_words)
             || !within(chars, cli.min_chars, cli.max_chars)
+            || !within(byte_len, cli.min_bytes, cli.max_bytes)
         {
             continue;
         }
@@ -391,6 +447,7 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
             lines,
             words,
             chars,
+            bytes: byte_len,
         });
     }
 
@@ -413,12 +470,16 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
     let matched = rows.len();
     sort_rows(&mut rows, cli.sort, cli.desc);
 
+    // The byte column shows when asked for, or when it's the sort key (so you
+    // never sort by a column you can't see).
+    let show_bytes = cli.bytes || matches!(cli.sort, SortKey::Bytes);
+
     if cli.json {
         render_json(&cli, &rows);
     } else if cli.flat {
-        render_flat(&rows);
+        render_flat(&rows, show_bytes);
     } else if cli.summary {
-        render_summary(&rows, cli.group);
+        render_summary(&rows, cli.group, show_bytes);
     } else {
         // Default: the tree. Build it from the (already metric/folder-filtered) rows.
         let mut root = Dir::default();
@@ -426,7 +487,13 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
             let comps: Vec<&str> = r.rel.split('/').collect();
             root.insert(&comps, r.clone());
         }
-        render_tree(base_disp.trim_end_matches('/'), &root, cli.sort, cli.desc);
+        render_tree(
+            base_disp.trim_end_matches('/'),
+            &root,
+            cli.sort,
+            cli.desc,
+            show_bytes,
+        );
     }
 
     Ok(if matched > 0 {
@@ -471,6 +538,7 @@ mod tests {
                 lines: 10,
                 words: 0,
                 chars: 0,
+                bytes: 0,
             },
             FileRow {
                 rel: "b".into(),
@@ -479,6 +547,7 @@ mod tests {
                 lines: 99,
                 words: 0,
                 chars: 0,
+                bytes: 0,
             },
             FileRow {
                 rel: "c".into(),
@@ -487,6 +556,7 @@ mod tests {
                 lines: 50,
                 words: 0,
                 chars: 0,
+                bytes: 0,
             },
         ];
         sort_rows(&mut rows, SortKey::Lines, true);
@@ -506,6 +576,7 @@ mod tests {
             lines,
             words: 0,
             chars: 0,
+            bytes: 0,
         };
         root.insert(&["src", "main.rs"], row("src/main.rs", 10));
         root.insert(&["src", "util", "a.rs"], row("src/util/a.rs", 5));

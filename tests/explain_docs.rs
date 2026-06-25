@@ -124,7 +124,12 @@ fn non_flag_props(tool: &str) -> &'static [&'static str] {
 /// (clap introspection exposes no way to recover a value's target type),
 /// leaving `boolean` / `array` / `string`.
 fn normalize_kind(ty: &str) -> String {
-    if matches!(ty, "number" | "integer") { "string" } else { ty }.to_string()
+    if matches!(ty, "number" | "integer") {
+        "string"
+    } else {
+        ty
+    }
+    .to_string()
 }
 
 /// The unified schema-drift guard: every tool's `docs/explain/<tool>.json` must
@@ -152,8 +157,11 @@ fn schema_matches_clap_grammar() {
 
         // 1. Names + kinds: the long flags must match the schema properties
         //    (minus positional/trailing-argv inputs), with scalar types bucketed.
-        let cli_kinds: BTreeMap<String, String> =
-            grammar.flags.iter().map(|f| (f.name.clone(), normalize_kind(f.kind))).collect();
+        let cli_kinds: BTreeMap<String, String> = grammar
+            .flags
+            .iter()
+            .map(|f| (f.name.clone(), normalize_kind(f.kind)))
+            .collect();
         let doc_kinds: BTreeMap<String, String> = props
             .iter()
             .filter(|(k, _)| !skip.contains(&k.as_str()))
@@ -174,9 +182,17 @@ fn schema_matches_clap_grammar() {
         //    `enum` (at `.enum` for a scalar, `.items.enum` for an array).
         //    Booleans are skipped — clap reports `[true, false]` for them, which
         //    is not a schema enum.
-        for f in grammar.flags.iter().filter(|f| f.kind != "boolean" && !f.values.is_empty()) {
+        for f in grammar
+            .flags
+            .iter()
+            .filter(|f| f.kind != "boolean" && !f.values.is_empty())
+        {
             let spec = &props[&f.name];
-            let enum_node = if f.kind == "array" { &spec["items"]["enum"] } else { &spec["enum"] };
+            let enum_node = if f.kind == "array" {
+                &spec["items"]["enum"]
+            } else {
+                &spec["enum"]
+            };
             let doc_vals: BTreeSet<&str> = enum_node
                 .as_array()
                 .unwrap_or_else(|| panic!("{tool}.json: --{} should carry an enum array", f.name))
@@ -251,7 +267,10 @@ fn builtin_check_defs_are_well_formed_and_bundled() {
     for check in BUILTIN_CHECKS {
         let standalone = read_json(check);
         assert_eq!(standalone["name"], *check, "name must equal the check name");
-        assert!(standalone["description"].is_string(), "description must be a string");
+        assert!(
+            standalone["description"].is_string(),
+            "description must be a string"
+        );
         assert_eq!(standalone["input_schema"]["type"], "object");
         assert!(
             standalone["input_schema"]["properties"].is_object(),

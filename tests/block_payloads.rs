@@ -12,6 +12,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod common;
+
 /// A unique, overwrite-friendly scratch dir under `target/` (never removed).
 fn scratch(tag: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -19,6 +21,33 @@ fn scratch(tag: &str) -> PathBuf {
         .join(tag);
     std::fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+/// Clear the read-only attribute on `p` if it exists, so an overwrite can't
+/// fail. Scratch dirs persist across runs (and Windows enforces the read-only
+/// bit on writes), so a file a prior run left read-only must be cleared before
+/// it is rewritten. Cross-platform and best-effort.
+fn make_writable(p: &Path) {
+    let Ok(meta) = std::fs::metadata(p) else {
+        return;
+    };
+    let mut perms = meta.permissions();
+    if !perms.readonly() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(perms.mode() | 0o200); // restore owner write only
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows has no mode bits; clearing the read-only attribute is the
+        // only way to make the file writable again.
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+    }
+    let _ = std::fs::set_permissions(p, perms);
 }
 
 fn code(out: &Output) -> i32 {
@@ -124,7 +153,12 @@ fn mode_literal_matches_verbatim_code_that_promotion_would_break() {
         ])
         .output()
         .unwrap();
-    assert_eq!(code(&promoted), 1, "promotion should miss: {}", stderr(&promoted));
+    assert_eq!(
+        code(&promoted),
+        1,
+        "promotion should miss: {}",
+        stderr(&promoted)
+    );
 
     // --mode literal pins it: the same text matches.
     let literal = tool("ct-search")
@@ -146,8 +180,16 @@ fn mode_literal_matches_verbatim_code_that_promotion_would_break() {
 fn block_grep_counts_occurrences_and_reports_nearest_miss_on_detail() {
     let dir = scratch("block-grep");
     std::fs::write(dir.join("ast.rs"), SAMPLE).unwrap();
-    std::fs::write(dir.join("hit.block"), "    match v {\n        Value::U64(v) => v.to_string(),\n").unwrap();
-    std::fs::write(dir.join("miss.block"), "    match v {\n        Value::F64(v) => v.to_string(),\n").unwrap();
+    std::fs::write(
+        dir.join("hit.block"),
+        "    match v {\n        Value::U64(v) => v.to_string(),\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("miss.block"),
+        "    match v {\n        Value::F64(v) => v.to_string(),\n",
+    )
+    .unwrap();
 
     let hit = tool("ct-search")
         .args([
@@ -162,7 +204,11 @@ fn block_grep_counts_occurrences_and_reports_nearest_miss_on_detail() {
         .output()
         .unwrap();
     assert_eq!(code(&hit), 0, "{}", stderr(&hit));
-    assert!(stdout(&hit).contains("ast.rs:6:"), "block start line: {}", stdout(&hit));
+    assert!(
+        stdout(&hit).contains("ast.rs:6:"),
+        "block start line: {}",
+        stdout(&hit)
+    );
 
     let miss = tool("ct-search")
         .args([
@@ -374,11 +420,16 @@ fn script_write_preflight_refuses_a_readonly_target_with_zero_writes() {
     let dir = scratch("script-preflight");
     let ok = dir.join("a.rs");
     let ro = dir.join("b.rs");
+    // A prior run may have left b.rs read-only (scratch dirs persist, and the
+    // restore at the end is skipped on a panic), so clear it before setup —
+    // this makes the test self-healing rather than wedged after one failure.
+    make_writable(&ok);
+    make_writable(&ro);
     std::fs::write(&ok, "alpha()\n").unwrap();
     std::fs::write(&ro, "beta()\n").unwrap();
     let mut perms = std::fs::metadata(&ro).unwrap().permissions();
     perms.set_readonly(true);
-    std::fs::set_permissions(&ro, perms.clone()).unwrap();
+    std::fs::set_permissions(&ro, perms).unwrap();
 
     let script = dir.join("two.ctb");
     std::fs::write(
@@ -404,13 +455,9 @@ fn script_write_preflight_refuses_a_readonly_target_with_zero_writes() {
     assert_eq!(std::fs::read_to_string(&ok).unwrap(), "alpha()\n");
     assert_eq!(std::fs::read_to_string(&ro).unwrap(), "beta()\n");
 
-    // Restore writability (owner only) so reruns can overwrite the scratch
-    // files.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o644)).unwrap();
-    }
+    // Restore writability so reruns can overwrite the scratch files (and so a
+    // leftover read-only file doesn't wedge an unrelated test). Cross-platform.
+    make_writable(&ro);
 }
 
 #[test]
@@ -438,7 +485,10 @@ fn cascade_lets_later_edits_see_earlier_output_and_no_cascade_rejects_overlap() 
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "{}", stderr(&out));
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), "base()\nadded(1)\n");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "base()\nadded(1)\n"
+    );
 
     // --no-cascade: the same chain is invalid — edit 2 matches nothing in
     // pristine content, so the batch fails with zero writes.
@@ -512,9 +562,9 @@ fn patch_file_value_is_a_verbatim_string_and_each_expands_file_items() {
             "--quiet",
             "--emit",
             "{TOTAL} item(s)",
-            "--",
-            "true",
         ])
+        .arg("--")
+        .args(common::exit_ok(&dir))
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "{}", stderr(&out));
@@ -526,10 +576,10 @@ fn ct_test_stdin_accepts_a_file_payload() {
     let dir = scratch("test-stdin");
     std::fs::write(dir.join("input.txt"), "first\nMARKER here\nlast\n").unwrap();
 
+    let cat = common::cat_stdin();
     let out = tool("ct-test")
+        .args(["--cmd", &cat[0]])
         .args([
-            "--cmd",
-            "cat",
             "--stdin",
             &format!("file:{}", dir.join("input.txt").display()),
             "--ok-match",
@@ -538,6 +588,8 @@ fn ct_test_stdin_accepts_a_file_payload() {
             "--emit",
             "{RESULT}",
         ])
+        .arg("--")
+        .args(&cat[1..])
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "{}", stderr(&out));

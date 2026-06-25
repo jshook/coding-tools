@@ -70,7 +70,10 @@ pub fn parse_metadata(text: &str) -> Result<Graph, String> {
     let v: serde_json::Value =
         serde_json::from_str(text).map_err(|e| format!("cargo metadata JSON: {e}"))?;
     let mut packages = HashMap::new();
-    for p in v["packages"].as_array().ok_or("metadata missing packages")? {
+    for p in v["packages"]
+        .as_array()
+        .ok_or("metadata missing packages")?
+    {
         let id = p["id"].as_str().ok_or("package missing id")?.to_string();
         packages.insert(
             id,
@@ -286,7 +289,11 @@ impl Graph {
                         stack.push(w);
                         on_stack.insert(w);
                         let succ = self.successors(w, allowed, restrict);
-                        work.push(Frame { node: w, succ, next: 0 });
+                        work.push(Frame {
+                            node: w,
+                            succ,
+                            next: 0,
+                        });
                     } else if on_stack.contains(w) {
                         let lw = index[w];
                         let e = low.get_mut(node).unwrap();
@@ -408,11 +415,13 @@ pub struct Violation {
 /// from the workspace members over `allowed` edges.
 pub fn deny_paths(graph: &Graph, name: &str, allowed: &HashSet<EdgeKind>) -> Option<Violation> {
     let members: Vec<&str> = graph.members.iter().map(String::as_str).collect();
-    graph.path_to(&members, name, allowed).map(|path| Violation {
-        check: "deny".to_string(),
-        subject: name.to_string(),
-        evidence: path.join(" -> "),
-    })
+    graph
+        .path_to(&members, name, allowed)
+        .map(|path| Violation {
+            check: "deny".to_string(),
+            subject: name.to_string(),
+            evidence: path.join(" -> "),
+        })
 }
 
 /// Evaluate `--forbid 'A=>B'`: a violation when any package named `from`
@@ -460,7 +469,9 @@ pub fn cycles(graph: &Graph, allowed: &HashSet<EdgeKind>, members_only: bool) ->
         }
         let set: HashSet<&str> = scc.iter().map(String::as_str).collect();
         let start = scc.iter().min().map(String::as_str).expect("non-empty scc");
-        let evidence = graph.shortest_cycle_through(start, &set, allowed).join(" -> ");
+        let evidence = graph
+            .shortest_cycle_through(start, &set, allowed)
+            .join(" -> ");
         let mut names: Vec<&str> = scc
             .iter()
             .filter_map(|id| graph.packages.get(id).map(|p| p.name.as_str()))
@@ -490,11 +501,14 @@ pub fn assign_layers(
     labels: &[String],
     matches: impl Fn(usize, &str) -> bool,
 ) -> Result<(Vec<Layer>, Vec<String>), String> {
-    let mut layers: Vec<Layer> =
-        labels.iter().map(|l| (l.clone(), Vec::new())).collect();
+    let mut layers: Vec<Layer> = labels.iter().map(|l| (l.clone(), Vec::new())).collect();
     let mut unassigned = Vec::new();
     for id in &graph.members {
-        let name = graph.packages.get(id).map(|p| p.name.as_str()).unwrap_or("");
+        let name = graph
+            .packages
+            .get(id)
+            .map(|p| p.name.as_str())
+            .unwrap_or("");
         let hit: Vec<usize> = (0..labels.len()).filter(|&i| matches(i, name)).collect();
         match hit.as_slice() {
             [] => unassigned.push(name.to_string()),
@@ -502,7 +516,10 @@ pub fn assign_layers(
             many => {
                 return Err(format!(
                     "crate '{name}' matches multiple layers ({})",
-                    many.iter().map(|&m| labels[m].as_str()).collect::<Vec<_>>().join(", ")
+                    many.iter()
+                        .map(|&m| labels[m].as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
         }
@@ -605,7 +622,10 @@ pub(crate) fn grammar(command: clap::Command) -> Grammar {
         }
         // Positionals (path/probe/command/args) have no long flag; name them by
         // field id, matching the schema property key.
-        let name = arg.get_long().map(String::from).unwrap_or_else(|| id.to_string());
+        let name = arg
+            .get_long()
+            .map(String::from)
+            .unwrap_or_else(|| id.to_string());
         if arg.is_required_set() {
             required.push(name.clone());
         }
@@ -615,8 +635,17 @@ pub(crate) fn grammar(command: clap::Command) -> Grammar {
                 clap::ArgAction::Append => "array",
                 _ => "string",
             };
-            let values = arg.get_possible_values().iter().map(|v| v.get_name().to_string()).collect();
-            flags.push(FlagSpec { name, kind, required: arg.is_required_set(), values });
+            let values = arg
+                .get_possible_values()
+                .iter()
+                .map(|v| v.get_name().to_string())
+                .collect();
+            flags.push(FlagSpec {
+                name,
+                kind,
+                required: arg.is_required_set(),
+                values,
+            });
         }
     }
     Grammar { flags, required }
@@ -632,12 +661,21 @@ pub fn check_grammar() -> Grammar {
 /// reason, and the violation report (one `check: subject: evidence` line each).
 /// Argument, spec, and cargo errors are [`ProbeOutcome::Broken`] — a defective
 /// probe, never a silent pass.
-pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeOutcome, String, String) {
+pub fn check(
+    args: &[String],
+    root: &Path,
+    timeout: Option<Duration>,
+) -> (ProbeOutcome, String, String) {
     let broken = |msg: String| (ProbeOutcome::Broken, msg, String::new());
     let cli = match DepsCheck::try_parse_from(args.iter().map(String::as_str)) {
         Ok(c) => c,
         Err(e) => {
-            let valid = check_grammar().flags.iter().map(|s| format!("--{}", s.name)).collect::<Vec<_>>().join(" ");
+            let valid = check_grammar()
+                .flags
+                .iter()
+                .map(|s| format!("--{}", s.name))
+                .collect::<Vec<_>>()
+                .join(" ");
             return broken(format!(
                 "deps: {} (valid flags: {valid})",
                 e.to_string().lines().next().unwrap_or("bad arguments")
@@ -650,11 +688,20 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
     if cli.members && !cli.acyclic {
         return broken("deps: --members applies to --acyclic".to_string());
     }
-    if cli.deny.is_empty() && cli.forbid.is_empty() && !cli.duplicates && !cli.acyclic && cli.layers.is_empty() {
-        return broken("deps: nothing to assert (--deny/--forbid/--duplicates/--acyclic/--layers)".to_string());
+    if cli.deny.is_empty()
+        && cli.forbid.is_empty()
+        && !cli.duplicates
+        && !cli.acyclic
+        && cli.layers.is_empty()
+    {
+        return broken(
+            "deps: nothing to assert (--deny/--forbid/--duplicates/--acyclic/--layers)".to_string(),
+        );
     }
     let allowed: HashSet<EdgeKind> = if cli.edges.is_empty() {
-        [EdgeKind::Normal, EdgeKind::Build, EdgeKind::Dev].into_iter().collect()
+        [EdgeKind::Normal, EdgeKind::Build, EdgeKind::Dev]
+            .into_iter()
+            .collect()
     } else {
         cli.edges.iter().copied().collect()
     };
@@ -718,7 +765,12 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
         violations.extend(cycles(&graph, &allowed, cli.members));
     }
     if !cli.layers.is_empty() {
-        let compiled = match cli.layers.iter().map(|p| pattern::compile_anchored(p)).collect::<Result<Vec<_>, _>>() {
+        let compiled = match cli
+            .layers
+            .iter()
+            .map(|p| pattern::compile_anchored(p))
+            .collect::<Result<Vec<_>, _>>()
+        {
             Ok(c) => c,
             Err(e) => return broken(format!("deps: --layers invalid pattern: {e}")),
         };
@@ -742,16 +794,27 @@ pub fn check(args: &[String], root: &Path, timeout: Option<Duration>) -> (ProbeO
 
 /// The `(outcome, reason, report)` triple shared by both built-in checks: a
 /// newline-joined `check: subject: evidence` report, `Holds` when empty.
-pub(crate) fn report_outcome(kind: &str, violations: Vec<Violation>) -> (ProbeOutcome, String, String) {
+pub(crate) fn report_outcome(
+    kind: &str,
+    violations: Vec<Violation>,
+) -> (ProbeOutcome, String, String) {
     let report = violations
         .iter()
         .map(|v| format!("{}: {}: {}", v.check, v.subject, v.evidence))
         .collect::<Vec<_>>()
         .join("\n");
     if violations.is_empty() {
-        (ProbeOutcome::Holds, format!("{kind}: all assertions hold"), report)
+        (
+            ProbeOutcome::Holds,
+            format!("{kind}: all assertions hold"),
+            report,
+        )
     } else {
-        (ProbeOutcome::Violated, format!("{kind}: {} violation(s)", violations.len()), report)
+        (
+            ProbeOutcome::Violated,
+            format!("{kind}: {} violation(s)", violations.len()),
+            report,
+        )
     }
 }
 
@@ -817,10 +880,16 @@ mod tests {
     #[test]
     fn forbid_requires_the_source_to_exist() {
         let g = sample();
-        let v = forbid_path(&g, "lib", "leaf", &all_edges()).unwrap().unwrap();
+        let v = forbid_path(&g, "lib", "leaf", &all_edges())
+            .unwrap()
+            .unwrap();
         assert_eq!(v.subject, "lib=>leaf");
         assert_eq!(v.evidence, "lib v0.1.0 -> leaf v1.0.0");
-        assert!(forbid_path(&g, "lib", "app", &all_edges()).unwrap().is_none());
+        assert!(
+            forbid_path(&g, "lib", "app", &all_edges())
+                .unwrap()
+                .is_none()
+        );
         assert!(forbid_path(&g, "ghost", "leaf", &all_edges()).is_err());
     }
 
@@ -863,7 +932,10 @@ mod tests {
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].check, "acyclic");
         assert_eq!(v[0].subject, "a, b, c");
-        assert_eq!(v[0].evidence, "a v1.0.0 -> b v1.0.0 -> c v1.0.0 -> a v1.0.0");
+        assert_eq!(
+            v[0].evidence,
+            "a v1.0.0 -> b v1.0.0 -> c v1.0.0 -> a v1.0.0"
+        );
     }
 
     #[test]
@@ -919,8 +991,7 @@ mod tests {
         let g = layered();
         let labels = vec!["api".to_string(), "svc".to_string(), "db".to_string()];
         // Exact-name membership for the test.
-        let (layers, unassigned) =
-            assign_layers(&g, &labels, |i, name| labels[i] == name).unwrap();
+        let (layers, unassigned) = assign_layers(&g, &labels, |i, name| labels[i] == name).unwrap();
         assert!(unassigned.is_empty());
         let v = layer_violations(&g, &layers, &all_edges());
         assert_eq!(v.len(), 1);
@@ -1022,8 +1093,10 @@ mod tests {
         let labels = vec!["api".to_string(), "svc".to_string(), "db".to_string()];
         let (layers, _) = assign_layers(&g, &labels, |i, name| labels[i] == name).unwrap();
         let v = layer_violations(&g, &layers, &all_edges());
-        let by: BTreeMap<&str, &str> =
-            v.iter().map(|x| (x.subject.as_str(), x.evidence.as_str())).collect();
+        let by: BTreeMap<&str, &str> = v
+            .iter()
+            .map(|x| (x.subject.as_str(), x.evidence.as_str()))
+            .collect();
         // db reaches api only through svc — the path proves the transitive hop.
         assert_eq!(by["db => api"], "db v1.0.0 -> svc v1.0.0 -> api v1.0.0");
         assert_eq!(by["svc => api"], "svc v1.0.0 -> api v1.0.0");
