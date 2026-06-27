@@ -64,6 +64,10 @@ pub struct Cli {
     #[arg(long)]
     pub depth: Option<usize>,
 
+    /// OKF: also report a Markdown concept's frontmatter as synthetic `meta:KEY` entries (filter them with --kind meta:type, etc.).
+    #[arg(long)]
+    pub frontmatter: bool,
+
     /// Output one grep-friendly row per matched entry: path:start:end:kind:name.
     #[arg(long)]
     pub flat: bool,

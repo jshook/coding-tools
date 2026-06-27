@@ -54,6 +54,10 @@ name = "ct-each"
 path = "src/bin/ct-each.rs"
 
 [[bin]]
+name = "ct-okf"
+path = "src/bin/ct-okf.rs"
+
+[[bin]]
 name = "ct-outline"
 path = "src/bin/ct-outline.rs"
 

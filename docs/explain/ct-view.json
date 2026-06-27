@@ -38,6 +38,14 @@
         "type": "boolean",
         "description": "Suppress the line-number gutter in text output."
       },
+      "frontmatter": {
+        "type": "boolean",
+        "description": "OKF: show only the concept's leading frontmatter block."
+      },
+      "no-frontmatter": {
+        "type": "boolean",
+        "description": "OKF: omit the concept's frontmatter block from the shown lines. With --json, a 'frontmatter' field is added whenever the file is an OKF concept, regardless of this flag."
+      },
       "json": {
         "type": "boolean",
         "description": "Emit a structured JSON result instead of text."

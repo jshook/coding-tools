@@ -103,6 +103,14 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         Some(s) => Expect::parse(s).map_err(|e| format!("invalid --expect: {e}"))?,
         None => Expect::default(),
     };
+    // OKF frontmatter predicates: an optional `type` matcher and required tags.
+    let okf_type_re = match &cli.okf_type {
+        Some(t) => Some(
+            pattern::compile_with(t, cli.mode).map_err(|e| format!("invalid --okf-type: {e}"))?,
+        ),
+        None => None,
+    };
+    let okf_active = okf_type_re.is_some() || !cli.okf_tag.is_empty();
 
     let selector = walk::Selector {
         base: cli.base.clone(),
@@ -136,6 +144,28 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
 
     for entry in selector.walk() {
         let entry = entry?;
+
+        // OKF predicates gate a candidate before any content match: a file with
+        // no conforming frontmatter (or the wrong type/tags) is skipped.
+        if okf_active {
+            if !entry.file_type().is_some_and(|t| t.is_file()) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
+            let Some(parsed) = coding_tools::okf::parse(&text) else {
+                continue;
+            };
+            if let Some(re) = &okf_type_re
+                && !parsed.fm.type_.as_deref().is_some_and(|t| re.is_match(t))
+            {
+                continue;
+            }
+            if !cli.okf_tag.is_empty() && !cli.okf_tag.iter().all(|t| parsed.fm.tags.contains(t)) {
+                continue;
+            }
+        }
 
         let mut lines: Vec<(usize, String)> = Vec::new();
         if let Some(grep) = &grep_re {

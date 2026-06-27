@@ -223,3 +223,19 @@ ct-search --base out --name 'migrated-*.json' --expect +0 \
 # Hand an agent the machine-readable tool definition.
 ct-search --explain json
 ```
+
+## OKF awareness
+
+When searching a knowledge bundle, two predicates filter Markdown concepts by
+their frontmatter — both narrow the candidate set before any `--grep` runs, and a
+file with no conforming frontmatter never matches them:
+
+- `--okf-type PATTERN` — keep concepts whose frontmatter `type` matches (the
+  usual substring→glob→regex promotion, pinned by `--mode`).
+- `--okf-tag TAG` — keep concepts carrying *all* the given tags (repeatable or
+  comma-joined).
+
+```sh
+# Every PII-tagged BigQuery table mentioning "ssn".
+ct-search --base bundle --okf-type 'BigQuery Table' --okf-tag pii --grep ssn
+```

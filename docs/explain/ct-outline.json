@@ -52,6 +52,10 @@
         "type": "integer",
         "description": "Keep entries nested at most N levels deep (1 = top-level only)."
       },
+      "frontmatter": {
+        "type": "boolean",
+        "description": "OKF: also report a Markdown concept's frontmatter as synthetic 'meta:KEY' entries (e.g. meta:type, meta:title), prepended before the headings. Filter them with --kind meta:type. Off by default, so ordinary outlines are unchanged."
+      },
       "flat": {
         "type": "boolean",
         "description": "One grep-friendly row per matched entry: path:start:end:kind:name (end is '?' when unknown). Default is an indented per-file tree with '(context)' ancestors."

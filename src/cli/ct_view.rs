@@ -57,6 +57,14 @@ pub struct Cli {
     #[arg(long)]
     pub plain: bool,
 
+    /// OKF: show only the concept's frontmatter block.
+    #[arg(long)]
+    pub frontmatter: bool,
+
+    /// OKF: omit the concept's frontmatter block from the shown lines.
+    #[arg(long)]
+    pub no_frontmatter: bool,
+
     /// Emit a structured JSON result instead of text.
     #[arg(long)]
     pub json: bool,

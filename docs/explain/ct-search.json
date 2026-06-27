@@ -38,6 +38,17 @@
         ],
         "description": "Pin how patterns are interpreted; promotion off for every pattern in the invocation. Use literal for verbatim code anchors."
       },
+      "okf-type": {
+        "type": "string",
+        "description": "OKF: keep only Markdown concepts whose frontmatter `type` matches this pattern (substring->glob->regex promoted, also pinned by --mode)."
+      },
+      "okf-tag": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "OKF: keep only Markdown concepts whose frontmatter carries all of these tags (repeated or comma-joined)."
+      },
       "size": {
         "type": "string",
         "description": "Size predicate [+|-]N[k|m|g]: +N larger than, -N smaller than, N at least N. Applies to regular files."

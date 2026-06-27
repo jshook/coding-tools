@@ -87,7 +87,7 @@ pub struct Cli {
     #[arg(long)]
     pub max_files_per_folder: Option<usize>,
 
-    /// Sort key: path, name, lines, words, chars, bytes, or ext.
+    /// Sort key: path, name, lines, words, chars, bytes, ext, or okf-type.
     #[arg(long, value_enum, default_value_t = SortKey::Path)]
     pub sort: SortKey,
     /// Sort descending instead of ascending.
@@ -108,7 +108,7 @@ pub struct Cli {
     #[arg(long)]
     pub bytes: bool,
 
-    /// Grouping for --summary: ext, dir, or none (grand total only).
+    /// Grouping for --summary: ext, dir, okf-type, or none (grand total only).
     #[arg(long, value_enum, default_value_t = GroupBy::Ext)]
     pub group: GroupBy,
 
@@ -141,6 +141,8 @@ pub enum SortKey {
     Chars,
     Bytes,
     Ext,
+    /// OKF frontmatter `type` (files without one sort first).
+    OkfType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -148,4 +150,6 @@ pub enum GroupBy {
     Ext,
     Dir,
     None,
+    /// OKF frontmatter `type` (files without one group under "(none)").
+    OkfType,
 }

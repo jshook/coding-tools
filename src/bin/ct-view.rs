@@ -96,6 +96,24 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         ((0..total).collect(), None)
     };
 
+    // OKF awareness (additive): --frontmatter narrows the view to the concept's
+    // frontmatter block; --no-frontmatter drops it from whatever was selected.
+    let fm_parsed = coding_tools::okf::parse(&content);
+    if cli.frontmatter && cli.no_frontmatter {
+        return Err("--frontmatter and --no-frontmatter are mutually exclusive".to_string());
+    }
+    if cli.frontmatter {
+        match &fm_parsed {
+            Some(p) => selected = (0..p.fm_span.1).collect(),
+            None => return Err(format!("{}: no frontmatter", cli.path.display())),
+        }
+    } else if cli.no_frontmatter
+        && let Some(p) = &fm_parsed
+    {
+        let body_idx = p.body_start_line.saturating_sub(1);
+        selected.retain(|&i| i >= body_idx);
+    }
+
     if let Some(limit) = cli.limit {
         selected.truncate(limit);
     }
@@ -114,6 +132,10 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         });
         if let Some(found) = matched {
             obj["matched"] = json!(found);
+        }
+        // Additive: a "frontmatter" field appears only for OKF concepts.
+        if let Some(p) = &fm_parsed {
+            obj["frontmatter"] = coding_tools::okf::fm_to_json(&p.fm);
         }
         coding_tools::jsonout::print(&obj, cli.json_pretty);
     } else {

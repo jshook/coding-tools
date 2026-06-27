@@ -47,6 +47,14 @@ pub struct Cli {
     #[arg(long, value_enum)]
     pub mode: Option<pattern::Mode>,
 
+    /// OKF: keep only Markdown concepts whose frontmatter `type` matches this pattern (substring->glob->regex promoted).
+    #[arg(long)]
+    pub okf_type: Option<String>,
+
+    /// OKF: keep only Markdown concepts whose frontmatter carries all these tags (comma-joined or repeated).
+    #[arg(long, value_delimiter = ',')]
+    pub okf_tag: Vec<String>,
+
     /// Size predicate [+|-]N[k|m|g]: +N larger than, -N smaller than, N at least N.
     #[arg(long)]
     pub size: Option<String>,

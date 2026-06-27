@@ -315,7 +315,7 @@ pub fn parse_store(text: &str) -> Result<Store, String> {
             // rather than silently ignore it (matches the ct-rules add guard).
             if matches!(
                 rule.probe.first().map(String::as_str),
-                Some("deps") | Some("mods")
+                Some("deps") | Some("mods") | Some("okf")
             ) && rule.expect != Adapter::Exit
             {
                 return Err(format!(
@@ -458,6 +458,8 @@ pub enum Builtin {
     Deps,
     /// The module-graph check ([`crate::modgraph::check`]).
     Mods,
+    /// The OKF bundle-conformance check ([`crate::okf::check`]).
+    Okf,
 }
 
 /// What the gate resolved a probe to.
@@ -493,6 +495,9 @@ pub fn gate_probe(argv: &[String]) -> Result<Gated<'static>, String> {
     }
     if name == "mods" {
         return Ok(Gated::Builtin(Builtin::Mods));
+    }
+    if name == "okf" {
+        return Ok(Gated::Builtin(Builtin::Okf));
     }
     if name == "ct-check" {
         return Err(
@@ -606,6 +611,7 @@ pub fn run_probe(
         let (outcome, reason, report) = match kind {
             Builtin::Deps => crate::deps::check(&expanded[1..], root, timeout),
             Builtin::Mods => crate::modgraph::check(&expanded[1..], root, timeout),
+            Builtin::Okf => crate::okf::check(&expanded[1..], root, timeout),
         };
         return (
             outcome,

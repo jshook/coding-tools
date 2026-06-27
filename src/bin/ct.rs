@@ -61,6 +61,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "Report the declarations in a file or tree: kind, name, start:end span (ct-outline)",
     ),
     (
+        "okf",
+        "Author and query Open Knowledge Format bundles: validate, list, links (ct-okf)",
+    ),
+    (
         "rules",
         "Record, promote, remove, and list the project's invariant rules (ct-rules)",
     ),

@@ -138,3 +138,15 @@ ct-tree --base assets --flat --sort bytes --desc
 # Find suspiciously tiny files — e.g. blank placeholder PNGs of at most 256 bytes.
 ct-tree --base assets/cache --ext png --max-bytes 256 --bytes --flat
 ```
+
+## OKF awareness
+
+For a knowledge bundle, `--sort okf-type` orders files by their Markdown
+frontmatter `type` and `--group okf-type` aggregates a `--summary` by it (files
+without a type fall under `(none)`). With `--json`, a concept's file object gains
+an `okf` field (`{type, title}`) — additive, so non-concept files are unchanged.
+
+```sh
+# How much content sits behind each concept type?
+ct-tree --base bundle --summary --group okf-type
+```

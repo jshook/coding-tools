@@ -118,3 +118,19 @@ ct-view src/bin/ct-test.rs --match Verdict --context 3 --json
 # First 20 lines, no gutter.
 ct-view README.md --range :20 --plain
 ```
+
+## OKF awareness
+
+For a Markdown concept with YAML frontmatter, two flags isolate it:
+
+- `--frontmatter` shows only the leading frontmatter block.
+- `--no-frontmatter` drops the frontmatter from whatever range/match was selected.
+
+With `--json`, a `frontmatter` field is added automatically whenever the file is
+an OKF concept (independent of the flags above), so a reader can pick up the
+metadata without a second call.
+
+```sh
+ct-view bundle/tables/customers.md --frontmatter        # just the metadata
+ct-view bundle/tables/customers.md --no-frontmatter     # just the prose
+```

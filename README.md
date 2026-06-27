@@ -24,13 +24,21 @@ full name.
 | `ct test`   | `ct-test`   | Run a command as a framed experiment; classify the result from its output.    |
 | `ct each`   | `ct-each`   | Run a command template once per item (no shell); aggregate `--expect` verdict. |
 | `ct outline`| `ct-outline`| Report a file's declarations — kind, name, `start:end` span — for bounded reads. |
+| `ct okf`    | `ct-okf`    | Author and query OKF knowledge bundles — validate, list/query metadata, links, scaffold. |
 | `ct rules`  | `ct-rules`  | Record the project's invariants in `.ct/rules.jsonc` — verified at the moment they're written. |
 | `ct check`  | `ct-check`  | Re-verify every recorded invariant; five lanes, one exit status. Read-only.   |
 | `ct await`  | `ct-await`  | Wait, boundedly, for an external outcome via a read-only probe.               |
 
-`ct rules`/`ct check` also host **built-in checks** — `deps` (crate-graph) and
-`mods` (module-graph) invariants — recorded and verified as rules (`ct rules …
--- deps …` / `-- mods …`), not as separate top-level commands.
+`ct rules`/`ct check` also host **built-in checks** — `deps` (crate-graph),
+`mods` (module-graph), and `okf` (OKF-bundle conformance) invariants — recorded
+and verified as rules (`ct rules … -- deps …` / `-- mods …` / `-- okf …`), not as
+separate top-level commands.
+
+`ct-search`, `ct-tree`, `ct-view`, and `ct-outline` are also **OKF-aware**: they
+auto-detect a Markdown concept's YAML frontmatter and surface it additively
+(`ct search --okf-type/--okf-tag`, `ct tree --sort/--group okf-type`, `ct view
+--frontmatter`, `ct outline --frontmatter`) without changing their default
+output. See the [OKF spec](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md).
 
 ## Why
 
@@ -48,7 +56,9 @@ less supervision:
 - **Atomic batches.** `ct-edit --script` runs a whole batch of block edits under
   prepare/confirm/write: every edit is simulated and judged in memory (and every
   target pre-flighted for writability) before anything is written — one failing
-  anchor means zero writes, never a half-applied batch.
+  anchor means zero writes, never a half-applied batch. `ct-okf --script` applies
+  the same standard to a batch of OKF mutations (cascading over an in-memory
+  bundle overlay), so a multi-step authoring change lands all-or-nothing.
 - **Read-only by default where it matters.** `ct-test` runs only a fixed, immutable
   allowlist of read-only commands; `ct-each` adds the suite's own gated mutating
   tools only behind an explicit `--mutating` flag. There is **no shell mode

@@ -20,6 +20,7 @@ const TOOLS: &[&str] = &[
     "ct-patch",
     "ct-test",
     "ct-each",
+    "ct-okf",
     "ct-outline",
     "ct-rules",
     "ct-check",
@@ -35,6 +36,7 @@ const LEAVES: &[&str] = &[
     "ct-patch",
     "ct-test",
     "ct-each",
+    "ct-okf",
     "ct-outline",
     "ct-rules",
     "ct-check",
@@ -43,7 +45,7 @@ const LEAVES: &[&str] = &[
 
 /// Built-in checks — reserved probe heads run in-process by the rule layer, not
 /// standalone tools — that the `ct` manifest advertises under `builtin_checks`.
-const BUILTIN_CHECKS: &[&str] = &["deps", "mods"];
+const BUILTIN_CHECKS: &[&str] = &["deps", "mods", "okf"];
 
 fn explain_path(tool: &str, ext: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -147,6 +149,7 @@ fn schema_matches_clap_grammar() {
     let mut grammars: Vec<(&str, coding_tools::deps::Grammar)> = coding_tools::cli::grammars();
     grammars.push(("deps", coding_tools::deps::check_grammar()));
     grammars.push(("mods", coding_tools::modgraph::check_grammar()));
+    grammars.push(("okf", coding_tools::okf::check_grammar()));
 
     for (tool, grammar) in grammars {
         let v = read_json(tool);

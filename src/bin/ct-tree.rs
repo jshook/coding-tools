@@ -36,6 +36,10 @@ struct FileRow {
     words: u64,
     chars: u64,
     bytes: u64,
+    /// OKF frontmatter `type`, when the file is a concept with one.
+    okf_type: Option<String>,
+    /// OKF frontmatter `title`, when present (for `--json` enrichment).
+    okf_title: Option<String>,
 }
 
 /// Order `rows` in place by the sort key and direction.
@@ -48,6 +52,7 @@ fn sort_rows(rows: &mut [FileRow], key: SortKey, desc: bool) {
             SortKey::Bytes => a.bytes.cmp(&b.bytes),
             SortKey::Name => a.name.cmp(&b.name),
             SortKey::Ext => a.ext.cmp(&b.ext).then_with(|| a.rel.cmp(&b.rel)),
+            SortKey::OkfType => a.okf_type.cmp(&b.okf_type).then_with(|| a.rel.cmp(&b.rel)),
             SortKey::Path => a.rel.cmp(&b.rel),
         };
         if desc { ord.reverse() } else { ord }
@@ -292,6 +297,7 @@ fn summary_groups(rows: &[FileRow], group: GroupBy) -> Vec<(String, Totals)> {
                 }
             }
             GroupBy::Dir => parent_dir(&r.rel),
+            GroupBy::OkfType => r.okf_type.clone().unwrap_or_else(|| "(none)".to_string()),
             GroupBy::None => unreachable!(),
         };
         let t = map.entry(key).or_default();
@@ -349,7 +355,12 @@ fn render_json(cli: &Cli, rows: &[FileRow]) {
     let files: Vec<_> = rows
         .iter()
         .map(|r| {
-            json!({ "path": r.rel, "ext": r.ext, "lines": r.lines, "words": r.words, "chars": r.chars, "bytes": r.bytes })
+            let mut o = json!({ "path": r.rel, "ext": r.ext, "lines": r.lines, "words": r.words, "chars": r.chars, "bytes": r.bytes });
+            // Additive: an "okf" field appears only for concepts with frontmatter.
+            if r.okf_type.is_some() || r.okf_title.is_some() {
+                o["okf"] = json!({ "type": r.okf_type, "title": r.okf_title });
+            }
+            o
         })
         .collect();
     let by_ext: Vec<_> = summary_groups(rows, GroupBy::Ext)
@@ -440,6 +451,17 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
             .extension()
             .map(|e| e.to_string_lossy().to_ascii_lowercase())
             .unwrap_or_default();
+        // OKF awareness: a Markdown concept's frontmatter `type`/`title` enrich
+        // the row (additively — non-.md files and frontmatterless .md leave them
+        // None, so default output is unchanged).
+        let (okf_type, okf_title) = if ext == "md" {
+            match coding_tools::okf::parse(&content) {
+                Some(p) => (p.fm.type_, p.fm.title),
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
         rows.push(FileRow {
             rel,
             name,
@@ -448,6 +470,8 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
             words,
             chars,
             bytes: byte_len,
+            okf_type,
+            okf_title,
         });
     }
 
@@ -539,6 +563,8 @@ mod tests {
                 words: 0,
                 chars: 0,
                 bytes: 0,
+                okf_type: None,
+                okf_title: None,
             },
             FileRow {
                 rel: "b".into(),
@@ -548,6 +574,8 @@ mod tests {
                 words: 0,
                 chars: 0,
                 bytes: 0,
+                okf_type: None,
+                okf_title: None,
             },
             FileRow {
                 rel: "c".into(),
@@ -557,6 +585,8 @@ mod tests {
                 words: 0,
                 chars: 0,
                 bytes: 0,
+                okf_type: None,
+                okf_title: None,
             },
         ];
         sort_rows(&mut rows, SortKey::Lines, true);
@@ -577,6 +607,8 @@ mod tests {
             words: 0,
             chars: 0,
             bytes: 0,
+            okf_type: None,
+            okf_title: None,
         };
         root.insert(&["src", "main.rs"], row("src/main.rs", 10));
         root.insert(&["src", "util", "a.rs"], row("src/util/a.rs", 5));

@@ -204,3 +204,18 @@ ct-search --base src --name '*.rs' | \
 | `--explain [md\|json]` | Print this guide (`md`, default) or the MCP tool definition (`json`), then exit. |
 | `-h`, `--help`         | Human help.                                                      |
 | `-V`, `--version`      | Version.                                                         |
+
+## OKF awareness
+
+`--frontmatter` makes a Markdown concept's YAML frontmatter visible in the
+outline: each field becomes a synthetic `meta:KEY` entry (`meta:type`,
+`meta:title`, `meta:description`, `meta:resource`, `meta:timestamp`, `meta:tags`)
+prepended before the document's headings. They behave like any other entry — count
+toward `--expect`, appear in `--flat`/`--json`, and can be selected with
+`--kind meta:type`. The flag is off by default, so ordinary outlines are
+unchanged.
+
+```sh
+# List just the concept types across a bundle.
+ct-outline --base bundle --frontmatter --kind meta:type --flat
+```

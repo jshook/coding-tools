@@ -17,7 +17,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use coding_tools::cli::ct_outline::Cli;
 use coding_tools::explain::Format;
-use coding_tools::outline::{Entry, language_for, outline};
+use coding_tools::outline::{Entry, Lang, language_for, outline};
 use coding_tools::pulse::{self, PulseState};
 use coding_tools::verdict::Expect;
 use coding_tools::walk::{self, EntryType};
@@ -174,7 +174,45 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
             }
             Err(_) => continue, // unreadable / non-UTF-8 in a walk: skipped
         };
-        let entries = outline(lang, &text);
+        let mut entries = outline(lang, &text);
+        // OKF awareness (opt-in): prepend a Markdown concept's frontmatter as
+        // synthetic `meta:KEY` entries so they can be listed and --kind-filtered.
+        if cli.frontmatter
+            && lang == Lang::Markdown
+            && let Some(p) = coding_tools::okf::parse(&text)
+        {
+            let end = Some(p.fm_span.1);
+            let mut metas: Vec<Entry> = Vec::new();
+            let mut meta = |k: &str, v: String| {
+                metas.push(Entry {
+                    kind: format!("meta:{k}"),
+                    name: v,
+                    start: 1,
+                    end,
+                    depth: 1,
+                });
+            };
+            if let Some(v) = p.fm.type_ {
+                meta("type", v);
+            }
+            if let Some(v) = p.fm.title {
+                meta("title", v);
+            }
+            if let Some(v) = p.fm.description {
+                meta("description", v);
+            }
+            if let Some(v) = p.fm.resource {
+                meta("resource", v);
+            }
+            if let Some(v) = p.fm.timestamp {
+                meta("timestamp", v);
+            }
+            if !p.fm.tags.is_empty() {
+                meta("tags", p.fm.tags.join(", "));
+            }
+            metas.append(&mut entries);
+            entries = metas;
+        }
         let matched: Vec<bool> = entries.iter().map(keeps).collect();
         let n = matched.iter().filter(|m| **m).count();
         if n == 0 {

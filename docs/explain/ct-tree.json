@@ -86,9 +86,10 @@
           "words",
           "chars",
           "bytes",
-          "ext"
+          "ext",
+          "okf-type"
         ],
-        "description": "Sort key. Default 'path'. In --flat the sort is global; in --tree it orders entries within each folder. Sorting by bytes also turns on the byte column."
+        "description": "Sort key. Default 'path'. In --flat the sort is global; in --tree it orders entries within each folder. Sorting by bytes also turns on the byte column. 'okf-type' sorts by a Markdown concept's frontmatter type (files without one sort first)."
       },
       "desc": {
         "type": "boolean",
@@ -115,9 +116,10 @@
         "enum": [
           "ext",
           "dir",
-          "none"
+          "none",
+          "okf-type"
         ],
-        "description": "Grouping for --summary: by extension (default), by immediate directory, or a single grand total."
+        "description": "Grouping for --summary: by extension (default), by immediate directory, by OKF frontmatter type (files without one group under '(none)'), or a single grand total."
       },
       "json": {
         "type": "boolean",

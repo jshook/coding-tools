@@ -189,7 +189,7 @@ fn verify(
 fn reject_adapter_on_builtin(cli: &Cli) -> Result<(), String> {
     let head = cli.probe.first().map(String::as_str);
     let adapter = cli.expect.is_some() || cli.expect_ok.is_some() || cli.expect_err.is_some();
-    if adapter && matches!(head, Some("deps") | Some("mods")) {
+    if adapter && matches!(head, Some("deps") | Some("mods") | Some("okf")) {
         return Err(format!(
             "built-in check '{}' classifies its own outcome — drop --expect/--expect-ok/--expect-err \
              (those adapters are for bridge tools like cargo tree)",

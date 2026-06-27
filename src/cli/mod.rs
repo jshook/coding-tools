@@ -13,6 +13,7 @@ pub mod ct_await;
 pub mod ct_check;
 pub mod ct_each;
 pub mod ct_edit;
+pub mod ct_okf;
 pub mod ct_outline;
 pub mod ct_patch;
 pub mod ct_rules;
@@ -30,6 +31,7 @@ pub fn commands() -> Vec<(&'static str, clap::Command)> {
         ("ct-check", ct_check::Cli::command()),
         ("ct-each", ct_each::Cli::command()),
         ("ct-edit", ct_edit::Cli::command()),
+        ("ct-okf", ct_okf::Cli::command()),
         ("ct-outline", ct_outline::Cli::command()),
         ("ct-patch", ct_patch::Cli::command()),
         ("ct-rules", ct_rules::Cli::command()),

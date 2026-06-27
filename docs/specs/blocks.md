@@ -290,6 +290,31 @@ Same prepare/confirm/write standard (§4.4) over structured documents. Not
 part of the first implementation pass; recorded here so the envelope is
 designed for two consumers from day one.
 
+### 4.8 ct-okf vocabulary (same envelope)
+
+`ct-okf --script` is a third consumer of `.ctb`, batching OKF bundle
+mutations. Its item directives are `new`/`set`/`log`/`index`/`init`:
+
+```
+#% new file=tables/customers.md type="BigQuery Table" title=Customers
+#% description
+The customers dimension.
+#% tags
+core
+pii
+#% index base=tables
+#% set file=tables/customers.md field=resource value=bq://proj.ds.customers
+#% log kind=Creation
+#% message
+scaffolded the customers table
+```
+
+Same prepare/confirm/write standard (§4.4), but over a *filesystem* rather
+than a fixed file set: the batch is simulated against an in-memory overlay of
+the bundle (so a later `index`/`set` cascades over earlier `new` writes), and
+nothing is written unless every op succeeds. `--dry-run` prints the plan and
+writes nothing.
+
 ## 5. Block matching in the read-only tools
 
 The block matcher ships through `ct-search` and `ct-view` in the same pass

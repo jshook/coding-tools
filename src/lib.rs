@@ -42,6 +42,11 @@
 //!   metadata` (including its in-process [`deps::check`] entry point).
 //! * [`modgraph`] — the `mods` built-in check's heuristic intra-crate module-use
 //!   graph, reusing [`deps`]'s assertions at module granularity.
+//! * [`okf`] — Open Knowledge Format support: frontmatter parsing, bundle
+//!   conformance, cross-link checking, and the `okf` built-in check, shared by
+//!   `ct-okf` and the OKF-aware file/structure tools.
+//! * [`okfscript`] — the `ct-okf --script` batch engine: `.ctb` OKF mutations
+//!   simulated over an in-memory overlay under the prepare/confirm/write standard.
 //! * [`outline`] — `ct-outline`'s heuristic per-language declaration
 //!   detection.
 //! * [`view`] — `ct-view`'s range parsing and context-window merging.
@@ -61,6 +66,8 @@ pub mod editscript;
 pub mod explain;
 pub mod jsonout;
 pub mod modgraph;
+pub mod okf;
+pub mod okfscript;
 pub mod outline;
 pub mod patch;
 pub mod pattern;

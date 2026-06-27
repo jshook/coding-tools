@@ -28,14 +28,20 @@ can call by its full name.
 | `ct-test`   | Run a command as a framed experiment — pose a question, classify the result from output, emit a templated verdict. | [explain/ct-test.md](../explain/ct-test.md) |
 | `ct-each`   | Run a command template once per item — no shell — with per-item verdicts and an aggregate `--expect`. | [explain/ct-each.md](../explain/ct-each.md) |
 | `ct-outline`| Report the declarations in a file or tree — kind, name, `start:end` span — for bounded reads. | [explain/ct-outline.md](../explain/ct-outline.md) |
+| `ct-okf`    | Author and query Open Knowledge Format (OKF) bundles — validate, list/query metadata, link-check, and scaffold/index/log/edit concepts. | [explain/ct-okf.md](../explain/ct-okf.md) |
 | `ct-rules`  | Record, promote, remove, and list the project's invariant rules (`.ct/rules.jsonc`); writes the store, on no gate. | [explain/ct-rules.md](../explain/ct-rules.md) |
 | `ct-check`  | Verify the recorded invariants — five lanes (`SUCCESS`/`ERROR`/`WARN`/`PENDING`/`BROKEN`), one exit status; purely read-only. | [explain/ct-check.md](../explain/ct-check.md) |
 | `ct-await`  | Poll a gated read-only probe until success, an abort pattern, or the required bound — observe work you don't execute. | [explain/ct-await.md](../explain/ct-await.md) |
 
 `ct-rules`/`ct-check` also host **built-in checks** — `deps` (crate graph over
-`cargo metadata`) and `mods` (module graph from `use` edges) — run in-process as
-rule probes (`ct check deps`/`mods` flags via `ct rules … -- deps …`), not as
-top-level commands. See `docs/specs/rules.md`.
+`cargo metadata`), `mods` (module graph from `use` edges), and `okf` (OKF-bundle
+conformance) — run in-process as rule probes (e.g. `ct rules … -- deps …` /
+`-- okf --base bundle`), not as top-level commands. See `docs/specs/rules.md`.
+
+The file/structure tools (`ct-search`, `ct-tree`, `ct-view`, `ct-outline`) are
+**OKF-aware**: they auto-detect Markdown frontmatter and enrich their output and
+filters additively, leaving default behaviour unchanged. The dedicated `ct-okf`
+tool authors and queries whole bundles.
 
 Each tool's page is the **canonical, self-contained reference** for that tool —
 the same text the tool emits from `<tool> --explain` — so it never drifts from

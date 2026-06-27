@@ -1,6 +1,6 @@
 {
   "name": "ct",
-  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). Two built-in boolean chains sequence several sub-commands in a single argv without a shell, using the separator ::: between segments: `ct and A ::: B ::: C` runs each in turn and stops at the first non-zero exit (shell-less &&, returning that code; 0 if all succeed); `ct or A ::: B` runs each in turn and stops at the first zero exit (shell-less ||, returning 0; the last segment's code if all fail). A blank segment is a usage error (exit 2), and chains do not nest. To invoke a chain through this schema set command to 'and' or 'or' and put the segments (with ::: separators) in args. This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
+  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, ct okf runs ct-okf, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). Two built-in boolean chains sequence several sub-commands in a single argv without a shell, using the separator ::: between segments: `ct and A ::: B ::: C` runs each in turn and stops at the first non-zero exit (shell-less &&, returning that code; 0 if all succeed); `ct or A ::: B` runs each in turn and stops at the first zero exit (shell-less ||, returning 0; the last segment's code if all fail). A blank segment is a usage error (exit 2), and chains do not nest. To invoke a chain through this schema set command to 'and' or 'or' and put the segments (with ::: separators) in args. This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -75,6 +75,17 @@
               "regex"
             ],
             "description": "Pin how patterns are interpreted; promotion off for every pattern in the invocation. Use literal for verbatim code anchors."
+          },
+          "okf-type": {
+            "type": "string",
+            "description": "OKF: keep only Markdown concepts whose frontmatter `type` matches this pattern (substring->glob->regex promoted, also pinned by --mode)."
+          },
+          "okf-tag": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "OKF: keep only Markdown concepts whose frontmatter carries all of these tags (repeated or comma-joined)."
           },
           "size": {
             "type": "string",
@@ -200,6 +211,14 @@
             "type": "boolean",
             "description": "Suppress the line-number gutter in text output."
           },
+          "frontmatter": {
+            "type": "boolean",
+            "description": "OKF: show only the concept's leading frontmatter block."
+          },
+          "no-frontmatter": {
+            "type": "boolean",
+            "description": "OKF: omit the concept's frontmatter block from the shown lines. With --json, a 'frontmatter' field is added whenever the file is an OKF concept, regardless of this flag."
+          },
           "json": {
             "type": "boolean",
             "description": "Emit a structured JSON result instead of text."
@@ -322,9 +341,10 @@
               "words",
               "chars",
               "bytes",
-              "ext"
+              "ext",
+              "okf-type"
             ],
-            "description": "Sort key. Default 'path'. In --flat the sort is global; in --tree it orders entries within each folder. Sorting by bytes also turns on the byte column."
+            "description": "Sort key. Default 'path'. In --flat the sort is global; in --tree it orders entries within each folder. Sorting by bytes also turns on the byte column. 'okf-type' sorts by a Markdown concept's frontmatter type (files without one sort first)."
           },
           "desc": {
             "type": "boolean",
@@ -351,9 +371,10 @@
             "enum": [
               "ext",
               "dir",
-              "none"
+              "none",
+              "okf-type"
             ],
-            "description": "Grouping for --summary: by extension (default), by immediate directory, or a single grand total."
+            "description": "Grouping for --summary: by extension (default), by immediate directory, by OKF frontmatter type (files without one group under '(none)'), or a single grand total."
           },
           "json": {
             "type": "boolean",
@@ -888,6 +909,164 @@
       }
     },
     {
+      "name": "ct-okf",
+      "description": "Author and query Open Knowledge Format (OKF v0.1) bundles — directory trees of Markdown concepts whose leading YAML frontmatter carries a required `type` plus optional title/description/resource/tags/timestamp, alongside reserved index.md / log.md files and Markdown cross-links. Choose exactly one verb (default --validate). Read-only verbs: --validate (conformance verdict over the bundle: every non-reserved .md must have parseable frontmatter with a non-empty type; counts violations, default expect none, --strict also fails on broken bundle-relative links); --list (concepts with metadata, filter by --type and --tag); --show PATH (one concept's frontmatter); --links (broken bundle cross-link verdict). Authoring verbs (these write files): --new PATH (scaffold a concept, requires --type, refuses to overwrite); --init (scaffold a bundle-root index.md); --index ((re)generate index.md for --base from concepts' frontmatter); --log MESSAGE (prepend a dated entry to log.md, labelled by --log-kind); --set FIELD=VALUE (set/update a scalar frontmatter field on --file). Targeting uses the suite's walker vocabulary (--base, --name, --hidden, --follow, --no-ignore). Framed verdict on the check verbs: --question banner, --expect over the violation count (any|none|N|=N|+N|-N, default none), --emit/--emit-stderr templates with {RESULT} {QUESTION} {COUNT} {TOTAL} {BASE} {MATCHES}; exit 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Because the authoring verbs write, ct-okf is not on the read-only allowlist (read-only OKF composition is provided by the OKF-aware ct-search/ct-tree/ct-view/ct-outline and the `okf` built-in check). Invoke as `ct okf ...` or `ct-okf ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string",
+            "description": "Bundle root (or single concept root) to operate on. Default '.'.",
+            "default": "."
+          },
+          "name": {
+            "type": "string",
+            "description": "Limit selection to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Include dot-entries (names starting with '.'). Default: skipped."
+          },
+          "follow": {
+            "type": "boolean",
+            "description": "Follow symlinks while traversing."
+          },
+          "no-ignore": {
+            "type": "boolean",
+            "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
+          },
+          "validate": {
+            "type": "boolean",
+            "description": "Check the bundle for OKF conformance and report a verdict (the default verb)."
+          },
+          "list": {
+            "type": "boolean",
+            "description": "List the bundle's concepts with their metadata; filter with --type / --tag."
+          },
+          "show": {
+            "type": "string",
+            "description": "Show one concept's frontmatter (give the concept path)."
+          },
+          "links": {
+            "type": "boolean",
+            "description": "Report the bundle's broken bundle-relative cross-links as a verdict."
+          },
+          "new": {
+            "type": "string",
+            "description": "Scaffold a new concept at PATH (requires --type); refuses to overwrite."
+          },
+          "init": {
+            "type": "boolean",
+            "description": "Scaffold a bundle-root index.md (declaring okf_version) if absent."
+          },
+          "index": {
+            "type": "boolean",
+            "description": "(Re)generate index.md for --base from the concepts' frontmatter."
+          },
+          "log": {
+            "type": "string",
+            "description": "Prepend a dated entry to the bundle's log.md (label it with --log-kind)."
+          },
+          "set": {
+            "type": "string",
+            "description": "Set or update a scalar frontmatter field on the --file concept: FIELD=VALUE."
+          },
+          "script": {
+            "type": "string",
+            "description": "Run a .ctb batch of new/set/log/index/init items atomically under prepare/confirm/write: the whole script is simulated in memory (cascading — a later index/set sees earlier ops' writes), and nothing is written unless every op succeeds. One failing op (e.g. a clobbering new) means zero writes."
+          },
+          "dry-run": {
+            "type": "boolean",
+            "description": "With --script: simulate and print the plan, but write nothing."
+          },
+          "fence": {
+            "type": "string",
+            "description": "With --script: the directive prefix for script lines. Default '#%'; change it for payloads containing '#%' at line start."
+          },
+          "type": {
+            "type": "string",
+            "description": "The concept `type` for --new; also filters --list to this exact type."
+          },
+          "title": {
+            "type": "string",
+            "description": "With --new: the concept title (defaults to the file stem)."
+          },
+          "description": {
+            "type": "string",
+            "description": "With --new: the concept description (one sentence)."
+          },
+          "tag": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With --new: tags (comma-joined or repeated); also filters --list to concepts carrying all given tags."
+          },
+          "log-kind": {
+            "type": "string",
+            "description": "With --log: the entry label (e.g. Update, Creation). Default: Update."
+          },
+          "file": {
+            "type": "string",
+            "description": "With --set: the concept file to edit."
+          },
+          "strict": {
+            "type": "boolean",
+            "description": "With --validate: also treat broken bundle-relative links as violations."
+          },
+          "question": {
+            "type": "string",
+            "description": "Question this check answers, framing it as a test; printed as a '== ... ==' banner unless quiet."
+          },
+          "expect": {
+            "type": "string",
+            "description": "Verdict expectation over the violation count; default 'none'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N)."
+          },
+          "emit": {
+            "type": "string",
+            "description": "Template written to stdout after a check (alias: emit-stdout). Tokens: {RESULT} {QUESTION} {COUNT} {TOTAL} {BASE} {MATCHES}."
+          },
+          "emit-stderr": {
+            "type": "string",
+            "description": "Template written to stderr after a check. Same tokens as emit."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress informational output; report via exit status (and --emit, which still fires)."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result instead of text; the object's shape depends on the verb (tool, verb, verdict, and the verb's payload)."
+          },
+          "json-pretty": {
+            "type": "boolean",
+            "description": "Like --json, but pretty-printed (indented)."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if the run exceeds SECS seconds (fractional allowed)."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
+          }
+        },
+        "required": []
+      }
+    },
+    {
       "name": "ct-outline",
       "description": "Report the declarations in a file or tree — kind, name, and start:end line span — so the next read can be a bounded ct-view --range instead of a whole-file dump. Detection is heuristic (per-language rule packs: line patterns plus a block heuristic — braces for Rust, indentation for Python, heading levels for Markdown); it is a comprehension aid, not a parser: start lines are exact, end lines are best-effort and render as 'start:?' (JSON \"end\": null) when underivable — the code wins when they disagree. Shipped languages: Rust (.rs: mod struct enum trait impl fn macro type const static), Python (.py: class, def/async def), Markdown (.md: h1..h6, fenced code blocks ignored); js/ts, java, go, sh are planned. Unrecognised extensions are skipped in directory walks and are an error (exit 2) when named directly. Targeting uses the suite's walker vocabulary (--base file-or-dir, --name, --ext, --hidden, --follow). Filter entries with --match (anchored to the whole declaration name, like --name — use 'Verdict*' for prefix semantics), --kind (per-language keyword list), and --depth (1 = top-level only); filters AND together. Tree output keeps a matched entry's ancestors visible marked '(context)', but only matched entries count toward {COUNT}/--expect and only matched entries appear in --flat (path:start:end:kind:name) and --json output. Framed verdict: --question banner, --expect over the matched-entry count (any|none|N|=N|+N|-N, default any), --emit templates with {RESULT} {QUESTION} {COUNT} {BASE} {MATCHES}; exit 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Read-only — on the ct-test allowlist and ct-each's default gate. Invoke as `ct outline ...` or `ct-outline ...`.",
       "input_schema": {
@@ -940,6 +1119,10 @@
           "depth": {
             "type": "integer",
             "description": "Keep entries nested at most N levels deep (1 = top-level only)."
+          },
+          "frontmatter": {
+            "type": "boolean",
+            "description": "OKF: also report a Markdown concept's frontmatter as synthetic 'meta:KEY' entries (e.g. meta:type, meta:title), prepended before the headings. Filter them with --kind meta:type. Off by default, so ordinary outlines are unchanged."
           },
           "flat": {
             "type": "boolean",
@@ -1357,7 +1540,9 @@
           },
           "ext": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Extensions to include (no dots), e.g. ['rs']. May be comma-joined or repeated. Default: rs."
           },
           "hidden": {
@@ -1389,6 +1574,36 @@
           "layers-closed": {
             "type": "boolean",
             "description": "With --layers: also report a violation for every module that matches no layer (exhaustive assignment)."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "okf",
+      "description": "Built-in OKF-conformance check — a reserved probe head the rule layer runs in-process (not a standalone command). Walks an Open Knowledge Format bundle under --base and asserts every non-reserved Markdown concept conforms to OKF v0.1: it opens with a parseable YAML frontmatter block carrying a non-empty `type`. Reserved files (index.md, log.md) need only have parseable frontmatter if any is present. Use as a rule probe (`ct rules --add ID --question … -- okf --base DIR`, verified by `ct check`) or prototype with `ct rules -- okf --base DIR`. Classifies its own outcome, so it takes no --expect adapter. Targeting: --base DIR (bundle root, default '.'), --name (limit by file name), --hidden, --follow. With --strict, a broken bundle-relative cross-link (a `/…` or document-relative link whose target file is missing) is also a violation. Outcome: holds (all concepts conform), violated (with the per-file reasons), or broken (the bundle base is missing, or a file could not be read).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string",
+            "description": "Bundle root to check, relative to the project root. Default: '.'."
+          },
+          "name": {
+            "type": "string",
+            "description": "Limit to files whose name matches; '|'-separated alternatives, promoted and anchored."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Include dot-entries; default skips them."
+          },
+          "follow": {
+            "type": "boolean",
+            "description": "Follow symlinks while traversing."
+          },
+          "strict": {
+            "type": "boolean",
+            "description": "Also count a broken bundle-relative cross-link as a violation."
           }
         },
         "required": []

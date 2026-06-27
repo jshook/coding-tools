@@ -1,0 +1,30 @@
+{
+  "name": "okf",
+  "description": "Built-in OKF-conformance check — a reserved probe head the rule layer runs in-process (not a standalone command). Walks an Open Knowledge Format bundle under --base and asserts every non-reserved Markdown concept conforms to OKF v0.1: it opens with a parseable YAML frontmatter block carrying a non-empty `type`. Reserved files (index.md, log.md) need only have parseable frontmatter if any is present. Use as a rule probe (`ct rules --add ID --question … -- okf --base DIR`, verified by `ct check`) or prototype with `ct rules -- okf --base DIR`. Classifies its own outcome, so it takes no --expect adapter. Targeting: --base DIR (bundle root, default '.'), --name (limit by file name), --hidden, --follow. With --strict, a broken bundle-relative cross-link (a `/…` or document-relative link whose target file is missing) is also a violation. Outcome: holds (all concepts conform), violated (with the per-file reasons), or broken (the bundle base is missing, or a file could not be read).",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "base": {
+        "type": "string",
+        "description": "Bundle root to check, relative to the project root. Default: '.'."
+      },
+      "name": {
+        "type": "string",
+        "description": "Limit to files whose name matches; '|'-separated alternatives, promoted and anchored."
+      },
+      "hidden": {
+        "type": "boolean",
+        "description": "Include dot-entries; default skips them."
+      },
+      "follow": {
+        "type": "boolean",
+        "description": "Follow symlinks while traversing."
+      },
+      "strict": {
+        "type": "boolean",
+        "description": "Also count a broken bundle-relative cross-link as a violation."
+      }
+    },
+    "required": []
+  }
+}
