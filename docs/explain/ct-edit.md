@@ -81,6 +81,42 @@ ct-edit --base src --name '*.rs' \
   --expect =1 --dry-run
 ```
 
+#### How a payload is split into lines
+
+The rule is the same for `file:`, `text:`, and inline multi-line payloads, and
+matters because it decides whether a `--find` is a per-line pattern or a K-line
+block:
+
+- A **single trailing newline is a terminator, not a line** — a payload of K
+  text lines plus one final `\n` is K lines, so a 2-line anchor file matches 2
+  source lines (not 3). This is what every editor and file-writer produces.
+- **`CRLF` is normalized to `LF`** — a trailing `\r` on each line is dropped, so
+  an anchor file saved by a Windows editor still matches `LF` source.
+- For `--find` only, **trailing blank lines are trimmed** — editors commonly
+  leave a final empty line, which would otherwise become a phantom empty line at
+  the tail of the block and make the match fail. Interior blank lines and
+  whitespace-only lines are significant and kept; only exactly-empty trailing
+  lines are removed. (`--replace` keeps every line, since a trailing blank line
+  there may be intentional.)
+
+When a block still fails to match, the nearest miss names the parsed block's
+line count (`diverges at its line 3 of 3`) and, when the expected line is empty,
+adds a `note:` flagging the likely stray blank line.
+
+#### Blank-line tolerant matching: `--squeeze-blank`
+
+By default a block match is exact, line for line — including how many blank
+lines separate two anchors. Pass `--squeeze-blank` to make a **maximal run of
+blank lines** (empty or whitespace-only) in the `--find` anchor match a run of
+**one or more** blank lines in the source, regardless of count. This keeps an
+anchor robust when the source has gained or lost blank lines between two
+non-blank lines you are anchoring on. Non-blank lines still match byte-for-byte,
+and a blank run in the anchor still requires at least one blank line in the
+source. The flag has no effect on a single-line `--find` or on `--replace`; the
+whole matched span (which can be wider than the anchor) is what `--replace`
+overwrites, so the result's blank lines are whatever `--replace` specifies. In a
+`--script`, request it per edit with `squeeze=true` instead.
+
 ## Scripts: `--script` (.ctb)
 
 `--script PATH` runs a **batch** of edits from a ct block document under the
@@ -101,8 +137,10 @@ there is no flag that makes a partial write possible.
 - `#% edit` opens an edit; attributes: `expect=` (same SPEC vocabulary;
   **default `=1` in scripts** — anchored structural edits mean "exactly
   here", and the stricter default is the safer one inside an atomic batch),
-  `mode=` (`literal` default — promotion is off in scripts), and `file=`
-  (narrows **within** the invocation's `--base`/`--name` selection).
+  `mode=` (`literal` default — promotion is off in scripts), `file=`
+  (narrows **within** the invocation's `--base`/`--name` selection), and
+  `squeeze=` (`true`/`false`, default `false` — the per-edit equivalent of
+  `--squeeze-blank` for block finds).
 - `#% find` / `#% replace` carry the payloads verbatim, including leading
   whitespace; an empty `replace` section deletes the matched lines.
   `#% end` closes the edit. Attribute values split at the first `=`

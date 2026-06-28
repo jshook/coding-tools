@@ -452,6 +452,10 @@
             ],
             "description": "Pin how --find (and --name) is interpreted; promotion off. Use literal for verbatim code anchors."
           },
+          "squeeze-blank": {
+            "type": "boolean",
+            "description": "Blank-line tolerant block matching: a maximal run of blank (empty or whitespace-only) lines in a multi-line --find matches a run of one-or-more blank lines in the source, regardless of count. No effect on a single-line --find or on --replace. In scripts, set per-edit squeeze=true instead."
+          },
           "script": {
             "type": "string",
             "description": "Run a .ctb edit script: a batch of find/replace blocks simulated and judged in full before any write; nothing is written unless every edit passes."

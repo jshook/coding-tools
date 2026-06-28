@@ -40,7 +40,7 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
     // Resolve which line indices to show, and whether a --match found anything.
     let (mut selected, matched): (Vec<usize>, Option<bool>) = if let Some(p) = &cli.pattern {
         let resolved = payload::resolve(p)?;
-        let pat_lines = payload::to_lines(&resolved.text);
+        let pat_lines = payload::to_find_lines(&resolved.text);
         let hits: Vec<usize> = if pat_lines.len() > 1 {
             // A multi-line pattern is a line-anchored literal block; the
             // context window expands around the whole matched region.
@@ -58,13 +58,17 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
                 && let Some(m) = block::nearest_miss(&lines, &pat_lines)
             {
                 eprintln!(
-                    "ct-view: nearest miss: {}:{}: block diverges at its line {}",
+                    "ct-view: nearest miss: {}:{}: block diverges at its line {} of {}",
                     cli.path.display(),
                     m.line,
-                    m.first_diverging_line
+                    m.first_diverging_line,
+                    m.block_len
                 );
                 eprintln!("ct-view:   expected: {}", m.expected);
                 eprintln!("ct-view:   found:    {}", m.found);
+                if let Some(hint) = m.blank_line_hint() {
+                    eprintln!("ct-view:   note:     {hint}");
+                }
             }
             starts
                 .iter()

@@ -532,6 +532,232 @@ fn cascade_lets_later_edits_see_earlier_output_and_no_cascade_rejects_overlap() 
 }
 
 #[test]
+fn block_find_anchor_with_a_trailing_blank_line_still_matches() {
+    // The reported failure: a 2-line anchor file ending in a trailing blank
+    // line (an editor's final newline over an already newline-terminated body)
+    // must match the same two consecutive source lines, not parse as a 3-line
+    // block whose phantom empty 3rd line diverges from the source below it.
+    let dir = scratch("trailing-blank");
+    let file = dir.join("game.rs");
+    std::fs::write(
+        &file,
+        "/// Place rare derelict hauler cars.\nfn spawn_cars(\n    settings: Res<Settings>,\n) {\n}\n",
+    )
+    .unwrap();
+    // Anchor body is two lines, then an extra blank line (two trailing \n).
+    std::fs::write(
+        dir.join("anchor.block"),
+        "/// Place rare derelict hauler cars.\nfn spawn_cars(\n\n",
+    )
+    .unwrap();
+
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            file.to_str().unwrap(),
+            "--find",
+            &format!("file:{}", dir.join("anchor.block").display()),
+            "--replace",
+            "text:fn spawn_cars(",
+            "--expect",
+            "1",
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    // One replacement, no phantom-line divergence.
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert!(
+        !stderr(&out).contains("nearest miss"),
+        "should not miss: {}",
+        stderr(&out)
+    );
+    assert!(
+        stdout(&out).contains("1 replacement(s)"),
+        "{}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn block_find_anchor_with_crlf_matches_lf_source() {
+    // An anchor file saved by a Windows editor (CRLF line endings) must match
+    // LF source: the trailing \r on each line is normalized away.
+    let dir = scratch("crlf-anchor");
+    let file = dir.join("ast.rs");
+    std::fs::write(&file, SAMPLE).unwrap();
+    std::fs::write(
+        dir.join("anchor.block"),
+        "enum Value {\r\n    U64(u64),\r\n}\r\n",
+    )
+    .unwrap();
+
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            file.to_str().unwrap(),
+            "--find",
+            &format!("file:{}", dir.join("anchor.block").display()),
+            "--replace",
+            "text:enum V {}",
+            "--expect",
+            "1",
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("1 replacement(s)"),
+        "CRLF anchor should match LF source: {} / {}",
+        stdout(&out),
+        stderr(&out)
+    );
+}
+
+#[test]
+fn block_miss_is_self_diagnosing_about_a_stray_empty_line() {
+    // A block anchor whose diverging line is empty should surface the parsed
+    // line count and a blank-line note — the diagnostic the original report
+    // asked for. The anchor here has an interior empty line (line 2) that
+    // diverges from the real source, so the trailing-blank trim leaves it.
+    let dir = scratch("miss-diag");
+    let file = dir.join("ast.rs");
+    std::fs::write(&file, SAMPLE).unwrap();
+
+    let anchor = dir.join("blank-mid.block");
+    std::fs::write(&anchor, "enum Value {\n\nnope\n").unwrap();
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            file.to_str().unwrap(),
+            "--find",
+            &format!("file:{}", anchor.display()),
+            "--replace",
+            "text:x",
+            "--expect",
+            "1",
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 1, "{}", stderr(&out));
+    let diag = stderr(&out);
+    assert!(diag.contains("nearest miss"), "{diag}");
+    assert!(diag.contains("of 3"), "names the parsed block size: {diag}");
+    assert!(diag.contains("note:"), "flags the empty line: {diag}");
+    assert!(diag.contains("(empty line)"), "renders the blank: {diag}");
+}
+
+#[test]
+fn squeeze_blank_lets_an_anchor_tolerate_blank_line_drift() {
+    let dir = scratch("squeeze-argv");
+    let file = dir.join("game.rs");
+    // Source has TWO blank lines between the two anchored lines.
+    std::fs::write(&file, "fn spawn() {\n\n\n    body();\n}\n").unwrap();
+    // Anchor carries only ONE blank line between them.
+    std::fs::write(dir.join("anchor.block"), "fn spawn() {\n\n    body();\n").unwrap();
+    let find = format!("file:{}", dir.join("anchor.block").display());
+
+    // Without --squeeze-blank the blank-count mismatch misses.
+    let exact = tool("ct-edit")
+        .args([
+            "--base",
+            file.to_str().unwrap(),
+            "--find",
+            &find,
+            "--replace",
+            "text:fn spawn() {}",
+            "--expect",
+            "1",
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&exact), 1, "exact should miss: {}", stdout(&exact));
+    assert!(
+        stderr(&exact).contains("nearest miss"),
+        "{}",
+        stderr(&exact)
+    );
+
+    // With --squeeze-blank the single anchor blank absorbs the two source
+    // blanks and the block matches.
+    let squeezed = tool("ct-edit")
+        .args([
+            "--base",
+            file.to_str().unwrap(),
+            "--find",
+            &find,
+            "--replace",
+            "text:fn spawn() {}",
+            "--squeeze-blank",
+            "--expect",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&squeezed), 0, "{}", stderr(&squeezed));
+    assert!(
+        stdout(&squeezed).contains("1 replacement(s)"),
+        "{}",
+        stdout(&squeezed)
+    );
+    // The whole matched span (incl. both blanks) is replaced by the one line.
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "fn spawn() {}\n}\n"
+    );
+}
+
+#[test]
+fn script_squeeze_attribute_enables_blank_tolerant_matching() {
+    let dir = scratch("squeeze-script");
+    let file = dir.join("c.rs");
+    std::fs::write(&file, "open()\n\n\n\nclose()\n").unwrap();
+    let script = dir.join("sq.ctb");
+    // The anchor has one blank line; the source has three. squeeze=true makes
+    // the edit match; the default (exact) would fail the atomic batch.
+    std::fs::write(
+        &script,
+        "#% edit expect=\"=1\" squeeze=true\n#% find\nopen()\n\nclose()\n#% replace\ndone()\n#% end\n",
+    )
+    .unwrap();
+
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            file.to_str().unwrap(),
+            "--script",
+            script.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "done()\n");
+
+    // An invalid squeeze value is a usage error before any write.
+    std::fs::write(&file, "open()\n\n\n\nclose()\n").unwrap();
+    let bad = dir.join("bad.ctb");
+    std::fs::write(
+        &bad,
+        "#% edit squeeze=maybe\n#% find\nopen()\n#% replace\ndone()\n#% end\n",
+    )
+    .unwrap();
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            file.to_str().unwrap(),
+            "--script",
+            bad.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 2, "{}", stderr(&out));
+    assert!(stderr(&out).contains("squeeze"), "{}", stderr(&out));
+}
+
+#[test]
 fn patch_file_value_is_a_verbatim_string_and_each_expands_file_items() {
     let dir = scratch("patch-each");
     let cfg = dir.join("cfg.json");

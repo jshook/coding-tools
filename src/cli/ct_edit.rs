@@ -58,6 +58,10 @@ pub struct Cli {
     #[arg(long, value_enum, conflicts_with = "script")]
     pub mode: Option<pattern::Mode>,
 
+    /// Blank-line tolerant block matching: a run of blank lines in a multi-line --find matches a run of one-or-more blank lines in the source. No effect on a single-line --find or on --replace. In scripts, set per-edit `squeeze=true`.
+    #[arg(long, conflicts_with = "script")]
+    pub squeeze_blank: bool,
+
     /// Run a .ctb edit script: a batch of find/replace blocks verified in full before any write (see --explain).
     #[arg(long, value_name = "PATH")]
     pub script: Option<PathBuf>,

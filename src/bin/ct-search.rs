@@ -59,7 +59,7 @@ enum Grep {
 /// literal; a multi-line payload is a literal block (an explicit non-literal
 /// `--mode` on a block is a usage error).
 fn compile_grep(resolved: &payload::Resolved, mode: Option<pattern::Mode>) -> Result<Grep, String> {
-    let lines = payload::to_lines(&resolved.text);
+    let lines = payload::to_find_lines(&resolved.text);
     if lines.len() > 1 {
         if matches!(mode, Some(pattern::Mode::Glob) | Some(pattern::Mode::Regex)) {
             return Err(
@@ -256,11 +256,14 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         && let Some((path, m)) = &nearest
     {
         eprintln!(
-            "ct-search: nearest miss: {path}:{}: block diverges at its line {}",
-            m.line, m.first_diverging_line
+            "ct-search: nearest miss: {path}:{}: block diverges at its line {} of {}",
+            m.line, m.first_diverging_line, m.block_len
         );
         eprintln!("ct-search:   expected: {}", m.expected);
         eprintln!("ct-search:   found:    {}", m.found);
+        if let Some(hint) = m.blank_line_hint() {
+            eprintln!("ct-search:   note:     {hint}");
+        }
     }
 
     // The verdict generalises the historic exit status: the default `any`

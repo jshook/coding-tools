@@ -122,6 +122,33 @@ fn site_json(s: &Site) -> serde_json::Value {
     json!({ "path": s.path, "line": s.line, "before": s.before, "after": s.after })
 }
 
+/// Render a block nearest-miss as self-diagnosing diagnostic lines (without any
+/// tool/indent prefix — the caller prepends one). The header names the parsed
+/// block's line count, empty `expected`/`found` lines are shown as `(empty
+/// line)` so a phantom blank is visible rather than rendering as nothing, and an
+/// empty expected line adds a `note:` pointing at the likely stray blank line.
+fn render_miss(path: &str, m: &coding_tools::block::NearestMiss) -> Vec<String> {
+    let shown = |s: &str| {
+        if s.is_empty() {
+            "(empty line)".to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    let mut lines = vec![
+        format!(
+            "nearest miss: {path}:{}: block diverges at its line {} of {}",
+            m.line, m.first_diverging_line, m.block_len
+        ),
+        format!("  expected: {}", shown(&m.expected)),
+        format!("  found:    {}", shown(&m.found)),
+    ];
+    if let Some(hint) = m.blank_line_hint() {
+        lines.push(format!("  note:     {hint}"));
+    }
+    lines
+}
+
 /// Compile the argv `--find`/`--replace` pair into an [`Op`], resolving the
 /// payload schemes. A `file:`-sourced find defaults to literal; a multi-line
 /// find is a literal block.
@@ -131,7 +158,9 @@ fn compile_argv_op(cli: &Cli) -> Result<Op, String> {
     };
     let find = payload::resolve(find_raw)?;
     let replace = payload::resolve(replace_raw)?;
-    let find_lines = payload::to_lines(&find.text);
+    // Anchor lines drop the phantom trailing blank line editors leave behind;
+    // the replacement keeps every line (a trailing blank may be intentional).
+    let find_lines = payload::to_find_lines(&find.text);
     match find_lines.len() {
         0 => Err("empty --find payload".to_string()),
         1 => {
@@ -165,6 +194,7 @@ fn compile_argv_op(cli: &Cli) -> Result<Op, String> {
             Ok(Op::Block {
                 find: find_lines,
                 replace: payload::to_lines(&replace.text),
+                squeeze: cli.squeeze_blank,
             })
         }
     }
@@ -193,10 +223,10 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
             changed[i] = true;
             sites.extend(file_sites);
         } else if hits == 0
-            && let Op::Block { find, .. } = &op
+            && let Op::Block { find, squeeze, .. } = &op
         {
             let lines: Vec<&str> = f.content.lines().collect();
-            if let Some(m) = coding_tools::block::nearest_miss(&lines, find)
+            if let Some(m) = coding_tools::block::nearest_miss_with(&lines, find, *squeeze)
                 && miss
                     .as_ref()
                     .is_none_or(|(_, b)| m.first_diverging_line > b.first_diverging_line)
@@ -210,12 +240,9 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
         && !cli.json
         && let Some((path, m)) = &miss
     {
-        eprintln!(
-            "ct-edit: nearest miss: {path}:{}: block diverges at its line {}",
-            m.line, m.first_diverging_line
-        );
-        eprintln!("ct-edit:   expected: {}", m.expected);
-        eprintln!("ct-edit:   found:    {}", m.found);
+        for line in render_miss(path, m) {
+            eprintln!("ct-edit: {line}");
+        }
     }
 
     let verdict = expect.eval(replacements as u64);
@@ -279,8 +306,10 @@ fn miss_json(path: &str, m: &coding_tools::block::NearestMiss) -> serde_json::Va
         "path": path,
         "line": m.line,
         "first_diverging_line": m.first_diverging_line,
+        "block_lines": m.block_len,
         "expected": m.expected,
         "found": m.found,
+        "hint": m.blank_line_hint(),
     })
 }
 
@@ -373,12 +402,9 @@ fn run_script(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
                     o.replacements,
                 );
                 if let Some((path, m)) = &o.miss {
-                    println!(
-                        "  nearest miss: {path}:{}: block diverges at its line {}",
-                        m.line, m.first_diverging_line
-                    );
-                    println!("    expected: {}", m.expected);
-                    println!("    found:    {}", m.found);
+                    for line in render_miss(path, m) {
+                        println!("  {line}");
+                    }
                 }
             }
         }

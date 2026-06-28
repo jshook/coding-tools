@@ -29,9 +29,12 @@ pub struct FileBuf {
 /// A compiled edit operation.
 pub enum Op {
     /// Line-anchored literal block find/replace (empty `replace` deletes).
+    /// `squeeze` makes a blank run in `find` match a run of 1+ blank source
+    /// lines (see [`crate::block::find_spans_squeezed`]).
     Block {
         find: Vec<String>,
         replace: Vec<String>,
+        squeeze: bool,
     },
     /// Single-line find/replace, as the argv form does it.
     Line {
@@ -69,7 +72,7 @@ pub struct EditOutcome {
 }
 
 /// The attribute and section vocabulary of an `edit` item.
-const EDIT_ATTRS: [&str; 3] = ["expect", "mode", "file"];
+const EDIT_ATTRS: [&str; 4] = ["expect", "mode", "file", "squeeze"];
 const EDIT_SECTIONS: [&str; 2] = ["find", "replace"];
 
 /// Compile one parsed `edit` item into an [`EditSpec`]. Defaults inside a
@@ -106,7 +109,15 @@ pub fn compile_item(item: &Item, ordinal: usize) -> Result<EditSpec, String> {
     let replace_payload = item
         .section("replace")
         .ok_or_else(|| at("missing 'replace' section".to_string()))?;
-    let find_lines = payload::to_lines(find_payload);
+    let squeeze = match item.attr("squeeze") {
+        None | Some("false") => false,
+        Some("true") => true,
+        Some(other) => return Err(at(format!("invalid squeeze '{other}' (true|false)"))),
+    };
+
+    // Anchor lines drop a phantom trailing blank line; the replacement keeps
+    // every line (see `payload::to_find_lines`).
+    let find_lines = payload::to_find_lines(find_payload);
     if find_lines.is_empty() {
         return Err(at("empty 'find' section".to_string()));
     }
@@ -121,6 +132,7 @@ pub fn compile_item(item: &Item, ordinal: usize) -> Result<EditSpec, String> {
         Op::Block {
             find: find_lines,
             replace: payload::to_lines(replace_payload),
+            squeeze,
         }
     } else {
         let single = find_lines.into_iter().next().unwrap();
@@ -181,7 +193,11 @@ impl Op {
     /// count, changed sites. Shared by the script engine and the argv form.
     pub fn apply(&self, path: &str, content: &str) -> (String, usize, Vec<Site>) {
         match self {
-            Op::Block { find, replace } => block::edit_blocks(path, content, find, replace),
+            Op::Block {
+                find,
+                replace,
+                squeeze,
+            } => block::edit_blocks_with(path, content, find, replace, *squeeze),
             Op::Line {
                 re,
                 literal,
@@ -197,9 +213,10 @@ fn track_miss(
     path: &str,
     content: &str,
     find: &[String],
+    squeeze: bool,
 ) {
     let lines: Vec<&str> = content.lines().collect();
-    if let Some(m) = block::nearest_miss(&lines, find)
+    if let Some(m) = block::nearest_miss_with(&lines, find, squeeze)
         && best
             .as_ref()
             .is_none_or(|(_, b)| m.first_diverging_line > b.first_diverging_line)
@@ -227,8 +244,8 @@ pub fn run_cascade(specs: &[EditSpec], files: &mut [FileBuf]) -> Result<Vec<Edit
                 f.content = new_content;
                 total += hits;
                 sites.extend(s);
-            } else if let Op::Block { find, .. } = &spec.op {
-                track_miss(&mut miss, &f.path, &f.content, find);
+            } else if let Op::Block { find, squeeze, .. } = &spec.op {
+                track_miss(&mut miss, &f.path, &f.content, find, *squeeze);
             }
         }
         let verdict = spec.expect.eval(total as u64);
@@ -275,15 +292,17 @@ pub fn run_no_cascade(
         for &i in &cand {
             let (_, hits, s) = spec.op.apply(&files[i].path, &pristine[i]);
             if hits == 0 {
-                if let Op::Block { find, .. } = &spec.op {
-                    track_miss(&mut miss, &files[i].path, &pristine[i], find);
+                if let Op::Block { find, squeeze, .. } = &spec.op {
+                    track_miss(&mut miss, &files[i].path, &pristine[i], find, *squeeze);
                 }
                 continue;
             }
             total += hits;
             for site in &s {
                 let (len, replacement) = match &spec.op {
-                    Op::Block { find, replace } => (find.len(), replace.clone()),
+                    // The matched source span (from `site.before`) is what gets
+                    // replaced — under squeeze it can be wider than `find`.
+                    Op::Block { replace, .. } => (site.before.split('\n').count(), replace.clone()),
                     Op::Line { .. } => (1, site.after.split('\n').map(str::to_string).collect()),
                 };
                 splices.push((
