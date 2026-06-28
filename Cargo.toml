@@ -81,6 +81,8 @@ serde_json = "1.0.150"
 jsonc-parser = { version = "0.26", features = ["serde"] }
 yaml-edit = "0.2.1"
 veks-completion = "1.6"
+fst = { version = "0.4.7", features = ["levenshtein"] }
+regex-automata = { version = "0.4.14", features = ["dfa-build", "dfa-search"] }
 
 # Unix only: process-group kill for `--timeout` on the child-running tools.
 [target.'cfg(unix)'.dependencies]

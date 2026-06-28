@@ -45,6 +45,10 @@
 //! * [`okf`] — Open Knowledge Format support: frontmatter parsing, bundle
 //!   conformance, cross-link checking, and the `okf` built-in check, shared by
 //!   `ct-okf` and the OKF-aware file/structure tools.
+//! * [`okfindex`] — the lazily-maintained fst-segment full-text index over OKF
+//!   concept files behind `ct-okf search` (incremental layering + condense).
+//! * [`okfroots`] — OKF content-root discovery (`.okf` markers, `okf_version`
+//!   index files, `.ct/okf.jsonc` config) and the concept-file feed for the index.
 //! * [`okfscript`] — the `ct-okf --script` batch engine: `.ctb` OKF mutations
 //!   simulated over an in-memory overlay under the prepare/confirm/write standard.
 //! * [`outline`] — `ct-outline`'s heuristic per-language declaration
@@ -67,6 +71,8 @@ pub mod explain;
 pub mod jsonout;
 pub mod modgraph;
 pub mod okf;
+pub mod okfindex;
+pub mod okfroots;
 pub mod okfscript;
 pub mod outline;
 pub mod patch;

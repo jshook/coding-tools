@@ -914,22 +914,94 @@
     },
     {
       "name": "ct-okf",
-      "description": "Author and query Open Knowledge Format (OKF v0.1) bundles — directory trees of Markdown concepts whose leading YAML frontmatter carries a required `type` plus optional title/description/resource/tags/timestamp, alongside reserved index.md / log.md files and Markdown cross-links. Choose exactly one verb (default --validate). Read-only verbs: --validate (conformance verdict over the bundle: every non-reserved .md must have parseable frontmatter with a non-empty type; counts violations, default expect none, --strict also fails on broken bundle-relative links); --list (concepts with metadata, filter by --type and --tag); --show PATH (one concept's frontmatter); --links (broken bundle cross-link verdict). Authoring verbs (these write files): --new PATH (scaffold a concept, requires --type, refuses to overwrite); --init (scaffold a bundle-root index.md); --index ((re)generate index.md for --base from concepts' frontmatter); --log MESSAGE (prepend a dated entry to log.md, labelled by --log-kind); --set FIELD=VALUE (set/update a scalar frontmatter field on --file). Targeting uses the suite's walker vocabulary (--base, --name, --hidden, --follow, --no-ignore). Framed verdict on the check verbs: --question banner, --expect over the violation count (any|none|N|=N|+N|-N, default none), --emit/--emit-stderr templates with {RESULT} {QUESTION} {COUNT} {TOTAL} {BASE} {MATCHES}; exit 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Because the authoring verbs write, ct-okf is not on the read-only allowlist (read-only OKF composition is provided by the OKF-aware ct-search/ct-tree/ct-view/ct-outline and the `okf` built-in check). Invoke as `ct okf ...` or `ct-okf ...`.",
+      "description": "Author, query, and index Open Knowledge Format (OKF v0.1) bundles — directory trees of Markdown concepts whose leading YAML frontmatter carries a required `type` plus optional title/description/resource/tags/timestamp, alongside reserved index.md / log.md files and Markdown cross-links. ct-okf is SUBCOMMAND-shaped (`ct okf <verb>`); the `commands` array lists every verb and its arguments. It works over the project's configured OKF content roots and keeps a lazily-maintained full-text index, so `search` is always current. Roots are discovered three ways (any suffices, all converge on the .ct/okf.jsonc config): a `.okf` marker file, a bundle-root index.md declaring okf_version, or a config entry managed by `roots`/`init`. The index lives under .ct/okf/ as immutable fst segments (new content layers a segment; `index condense` merges and drops tombstones). Query verbs: `search QUERY...` (full-text across roots, auto-updates the index first; supports term, term* prefix, term~/term~N fuzzy, /regex/; filter --type/--tag, cap --limit) and `find` (list concepts by --type/--tag in the --base bundle). Configure: `roots list|add|rm|scan`, `index status|update|condense|rebuild`, `init` (discover roots, record them, build the index). Check (framed verdict): `validate` (conformance; --strict also fails on broken links) and `links` (broken bundle cross-links) — both take --question, --expect (any|none|N|=N|+N|-N, default none), --emit/--emit-stderr ({RESULT} {QUESTION} {COUNT} {TOTAL} {BASE} {MATCHES}). Author (these write): `show PATH`, `add PATH --type ...` (alias new), `mv SRC DST` (alias rename; fixes bundle cross-links), `set FIELD=VALUE --file`, `log MESSAGE --kind`, `gen-index` ((re)generate index.md, --scaffold for an okf_version stub), `script PATH` (atomic .ctb batch). Global flags (`base`/`name`/`hidden`/`follow`/`no-ignore`/`json`/`json-pretty`/`quiet`/`timeout`/heartbeat) apply across verbs. Exit 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Because the authoring verbs write, ct-okf is not on the read-only allowlist (read-only OKF composition is provided by the OKF-aware ct-search/ct-tree/ct-view/ct-outline and the `okf` built-in check). Invoke as `ct okf <verb> ...` or `ct-okf <verb> ...`.",
+      "commands": [
+        {
+          "name": "search",
+          "summary": "Full-text search across content roots (auto-updates the index first).",
+          "args": "QUERY... [--limit N=20] [--type TYPE] [--tag T,...]"
+        },
+        {
+          "name": "find",
+          "summary": "List concepts by metadata in the --base bundle.",
+          "args": "[--type TYPE] [--tag T,...]"
+        },
+        {
+          "name": "roots",
+          "summary": "Manage content roots.",
+          "args": "list | add DIR [--marker] | rm DIR | scan [--write]"
+        },
+        {
+          "name": "index",
+          "summary": "Maintain the search index.",
+          "args": "status | update | condense | rebuild"
+        },
+        {
+          "name": "init",
+          "summary": "Discover content roots, record them, and build the index.",
+          "args": "[--marker]"
+        },
+        {
+          "name": "validate",
+          "summary": "Judge the --base bundle's OKF conformance (framed verdict).",
+          "args": "[--strict] [--question Q] [--expect SPEC] [--emit T] [--emit-stderr T]"
+        },
+        {
+          "name": "links",
+          "summary": "Report broken bundle cross-links (framed verdict).",
+          "args": "[--strict] [--question Q] [--expect SPEC] [--emit T] [--emit-stderr T]"
+        },
+        {
+          "name": "show",
+          "summary": "Print one concept's frontmatter.",
+          "args": "PATH"
+        },
+        {
+          "name": "add",
+          "summary": "Scaffold a new concept (alias: new).",
+          "args": "PATH --type TYPE [--title T] [--description D] [--tag T,...]"
+        },
+        {
+          "name": "mv",
+          "summary": "Move/rename a concept, fixing bundle cross-links (alias: rename).",
+          "args": "SRC DST"
+        },
+        {
+          "name": "set",
+          "summary": "Set or update a scalar frontmatter field.",
+          "args": "FIELD=VALUE --file PATH"
+        },
+        {
+          "name": "log",
+          "summary": "Prepend a dated entry to a bundle's log.md.",
+          "args": "MESSAGE [--kind LABEL]"
+        },
+        {
+          "name": "gen-index",
+          "summary": "(Re)generate a bundle's index.md from its concepts.",
+          "args": "[--scaffold]"
+        },
+        {
+          "name": "script",
+          "summary": "Run a .ctb batch of OKF mutations atomically.",
+          "args": "PATH [--dry-run] [--fence STR]"
+        }
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
           "base": {
             "type": "string",
-            "description": "Bundle root (or single concept root) to operate on. Default '.'.",
+            "description": "Search root for bundle-scoped verbs (validate/links/find/show); the directory project discovery starts from for search/index/roots/init. Default '.'.",
             "default": "."
           },
           "name": {
             "type": "string",
-            "description": "Limit selection to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored."
+            "description": "Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored."
           },
           "hidden": {
             "type": "boolean",
-            "description": "Include dot-entries (names starting with '.'). Default: skipped."
+            "description": "Include dot-entries (names starting with '.')."
           },
           "follow": {
             "type": "boolean",
@@ -937,118 +1009,23 @@
           },
           "no-ignore": {
             "type": "boolean",
-            "description": "Walk gitignored / .ignore files too (the .git directory is always skipped); by default the walk skips what git would."
-          },
-          "validate": {
-            "type": "boolean",
-            "description": "Check the bundle for OKF conformance and report a verdict (the default verb)."
-          },
-          "list": {
-            "type": "boolean",
-            "description": "List the bundle's concepts with their metadata; filter with --type / --tag."
-          },
-          "show": {
-            "type": "string",
-            "description": "Show one concept's frontmatter (give the concept path)."
-          },
-          "links": {
-            "type": "boolean",
-            "description": "Report the bundle's broken bundle-relative cross-links as a verdict."
-          },
-          "new": {
-            "type": "string",
-            "description": "Scaffold a new concept at PATH (requires --type); refuses to overwrite."
-          },
-          "init": {
-            "type": "boolean",
-            "description": "Scaffold a bundle-root index.md (declaring okf_version) if absent."
-          },
-          "index": {
-            "type": "boolean",
-            "description": "(Re)generate index.md for --base from the concepts' frontmatter."
-          },
-          "log": {
-            "type": "string",
-            "description": "Prepend a dated entry to the bundle's log.md (label it with --log-kind)."
-          },
-          "set": {
-            "type": "string",
-            "description": "Set or update a scalar frontmatter field on the --file concept: FIELD=VALUE."
-          },
-          "script": {
-            "type": "string",
-            "description": "Run a .ctb batch of new/set/log/index/init items atomically under prepare/confirm/write: the whole script is simulated in memory (cascading — a later index/set sees earlier ops' writes), and nothing is written unless every op succeeds. One failing op (e.g. a clobbering new) means zero writes."
-          },
-          "dry-run": {
-            "type": "boolean",
-            "description": "With --script: simulate and print the plan, but write nothing."
-          },
-          "fence": {
-            "type": "string",
-            "description": "With --script: the directive prefix for script lines. Default '#%'; change it for payloads containing '#%' at line start."
-          },
-          "type": {
-            "type": "string",
-            "description": "The concept `type` for --new; also filters --list to this exact type."
-          },
-          "title": {
-            "type": "string",
-            "description": "With --new: the concept title (defaults to the file stem)."
-          },
-          "description": {
-            "type": "string",
-            "description": "With --new: the concept description (one sentence)."
-          },
-          "tag": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "With --new: tags (comma-joined or repeated); also filters --list to concepts carrying all given tags."
-          },
-          "log-kind": {
-            "type": "string",
-            "description": "With --log: the entry label (e.g. Update, Creation). Default: Update."
-          },
-          "file": {
-            "type": "string",
-            "description": "With --set: the concept file to edit."
-          },
-          "strict": {
-            "type": "boolean",
-            "description": "With --validate: also treat broken bundle-relative links as violations."
-          },
-          "question": {
-            "type": "string",
-            "description": "Question this check answers, framing it as a test; printed as a '== ... ==' banner unless quiet."
-          },
-          "expect": {
-            "type": "string",
-            "description": "Verdict expectation over the violation count; default 'none'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N)."
-          },
-          "emit": {
-            "type": "string",
-            "description": "Template written to stdout after a check (alias: emit-stdout). Tokens: {RESULT} {QUESTION} {COUNT} {TOTAL} {BASE} {MATCHES}."
-          },
-          "emit-stderr": {
-            "type": "string",
-            "description": "Template written to stderr after a check. Same tokens as emit."
-          },
-          "quiet": {
-            "type": "boolean",
-            "description": "Suppress informational output; report via exit status (and --emit, which still fires)."
+            "description": "Walk gitignored / .ignore files too (the .git directory is always skipped)."
           },
           "json": {
             "type": "boolean",
-            "description": "Emit a structured JSON result instead of text; the object's shape depends on the verb (tool, verb, verdict, and the verb's payload)."
+            "description": "Emit a structured JSON result instead of text."
           },
           "json-pretty": {
             "type": "boolean",
             "description": "Like --json, but pretty-printed (indented)."
           },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress informational output (exit status and --emit still report)."
+          },
           "timeout": {
             "type": "number",
-            "description": "Abort with exit 2 (and a one-line message) if the run exceeds SECS seconds (fractional allowed)."
+            "description": "Abort with exit 2 if the run exceeds SECS seconds (fractional allowed)."
           },
           "heartbeat": {
             "type": "number",

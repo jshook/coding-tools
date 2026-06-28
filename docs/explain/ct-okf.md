@@ -1,137 +1,141 @@
 # ct-okf
 
-Author and query **Open Knowledge Format** (OKF v0.1) bundles. An OKF *bundle* is
-a directory tree of Markdown *concept* files; each concept opens with a YAML
-**frontmatter** block (fenced by `---`) carrying a required `type` plus optional
-`title`, `description`, `resource`, `tags`, and `timestamp`. Reserved `index.md`
-(a directory listing) and `log.md` (a change history) have defined roles and are
-never concepts. Cross-links are ordinary Markdown links, either bundle-relative
-(`/tables/customers.md`) or document-relative.
+Author, query, and **index** **Open Knowledge Format** (OKF v0.1) bundles. An
+OKF *bundle* is a directory tree of Markdown *concept* files; each concept opens
+with a YAML **frontmatter** block (fenced by `---`) carrying a required `type`
+plus optional `title`, `description`, `resource`, `tags`, and `timestamp`.
+Reserved `index.md` (a directory listing) and `log.md` (a change history) have
+defined roles and are never concepts. Cross-links are ordinary Markdown links,
+either bundle-relative (`/tables/customers.md`) or document-relative.
 
-Reachable as `ct okf …` or `ct-okf …`. Pick **exactly one verb** (the default is
-`--validate`). The check verbs are *framed verdicts*; the authoring verbs **write
-files** — which is why `ct-okf`, like `ct-rules`, is not on the read-only
-allowlist. For read-only OKF composition inside `ct-test`/`ct-each`/`ct-rules`,
-use the OKF-aware `ct-search`/`ct-tree`/`ct-view`/`ct-outline` or the `okf`
-built-in check.
+Reachable as `ct okf <verb> …` or `ct-okf <verb> …`. Unlike the other suite
+tools, `ct-okf` is **subcommand-shaped** because its surface spans querying,
+configuration, checking, and authoring. The authoring verbs **write files** —
+which is why `ct-okf`, like `ct-rules`, is not on the read-only allowlist. For
+read-only OKF composition inside `ct-test`/`ct-each`/`ct-rules`, use the
+OKF-aware `ct-search`/`ct-tree`/`ct-view`/`ct-outline` or the `okf` built-in
+check.
 
-## Selection
+## Content roots and the index
 
-All verbs that scan a bundle target it with the suite's shared walker vocabulary:
-`--base DIR` (default `.`), `--name PATTERN` (`|`-separated, substring→glob→regex
-promoted, anchored), `--hidden`, `--follow`, and `--no-ignore`. Only `.md` files
-are considered.
+`ct-okf` operates over a project's **content roots** — the directories it treats
+as OKF bundles. A directory is a root if **any** of these holds (they all
+converge on the project config, so adopt whichever is convenient):
 
-## Read-only verbs
+1. it has a `.okf` **marker file** (our convention; the file may be empty);
+2. it has a bundle-root `index.md` declaring `okf_version` (the OKF-standard
+   root signal);
+3. it is listed in the project config `.ct/okf.jsonc` (managed by `roots` /
+   `init`).
 
-- `--validate` — judge the bundle's conformance. Every non-reserved `.md` must
-  have parseable frontmatter with a non-empty `type`; reserved files need only
-  have parseable frontmatter if any is present. Counts violations and frames a
-  verdict (default `--expect none`). With `--strict`, a broken bundle-relative
-  link also counts as a violation.
-- `--list` — list concepts with their metadata. Filter by `--type TYPE` (exact)
-  and/or `--tag` (concepts carrying *all* given tags). Text by default; richer as
-  `--json`.
-- `--show PATH` — print one concept's frontmatter (text, or `--json`).
-- `--links` — report broken bundle cross-links as a verdict (count of broken
-  links; default `--expect none`).
+The project root is the nearest ancestor of `--base` containing `.ct` (the same
+discovery `ct-rules`/`ct-check` use). A **lazily-maintained full-text index**
+lives under `.ct/okf/` as immutable `fst` segments: each update layers a new
+segment (existing ones are never rewritten), changed/removed docs are
+tombstoned, and `index condense` merges segments and drops tombstones. Every
+`search` reconciles the index against the roots' file mtimes first, so results
+are always current with no explicit reindex.
+
+## Global options
+
+These apply across verbs (they may appear before or after the subcommand):
+
+- `--base DIR` (default `.`) — the bundle for bundle-scoped verbs
+  (`validate`/`links`/`find`/`show`), and the directory project discovery starts
+  from for `search`/`index`/`roots`/`init`.
+- `--name PATTERN` (`|`-separated, substring→glob→regex promoted, anchored),
+  `--hidden`, `--follow`, `--no-ignore` — the suite's shared walker vocabulary.
+- `--json` / `--json-pretty` — emit a structured result (pretty indents it).
+- `--quiet` — suppress informational output (exit status and `--emit` still
+  report).
+- `--timeout SECS` and the heartbeat options `--heartbeat SECS` /
+  `--heartbeat-emit` / `--heartbeat-to`.
+- `--explain [md|json]` prints this document or the MCP tool-use definition.
+
+## Query verbs
+
+- `search QUERY…` — full-text search across the content roots, **auto-updating
+  the index first**. Query grammar (per whitespace token): `term` (exact),
+  `term*` (prefix), `term~` / `term~N` (Levenshtein fuzzy, N≤2), and `/regex/`
+  (a regex over the term dictionary, e.g. `/.*schema.*/` for substring). Cap
+  with `--limit N` (default 20) and filter with `--type TYPE` / `--tag T,…`.
+  Ranked by tf-idf; prints `score  path  [type]  title`.
+- `find` — list the `--base` bundle's concepts by metadata. Filter by `--type`
+  (exact) and/or `--tag` (concepts carrying *all* given tags). Text or `--json`.
+
+## Configuration verbs
+
+- `roots list` — show the configured/detected roots and how each was found.
+- `roots add DIR [--marker]` — register `DIR` in `.ct/okf.jsonc` (and drop a
+  `.okf` marker with `--marker`).
+- `roots rm DIR` — unregister a root.
+- `roots scan [--write]` — discover candidate roots by scanning for OKF
+  concepts; `--write` records them and drops markers.
+- `index status` — report docs, segments, tombstones, and pending changes.
+- `index update` — reconcile the index against the roots now.
+- `index condense` — merge segments and drop tombstones.
+- `index rebuild` — discard and rebuild from scratch.
+- `init [--marker]` — onboarding: discover roots, record them in the config
+  (optionally writing markers), and build the initial index in one step.
+
+## Check verbs (framed verdict)
+
+- `validate` — judge the `--base` bundle's conformance: every non-reserved `.md`
+  must have parseable frontmatter with a non-empty `type`. With `--strict`, a
+  broken bundle-relative link also counts as a violation.
+- `links` — report broken bundle cross-links.
+
+Both pose their work as a pass/fail test: `--question` prints a `== … ==`
+banner, `--expect` classifies the **violation count** (`any`/`none`/`N`/`=N`/
+`+N`/`-N`, default `none`), and `--emit` / `--emit-stderr` expand a template
+after the check. Tokens: `{RESULT}` `{QUESTION}` `{COUNT}` `{TOTAL}` `{BASE}`
+`{MATCHES}`. Exit status follows the verdict: `0` SUCCESS, `1` ERROR, `2`
+usage/runtime error.
 
 ## Authoring verbs (these write)
 
-- `--new PATH` — scaffold a concept. Requires `--type`; takes `--title`,
-  `--description`, and `--tag`. Stamps a `timestamp` and refuses to overwrite an
-  existing file.
-- `--init` — scaffold a bundle-root `index.md` declaring `okf_version: "0.1"` if
-  one is absent.
-- `--index` — (re)generate `index.md` for `--base` from the immediate concepts'
-  `title`/`description` frontmatter.
-- `--log MESSAGE` — prepend a dated entry to the bundle's `log.md`, labelled by
-  `--log-kind` (default `Update`); same-day entries merge under one heading.
-- `--set FIELD=VALUE` — set or update a scalar frontmatter field on the `--file`
-  concept, preserving the rest of the file byte-for-byte.
-
-## Atomic batches (`--script`)
-
-`--script PATH` runs a `.ctb` block document of `new`/`set`/`log`/`index`/`init`
-items as one **atomic** batch under the suite's prepare/confirm/write standard:
-the whole script is simulated in memory — *cascading*, so a later `index` sees a
-concept an earlier `new` created and a later `set` edits one — and **nothing is
-written unless every op succeeds**. One failing op (a clobbering `new`, a `set`
-on a missing concept, a bad attribute) aborts the batch with zero writes, exit
-`2`. `--dry-run` prints the plan and writes nothing; `--fence STR` changes the
-directive prefix (default `#%`) when a payload would otherwise look like a fence.
-
-Each item opens with a `#% <verb>` line carrying `key=value` attributes; verbatim
-text (a description, tag list, log message, or body) goes in named payload
-sections. The verbs and their vocabulary:
-
-| Verb    | Attributes              | Sections                  |
-| ------- | ----------------------- | ------------------------- |
-| `new`   | `file=` (req), `type=` (req), `title=` | `description`, `tags` (one per line), `body` |
-| `set`   | `file=` (req), `field=` (req), `value=` (req) | — |
-| `log`   | `kind=`, `base=`        | `message` (req)           |
-| `index` | `base=`                 | —                         |
-| `init`  | `base=`                 | —                         |
-
-`file=`/`base=` are resolved relative to `--base`. Example:
-
-```text
-#% new file=tables/customers.md type="BigQuery Table" title=Customers
-#% description
-The customers dimension.
-#% tags
-core
-pii
-#% index base=tables
-#% set file=tables/customers.md field=resource value=bq://proj.ds.customers
-#% log kind=Creation
-#% message
-scaffolded the customers table
-```
-
-```sh
-ct okf --base bundle --script batch.ctb --dry-run   # preview
-ct okf --base bundle --script batch.ctb             # apply atomically
-```
-
-## Framed verdict (check verbs)
-
-`--validate` and `--links` pose their work as a pass/fail test: `--question`
-prints a `== … ==` banner, `--expect` classifies the **violation count**
-(`any`/`none`/`N`/`=N`/`+N`/`-N`, default `none`), and `--emit` / `--emit-stderr`
-expand a template after the check. Tokens: `{RESULT}` `{QUESTION}` `{COUNT}`
-(violations) `{TOTAL}` (concepts) `{BASE}` `{MATCHES}`. Exit status follows the
-verdict: `0` SUCCESS, `1` ERROR, `2` usage/runtime error.
-
-## Output and bounds
-
-`--quiet` suppresses informational output (the exit status, and `--emit`, still
-report). `--json` emits a structured result and `--json-pretty` indents it; the
-object's shape depends on the verb (always carrying `tool`, `verb`, and — for
-checks — `verdict`). Every run honours `--timeout SECS` and the standard
-heartbeat options `--heartbeat SECS` / `--heartbeat-emit` / `--heartbeat-to`.
-`--explain [md|json]` prints this document or the MCP tool-use definition.
+- `show PATH` — print one concept's frontmatter (text, or `--json`).
+- `add PATH --type TYPE [--title T] [--description D] [--tag T,…]` — scaffold a
+  concept (stamps a `timestamp`, refuses to overwrite). Alias: `new`.
+- `mv SRC DST` — move/rename a concept, rewriting every bundle cross-link
+  (absolute and document-relative) that pointed at it. Alias: `rename`.
+- `set FIELD=VALUE --file PATH` — set or update a scalar frontmatter field,
+  preserving the rest of the file byte-for-byte.
+- `log MESSAGE [--kind LABEL]` — prepend a dated entry to the bundle's `log.md`
+  (default label `Update`; same-day entries merge under one heading).
+- `gen-index [--scaffold]` — (re)generate `--base`'s `index.md` from the
+  immediate concepts' `title`/`description`; `--scaffold` instead writes an
+  absent `index.md` declaring `okf_version: "0.1"`.
+- `script PATH [--dry-run] [--fence STR]` — run a `.ctb` block document of
+  `new`/`set`/`log`/`index`/`init` items as one **atomic** batch: the whole
+  script is simulated in memory (*cascading*, so a later op sees an earlier op's
+  writes) and **nothing is written unless every op succeeds**. `--dry-run`
+  prints the plan and writes nothing; `--fence STR` changes the directive prefix
+  (default `#%`).
 
 ## Examples
 
 ```sh
+# Onboard a project, then search its knowledge (index auto-updates).
+ct okf init
+ct okf search "customer dimension" --type "BigQuery Table"
+ct okf search "schmea~"            # fuzzy: tolerates the typo
+ct okf search "/.*orders.*/"       # regex/substring over the term dictionary
+
+# Manage roots and the index explicitly.
+ct okf roots add docs/kb --marker
+ct okf index status
+ct okf index condense
+
 # Conformance as a test (exit 0 when every concept conforms).
-ct okf --base bundle --validate --question "OKF-conformant?"
+ct okf --base bundle validate --question "OKF-conformant?"
 
-# Query metadata: all BigQuery tables tagged 'pii', as JSON.
-ct okf --base bundle --list --type "BigQuery Table" --tag pii --json
+# Author: scaffold a concept, move it (fixing links), record the change.
+ct okf add bundle/tables/orders.md --type "BigQuery Table" --title Orders --tag core
+ct okf mv bundle/tables/orders.md bundle/facts/orders.md
+ct okf --base bundle log "Moved orders to facts/" --kind Update
 
-# Inspect one concept's frontmatter.
-ct okf --show bundle/tables/customers.md --json
-
-# Audit cross-links; pass only when none are broken.
-ct okf --base bundle --links
-
-# Author: scaffold a concept, refresh the index, record the change.
-ct okf --new bundle/tables/orders.md --type "BigQuery Table" --title Orders --tag core
-ct okf --base bundle/tables --index
-ct okf --base bundle --log "Added orders table" --log-kind Creation
-
-# Update a single frontmatter field in place.
-ct okf --set timestamp=2026-06-27 --file bundle/tables/orders.md
+# Atomic batch.
+ct okf --base bundle script batch.ctb --dry-run   # preview
+ct okf --base bundle script batch.ctb             # apply atomically
 ```

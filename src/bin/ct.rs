@@ -62,7 +62,7 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
     ),
     (
         "okf",
-        "Author and query Open Knowledge Format bundles: validate, list, links (ct-okf)",
+        "Author, query, and index Open Knowledge Format bundles: search, roots, index, validate (ct-okf)",
     ),
     (
         "rules",

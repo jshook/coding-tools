@@ -289,3 +289,45 @@ fn builtin_check_defs_are_well_formed_and_bundled() {
         );
     }
 }
+
+/// `ct-okf` is the suite's one subcommand-shaped tool, so the flat-flag
+/// schema-drift guard (`schema_matches_clap_grammar`) only reconciles its
+/// global flags. This keeps the subcommand surface honest the other way: every
+/// clap subcommand must be listed verbatim in the `commands` array of
+/// `docs/explain/ct-okf.json` and mentioned in `ct-okf.md`, and the doc must not
+/// invent a subcommand that does not exist.
+#[test]
+fn ct_okf_subcommands_match_docs() {
+    use clap::CommandFactory;
+    let command = coding_tools::cli::ct_okf::Cli::command();
+    let subs: BTreeSet<String> = command
+        .get_subcommands()
+        .map(|c| c.get_name().to_string())
+        .collect();
+
+    let json = read_json("ct-okf");
+    let doc_cmds: BTreeSet<String> = json["commands"]
+        .as_array()
+        .expect("ct-okf.json must carry a `commands` array for the subcommand surface")
+        .iter()
+        .map(|c| {
+            c["name"]
+                .as_str()
+                .expect("each command needs a string name")
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        subs, doc_cmds,
+        "ct-okf.json `commands` (right) disagrees with the clap subcommands (left)"
+    );
+
+    let md = std::fs::read_to_string(explain_path("ct-okf", "md"))
+        .unwrap_or_else(|e| panic!("read ct-okf.md: {e}"));
+    for name in &subs {
+        assert!(
+            md.contains(name.as_str()),
+            "ct-okf.md never mentions the `{name}` subcommand"
+        );
+    }
+}

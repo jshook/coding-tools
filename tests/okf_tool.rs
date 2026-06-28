@@ -2,7 +2,7 @@
 // Copyright 2026 Jonathan Shook
 
 //! End-to-end guards on OKF support: the `ct-okf` tool's read verbs (validate,
-//! list, show, links) and authoring round-trip (new/index/log/set), the
+//! find, show, links) and authoring round-trip (add/gen-index/log/set), the
 //! `okf` built-in check run in-process, and the additive OKF-awareness of
 //! `ct-search`/`ct-tree`/`ct-view`/`ct-outline`. Binaries are driven through the
 //! paths Cargo exports (`CARGO_BIN_EXE_*`); the built-in check through the lib.
@@ -127,11 +127,11 @@ fn builtin_check_broken_for_a_missing_base() {
 #[test]
 fn validate_passes_then_fails_on_a_nonconformant_concept() {
     let dir = bundle("validate");
-    let ok = ct_okf(&dir).arg("--validate").output().unwrap();
+    let ok = ct_okf(&dir).arg("validate").output().unwrap();
     assert_eq!(code(&ok), 0, "stderr: {}", stderr(&ok));
 
     write(&dir.join("tables/orphan.md"), "no frontmatter here\n");
-    let bad = ct_okf(&dir).arg("--validate").output().unwrap();
+    let bad = ct_okf(&dir).arg("validate").output().unwrap();
     assert_eq!(code(&bad), 1, "stdout: {}", stdout(&bad));
     assert!(stdout(&bad).contains("ERROR"), "{}", stdout(&bad));
 }
@@ -140,15 +140,15 @@ fn validate_passes_then_fails_on_a_nonconformant_concept() {
 fn list_json_filters_by_type_and_tag() {
     let dir = bundle("list");
     let out = ct_okf(&dir)
-        .args(["--list", "--okf-tag", "pii", "--json"])
-        // note: list uses --tag, not --okf-tag; correct below
+        .args(["find", "--okf-tag", "pii", "--json"])
+        // note: find uses --tag, not --okf-tag; corrected below
         .output()
         .unwrap();
     // The wrong flag is a usage error, proving the flag surface is real.
     assert_eq!(code(&out), 2);
 
     let out = ct_okf(&dir)
-        .args(["--list", "--tag", "pii", "--json"])
+        .args(["find", "--tag", "pii", "--json"])
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
@@ -159,7 +159,7 @@ fn list_json_filters_by_type_and_tag() {
 
     // Filter by type matches both tables.
     let out = ct_okf(&dir)
-        .args(["--list", "--type", "BigQuery Table", "--json"])
+        .args(["find", "--type", "BigQuery Table", "--json"])
         .output()
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
@@ -171,7 +171,7 @@ fn show_reports_one_concepts_frontmatter() {
     let dir = bundle("show");
     let path = dir.join("tables/customers.md");
     let out = ct_okf(&dir)
-        .args(["--show".as_ref(), path.as_os_str(), "--json".as_ref()])
+        .args(["show".as_ref(), path.as_os_str(), "--json".as_ref()])
         .output()
         .unwrap();
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
@@ -183,12 +183,12 @@ fn show_reports_one_concepts_frontmatter() {
 #[test]
 fn links_verdict_is_clean_then_broken() {
     let dir = bundle("links");
-    assert_eq!(code(&ct_okf(&dir).arg("--links").output().unwrap()), 0);
+    assert_eq!(code(&ct_okf(&dir).arg("links").output().unwrap()), 0);
     write(
         &dir.join("tables/bad.md"),
         "---\ntype: Note\n---\n[x](/tables/missing.md)\n",
     );
-    let out = ct_okf(&dir).arg("--links").output().unwrap();
+    let out = ct_okf(&dir).arg("links").output().unwrap();
     assert_eq!(code(&out), 1);
     assert!(stdout(&out).contains("missing.md"), "{}", stdout(&out));
 }
@@ -220,11 +220,7 @@ fn script_dry_run_writes_nothing_then_applies_atomically() {
 
     // --dry-run plans but writes nothing.
     let dry = ct_okf(&dir)
-        .args([
-            "--script".as_ref(),
-            script.as_os_str(),
-            "--dry-run".as_ref(),
-        ])
+        .args(["script".as_ref(), script.as_os_str(), "--dry-run".as_ref()])
         .output()
         .unwrap();
     assert_eq!(code(&dry), 0, "stderr: {}", stderr(&dry));
@@ -236,7 +232,7 @@ fn script_dry_run_writes_nothing_then_applies_atomically() {
 
     // Apply: the cascade lands (index sees both concepts; set enriched customers).
     let run = ct_okf(&dir)
-        .args(["--script".as_ref(), script.as_os_str()])
+        .args(["script".as_ref(), script.as_os_str()])
         .output()
         .unwrap();
     assert_eq!(code(&run), 0, "stderr: {}", stderr(&run));
@@ -258,7 +254,7 @@ fn script_dry_run_writes_nothing_then_applies_atomically() {
         "{log}"
     );
     // The result is conformant.
-    assert_eq!(code(&ct_okf(&dir).arg("--validate").output().unwrap()), 0);
+    assert_eq!(code(&ct_okf(&dir).arg("validate").output().unwrap()), 0);
 }
 
 #[test]
@@ -280,7 +276,7 @@ fn script_is_atomic_a_failing_op_writes_nothing() {
     );
 
     let out = ct_okf(&dir)
-        .args(["--script".as_ref(), script.as_os_str()])
+        .args(["script".as_ref(), script.as_os_str()])
         .output()
         .unwrap();
     assert_eq!(code(&out), 2, "stdout: {}", stdout(&out));
@@ -300,10 +296,10 @@ fn authoring_new_index_log_set_then_revalidate() {
     let dir = bundle("author");
     let concept = dir.join("tables/products.md");
 
-    // --new scaffolds a conformant concept.
+    // add scaffolds a conformant concept.
     let out = ct_okf(&dir)
         .args([
-            "--new".as_ref(),
+            "add".as_ref(),
             concept.as_os_str(),
             "--type".as_ref(),
             "BigQuery Table".as_ref(),
@@ -317,10 +313,10 @@ fn authoring_new_index_log_set_then_revalidate() {
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
     assert!(concept.is_file());
 
-    // --new refuses to clobber an existing file.
+    // add refuses to clobber an existing file.
     let clob = ct_okf(&dir)
         .args([
-            "--new".as_ref(),
+            "add".as_ref(),
             concept.as_os_str(),
             "--type".as_ref(),
             "X".as_ref(),
@@ -330,10 +326,10 @@ fn authoring_new_index_log_set_then_revalidate() {
     assert_eq!(code(&clob), 2);
     assert!(stderr(&clob).contains("refusing to overwrite"));
 
-    // --set updates a frontmatter field in place; --show confirms it.
+    // set updates a frontmatter field in place; show confirms it.
     let setc = ct_okf(&dir)
         .args([
-            "--set".as_ref(),
+            "set".as_ref(),
             "timestamp=2026-06-27".as_ref(),
             "--file".as_ref(),
             concept.as_os_str(),
@@ -342,26 +338,26 @@ fn authoring_new_index_log_set_then_revalidate() {
         .unwrap();
     assert_eq!(code(&setc), 0, "stderr: {}", stderr(&setc));
     let shown = ct_okf(&dir)
-        .args(["--show".as_ref(), concept.as_os_str()])
+        .args(["show".as_ref(), concept.as_os_str()])
         .output()
         .unwrap();
     assert!(stdout(&shown).contains("timestamp: 2026-06-27"));
 
-    // --index regenerates the directory listing including the new concept.
+    // gen-index regenerates the directory listing including the new concept.
     let tables = dir.join("tables");
     let idx = Command::new(env!("CARGO_BIN_EXE_ct-okf"))
         .arg("--base")
         .arg(&tables)
-        .arg("--index")
+        .arg("gen-index")
         .output()
         .unwrap();
     assert_eq!(code(&idx), 0, "stderr: {}", stderr(&idx));
     let index_md = std::fs::read_to_string(tables.join("index.md")).unwrap();
     assert!(index_md.contains("[Products](products.md)"), "{index_md}");
 
-    // --log prepends a dated, labelled entry.
+    // log prepends a dated, labelled entry.
     let logc = ct_okf(&dir)
-        .args(["--log", "Added products", "--log-kind", "Creation"])
+        .args(["log", "Added products", "--kind", "Creation"])
         .output()
         .unwrap();
     assert_eq!(code(&logc), 0, "stderr: {}", stderr(&logc));
@@ -369,7 +365,122 @@ fn authoring_new_index_log_set_then_revalidate() {
     assert!(log_md.contains("**Creation**: Added products"), "{log_md}");
 
     // The bundle still validates after all the authoring.
-    assert_eq!(code(&ct_okf(&dir).arg("--validate").output().unwrap()), 0);
+    assert_eq!(code(&ct_okf(&dir).arg("validate").output().unwrap()), 0);
+}
+
+// ----- ct-okf project verbs: init / search / roots / index / mv -----------------------
+
+/// A project root (holds `.ct`) with a `kb` content root of two concepts.
+fn project(tag: &str) -> PathBuf {
+    let dir = scratch(tag);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".ct")).unwrap();
+    write(
+        &dir.join("kb/customers.md"),
+        "---\ntype: BigQuery Table\ntitle: Customers\ndescription: the customer dimension\ntags: [core, pii]\n---\n# Customers\none row per customer_id.\n",
+    );
+    write(
+        &dir.join("kb/orders.md"),
+        "---\ntype: BigQuery Table\ntitle: Orders\ndescription: the orders fact table\ntags: [core]\n---\n# Orders\nsee [customers](/kb/customers.md).\n",
+    );
+    dir
+}
+
+#[test]
+fn init_then_search_roots_and_index() {
+    let dir = project("init-search");
+    // init discovers the kb root, records it, and indexes the concepts.
+    let init = ct_okf(&dir).arg("init").output().unwrap();
+    assert_eq!(code(&init), 0, "stderr: {}", stderr(&init));
+    assert!(dir.join(".ct/okf.jsonc").is_file(), "config not written");
+    assert!(dir.join(".ct/okf").is_dir(), "index dir not created");
+
+    // roots list (json) reports kb via config.
+    let roots = ct_okf(&dir)
+        .args(["roots", "list", "--json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout(&roots)).unwrap();
+    assert_eq!(v["roots"][0]["key"], "kb");
+
+    // search: exact term resolves to the one concept that has it.
+    let exact = ct_okf(&dir)
+        .args(["search", "customer", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&exact), 0, "stderr: {}", stderr(&exact));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&exact)).unwrap();
+    assert_eq!(v["count"], 1);
+    assert_eq!(v["hits"][0]["path"], "kb/customers.md");
+
+    // prefix and fuzzy modes work too.
+    assert!(stdout(&ct_okf(&dir).args(["search", "ord*"]).output().unwrap()).contains("orders.md"));
+    assert!(
+        stdout(&ct_okf(&dir).args(["search", "custmer~"]).output().unwrap())
+            .contains("customers.md")
+    );
+
+    // index status reports the roots and documents.
+    let status = ct_okf(&dir)
+        .args(["index", "status", "--json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout(&status)).unwrap();
+    assert_eq!(v["roots"], 1);
+    assert_eq!(v["documents"], 2);
+}
+
+#[test]
+fn search_lazily_reflects_edits_and_mv_fixes_links() {
+    let dir = project("lazy-mv");
+    ct_okf(&dir).arg("init").output().unwrap();
+
+    // Edit a concept to add a unique token; search reflects it with no manual reindex.
+    write(
+        &dir.join("kb/orders.md"),
+        "---\ntype: BigQuery Table\ntitle: Orders\ndescription: zephyrmark fact table\ntags: [core]\n---\n# Orders\nsee [customers](/kb/customers.md).\n",
+    );
+    let lazy = ct_okf(&dir)
+        .args(["search", "zephyrmark"])
+        .output()
+        .unwrap();
+    assert!(
+        stdout(&lazy).contains("orders.md"),
+        "lazy update missed: {}",
+        stdout(&lazy)
+    );
+
+    // mv a concept: the bundle cross-link is rewritten and search finds the new path.
+    let src = dir.join("kb/customers.md");
+    let dst = dir.join("kb/dims/customers.md");
+    let mv = ct_okf(&dir)
+        .args(["mv".as_ref(), src.as_os_str(), dst.as_os_str()])
+        .output()
+        .unwrap();
+    assert_eq!(code(&mv), 0, "stderr: {}", stderr(&mv));
+    let orders = std::fs::read_to_string(dir.join("kb/orders.md")).unwrap();
+    assert!(
+        orders.contains("/kb/dims/customers.md"),
+        "link not fixed: {orders}"
+    );
+    let after = ct_okf(&dir)
+        .args(["search", "customer_id"])
+        .output()
+        .unwrap();
+    assert!(
+        stdout(&after).contains("kb/dims/customers.md"),
+        "{}",
+        stdout(&after)
+    );
+
+    // condense leaves the index searchable.
+    assert_eq!(
+        code(&ct_okf(&dir).args(["index", "condense"]).output().unwrap()),
+        0
+    );
+    assert!(
+        stdout(&ct_okf(&dir).args(["search", "orders"]).output().unwrap()).contains("orders.md")
+    );
 }
 
 // ----- okf as a recorded invariant (ct rules / ct check) ------------------------------
@@ -531,4 +642,204 @@ fn outline_frontmatter_is_opt_in() {
     assert_eq!(code(&meta), 0, "stderr: {}", stderr(&meta));
     let text = stdout(&meta);
     assert!(text.contains("meta:type:BigQuery Table"), "{text}");
+}
+
+// ----- error / edge paths -------------------------------------------------------------
+
+#[test]
+fn search_without_roots_is_a_clear_error() {
+    let dir = scratch("no-roots");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".ct")).unwrap();
+    let out = ct_okf(&dir).args(["search", "anything"]).output().unwrap();
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("content roots"), "{}", stderr(&out));
+}
+
+#[test]
+fn mv_refuses_existing_dst_and_nonfile_src() {
+    let dir = project("mv-errors");
+    let a = dir.join("kb/customers.md");
+    let b = dir.join("kb/orders.md");
+    // Destination already exists.
+    let out = ct_okf(&dir)
+        .args(["mv".as_ref(), a.as_os_str(), b.as_os_str()])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("already exists"), "{}", stderr(&out));
+    // Source is not a file.
+    let missing = dir.join("kb/nope.md");
+    let dst = dir.join("kb/x.md");
+    let out = ct_okf(&dir)
+        .args(["mv".as_ref(), missing.as_os_str(), dst.as_os_str()])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("not a file"), "{}", stderr(&out));
+}
+
+#[test]
+fn set_and_show_reject_bad_input() {
+    let dir = bundle("edge-author");
+    let concept = dir.join("tables/customers.md");
+    // A malformed set spec (no '=') is a usage error.
+    let out = ct_okf(&dir)
+        .args([
+            "set".as_ref(),
+            "noequals".as_ref(),
+            "--file".as_ref(),
+            concept.as_os_str(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("FIELD=VALUE"), "{}", stderr(&out));
+    // show on a file without frontmatter errors out.
+    let plain = dir.join("tables/plain.md");
+    write(&plain, "no frontmatter here\n");
+    let out = ct_okf(&dir)
+        .args(["show".as_ref(), plain.as_os_str()])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("no frontmatter"), "{}", stderr(&out));
+}
+
+// ----- roots / index management verbs -------------------------------------------------
+
+#[test]
+fn roots_add_scan_write_and_rm() {
+    let dir = project("roots-mgmt");
+    // add records the root in config and (with --marker) drops a marker.
+    let add = ct_okf(&dir)
+        .args(["roots", "add", "kb", "--marker"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&add), 0, "stderr: {}", stderr(&add));
+    assert!(dir.join("kb/.okf").is_file(), "marker not written");
+    assert!(
+        std::fs::read_to_string(dir.join(".ct/okf.jsonc"))
+            .unwrap()
+            .contains("kb")
+    );
+
+    // scan --write reports it recorded the candidate roots.
+    let scan = ct_okf(&dir)
+        .args(["roots", "scan", "--write", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&scan), 0, "stderr: {}", stderr(&scan));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&scan)).unwrap();
+    assert_eq!(v["written"], true);
+    assert!(v["scanned"].as_array().unwrap().iter().any(|k| k == "kb"));
+
+    // rm unregisters it from config.
+    let rm = ct_okf(&dir).args(["roots", "rm", "kb"]).output().unwrap();
+    assert_eq!(code(&rm), 0, "stderr: {}", stderr(&rm));
+    let cfg = std::fs::read_to_string(dir.join(".ct/okf.jsonc")).unwrap();
+    assert!(!cfg.contains("\"kb\""), "kb still configured: {cfg}");
+}
+
+#[test]
+fn index_update_and_rebuild_reflect_disk() {
+    let dir = project("index-mgmt");
+    ct_okf(&dir).arg("init").output().unwrap();
+    // A new concept appears; `index update` indexes exactly it.
+    write(
+        &dir.join("kb/products.md"),
+        "---\ntype: Table\ntitle: Products\n---\n# Products\nwidget catalog.\n",
+    );
+    let upd = ct_okf(&dir)
+        .args(["index", "update", "--json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout(&upd)).unwrap();
+    assert_eq!(v["added"], 1, "{}", stdout(&upd));
+
+    // rebuild reindexes everything into a single segment.
+    let reb = ct_okf(&dir).args(["index", "rebuild"]).output().unwrap();
+    assert_eq!(code(&reb), 0, "stderr: {}", stderr(&reb));
+    let status = ct_okf(&dir)
+        .args(["index", "status", "--json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout(&status)).unwrap();
+    assert_eq!(v["documents"], 3);
+    assert_eq!(v["segments"], 1, "rebuild should collapse to one segment");
+}
+
+#[test]
+fn gen_index_scaffold_writes_okf_version() {
+    let dir = scratch("scaffold");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = ct_okf(&dir)
+        .args(["gen-index", "--scaffold"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert!(
+        std::fs::read_to_string(dir.join("index.md"))
+            .unwrap()
+            .contains("okf_version"),
+        "scaffold missing okf_version"
+    );
+}
+
+#[test]
+fn aliases_new_and_rename_work() {
+    let dir = project("aliases");
+    let concept = dir.join("kb/products.md");
+    // `new` is an alias of `add`.
+    let out = ct_okf(&dir)
+        .args([
+            "new".as_ref(),
+            concept.as_os_str(),
+            "--type".as_ref(),
+            "Table".as_ref(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert!(concept.is_file());
+    // `rename` is an alias of `mv`.
+    let dst = dir.join("kb/catalog/products.md");
+    let out = ct_okf(&dir)
+        .args(["rename".as_ref(), concept.as_os_str(), dst.as_os_str()])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert!(dst.is_file() && !concept.exists());
+}
+
+#[test]
+fn search_limit_regex_and_tag_filter_via_cli() {
+    let dir = project("search-modes");
+    ct_okf(&dir).arg("init").output().unwrap();
+    // "customers" matches both concepts (title + the orders body link); --limit caps to 1.
+    let lim = ct_okf(&dir)
+        .args(["search", "customers", "--limit", "1", "--json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout(&lim)).unwrap();
+    assert_eq!(v["count"], 1);
+
+    // regex mode resolves through the CLI to the one concept with "dimension".
+    let rx = ct_okf(&dir)
+        .args(["search", "/.*dimension.*/", "--json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout(&rx)).unwrap();
+    assert_eq!(v["count"], 1);
+    assert_eq!(v["hits"][0]["path"], "kb/customers.md");
+
+    // --tag narrows to the pii-tagged concept.
+    let tag = ct_okf(&dir)
+        .args(["search", "customers", "--tag", "pii", "--json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout(&tag)).unwrap();
+    assert_eq!(v["count"], 1);
+    assert_eq!(v["hits"][0]["path"], "kb/customers.md");
 }
