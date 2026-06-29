@@ -1443,6 +1443,61 @@
           "probe"
         ]
       }
+    },
+    {
+      "name": "ct-steer",
+      "description": "Steer ad-hoc shell to the ct tool that serves it, and install the steering hook. ct-steer recognises a fixed set of high-confidence shell idioms a suite tool serves better — `find … | xargs grep` / `find -exec grep` and `grep -r`/`rg`/`ag` (ct search), `find … -name` (ct search), `sed -i`/`perl -i` (ct edit), `head`/`tail`/`sed -n 'A,Bp'` on a file (ct view), `ls -R`/`tree` and `wc -l` over files (ct tree), `for`/`while` loops (ct each), and `&&`/`||` chains whose every segment is itself ct-serviceable (ct and / ct or) — and, run as a Claude Code PreToolUse hook, steers the agent to the ct equivalent instead of running the raw command. The matcher is deliberately conservative: it only fires on those idioms, never re-steers a command that already invokes ct, and the hook is fail-open (anything it does not recognise, or any malformed input, is allowed silently). Subcommands: `hook` is the runtime hook — it reads a PreToolUse tool-call envelope on stdin and prints a decision JSON (`permissionDecision` deny/ask, or an `additionalContext` warn) on a match, nothing on a miss, always exiting 0 so it never fails the call on its own account; `--mode deny|ask|warn` (default deny) picks the action. `install`/`uninstall` merge or remove the Bash PreToolUse hook in a Claude Code settings file (`--scope project|local|user`, default project → .claude/settings.json / .claude/settings.local.json / ~/.claude/settings.json); the merge is idempotent and preserves the rest of the file — including comments and layout — because it edits through ct-patch's byte-range splices rather than reserialising, with `--dry-run` to show the resulting file and `--print` to emit just the snippet for manual paste. `check` classifies a command string and prints what the hook would decide, exiting 0 when the command is allowed and 1 when it would be steered. Invoke as `ct steer …` or `ct-steer …`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result instead of text where applicable (the install/uninstall outcome, or the check decision)."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress informational output (exit status still reports)."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 if the run exceeds SECS seconds (fractional allowed)."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while running."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
+          }
+        }
+      },
+      "commands": [
+        {
+          "name": "hook",
+          "description": "Runtime PreToolUse hook: read a tool-call envelope on stdin, print a deny/ask/warn decision on a match (nothing on a miss). Always exits 0. --mode deny|ask|warn (default deny)."
+        },
+        {
+          "name": "install",
+          "description": "Merge the Bash PreToolUse steering hook into a Claude Code settings file. --scope project|local|user (default project), --mode deny|ask|warn, --dry-run (show the file), --print (emit just the snippet). Idempotent."
+        },
+        {
+          "name": "uninstall",
+          "description": "Remove the steering hook from a Claude Code settings file, pruning emptied entries. --scope project|local|user, --dry-run."
+        },
+        {
+          "name": "check",
+          "description": "Classify a COMMAND string and print what the hook would decide. Exit 0 when allowed, 1 when it would be steered. --mode affects the printed label; --json prints the decision JSON."
+        }
+      ]
     }
   ],
   "builtin_checks": [

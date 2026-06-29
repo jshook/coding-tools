@@ -30,6 +30,10 @@ name = "ct-search"
 path = "src/bin/ct-search.rs"
 
 [[bin]]
+name = "ct-steer"
+path = "src/bin/ct-steer.rs"
+
+[[bin]]
 name = "ct-test"
 path = "src/bin/ct-test.rs"
 

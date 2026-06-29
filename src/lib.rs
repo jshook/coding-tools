@@ -35,6 +35,9 @@
 //!   bridge, and outcome adapters.
 //! * [`supervise`] — bounded, captured child execution for the dispatching
 //!   tools (`ct-test`, `ct-each`), including suite sibling resolution.
+//! * [`steer`] — the redirection analyzer behind `ct-steer`: classify a shell
+//!   command into the `ct` tool that serves it, the `PreToolUse` hook protocol,
+//!   and the `.claude/settings.json` install/uninstall merge.
 //!
 //! Per-command surfaces (the pure logic each `ct-*` tool is built on):
 //!
@@ -80,6 +83,7 @@ pub mod pattern;
 pub mod payload;
 pub mod pulse;
 pub mod rules;
+pub mod steer;
 pub mod supervise;
 pub mod template;
 pub mod testrun;

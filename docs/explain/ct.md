@@ -81,6 +81,7 @@ from `.ct/rules.jsonc` at completion time — rule ids for `ct check --id` /
 | `ct rules`  | `ct-rules`  | Record, promote, remove, and list the project's invariant rules (`.ct/rules.jsonc`). |
 | `ct check`  | `ct-check`  | Verify the recorded invariants; five lanes, one exit status. Read-only.    |
 | `ct await`  | `ct-await`  | Poll a read-only probe until it succeeds, aborts, or the bound expires.    |
+| `ct steer`  | `ct-steer`  | Steer ad-hoc shell to the `ct` tool that serves it; install the PreToolUse hook. |
 
 Dispatch is **generic**: `ct <name>` runs `ct-<name>`, so any `ct-*` tool you add
 to your `PATH` is reachable through `ct` without changing `ct` itself. An unknown

@@ -32,6 +32,7 @@ can call by its full name.
 | `ct-rules`  | Record, promote, remove, and list the project's invariant rules (`.ct/rules.jsonc`); writes the store, on no gate. | [explain/ct-rules.md](../explain/ct-rules.md) |
 | `ct-check`  | Verify the recorded invariants — five lanes (`SUCCESS`/`ERROR`/`WARN`/`PENDING`/`BROKEN`), one exit status; purely read-only. | [explain/ct-check.md](../explain/ct-check.md) |
 | `ct-await`  | Poll a gated read-only probe until success, an abort pattern, or the required bound — observe work you don't execute. | [explain/ct-await.md](../explain/ct-await.md) |
+| `ct-steer`  | Steer ad-hoc shell to the `ct` tool that serves it — and install the Claude Code PreToolUse hook that does it automatically (`hook`/`install`/`uninstall`/`check`). | [explain/ct-steer.md](../explain/ct-steer.md) |
 
 `ct-rules`/`ct-check` also host **built-in checks** — `deps` (crate graph over
 `cargo metadata`), `mods` (module graph from `use` edges), and `okf` (OKF-bundle

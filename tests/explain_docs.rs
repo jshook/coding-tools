@@ -25,6 +25,7 @@ const TOOLS: &[&str] = &[
     "ct-rules",
     "ct-check",
     "ct-await",
+    "ct-steer",
 ];
 
 /// Leaf tools whose definitions the `ct` manifest must mirror exactly.
@@ -41,6 +42,7 @@ const LEAVES: &[&str] = &[
     "ct-rules",
     "ct-check",
     "ct-await",
+    "ct-steer",
 ];
 
 /// Built-in checks — reserved probe heads run in-process by the rule layer, not
@@ -328,6 +330,46 @@ fn ct_okf_subcommands_match_docs() {
         assert!(
             md.contains(name.as_str()),
             "ct-okf.md never mentions the `{name}` subcommand"
+        );
+    }
+}
+
+/// `ct-steer` is subcommand-shaped like `ct-okf`, so the flat-flag drift guard
+/// only reconciles its global flags. Keep the subcommand surface honest: every
+/// clap subcommand must be listed in `docs/explain/ct-steer.json`'s `commands`
+/// array and mentioned in `ct-steer.md`, and the doc must not invent one.
+#[test]
+fn ct_steer_subcommands_match_docs() {
+    use clap::CommandFactory;
+    let command = coding_tools::cli::ct_steer::Cli::command();
+    let subs: BTreeSet<String> = command
+        .get_subcommands()
+        .map(|c| c.get_name().to_string())
+        .collect();
+
+    let json = read_json("ct-steer");
+    let doc_cmds: BTreeSet<String> = json["commands"]
+        .as_array()
+        .expect("ct-steer.json must carry a `commands` array for the subcommand surface")
+        .iter()
+        .map(|c| {
+            c["name"]
+                .as_str()
+                .expect("each command needs a string name")
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        subs, doc_cmds,
+        "ct-steer.json `commands` (right) disagrees with the clap subcommands (left)"
+    );
+
+    let md = std::fs::read_to_string(explain_path("ct-steer", "md"))
+        .unwrap_or_else(|e| panic!("read ct-steer.md: {e}"));
+    for name in &subs {
+        assert!(
+            md.contains(name.as_str()),
+            "ct-steer.md never mentions the `{name}` subcommand"
         );
     }
 }

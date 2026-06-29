@@ -76,6 +76,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "await",
         "Poll a read-only probe until it succeeds, aborts, or times out (ct-await)",
     ),
+    (
+        "steer",
+        "Steer ad-hoc shell to the ct tool that serves it; install the PreToolUse hook (ct-steer)",
+    ),
 ];
 
 /// The `ct --help` / usage text.

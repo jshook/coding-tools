@@ -28,6 +28,7 @@ full name.
 | `ct rules`  | `ct-rules`  | Record the project's invariants in `.ct/rules.jsonc` — verified at the moment they're written. |
 | `ct check`  | `ct-check`  | Re-verify every recorded invariant; five lanes, one exit status. Read-only.   |
 | `ct await`  | `ct-await`  | Wait, boundedly, for an external outcome via a read-only probe.               |
+| `ct steer`  | `ct-steer`  | Steer ad-hoc shell to the `ct` tool that serves it; install the PreToolUse hook. |
 
 `ct rules`/`ct check` also host **built-in checks** — `deps` (crate-graph),
 `mods` (module-graph), and `okf` (OKF-bundle conformance) invariants — recorded
@@ -124,6 +125,23 @@ ct edit --base src --name '*.rs' --script target/edits.ctb
 The canonical reference for each tool is its `--explain md` output, mirrored under
 [`docs/explain/`](docs/explain/); [`docs/specs/commands.md`](docs/specs/commands.md)
 is the suite index.
+
+## Steering agents to `ct`
+
+An agent only benefits from these tools if it actually reaches for them. `ct
+steer` closes that gap: installed as a Claude Code **PreToolUse hook**, it
+inspects each proposed shell command and, when a `ct` tool clearly serves it
+(`find | xargs grep`, `grep -r`, `sed -i`, `cat | head`, `for` loops, `&&`/`||`
+chains), **blocks the raw command and feeds back the `ct` equivalent** so the
+agent re-issues through the suite. The matcher is conservative — high-confidence
+idioms only, fail-open on everything else — and never re-steers a `ct` command.
+
+```sh
+ct steer install            # add the hook to .claude/settings.json (deny mode)
+ct steer install --mode ask # softer: ask to confirm instead of denying
+ct steer check 'grep -r TODO src'   # see what the hook would decide (exit 1 = steer)
+ct steer uninstall          # remove it
+```
 
 ## License
 
