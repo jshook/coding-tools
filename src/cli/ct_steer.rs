@@ -87,6 +87,35 @@ impl Mode {
     }
 }
 
+/// A harness tool the steering hook can gate (one `PreToolUse` matcher each).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Tool {
+    /// Shell commands (the default) — the full shell-idiom matcher.
+    #[value(name = "Bash")]
+    Bash,
+    /// The harness content search → ct search.
+    #[value(name = "Grep")]
+    Grep,
+    /// The harness file glob → ct search.
+    #[value(name = "Glob")]
+    Glob,
+    /// The harness file read → ct view (images/PDF/notebooks pass through).
+    #[value(name = "Read")]
+    Read,
+}
+
+impl Tool {
+    /// Bridge to the library's tool.
+    pub fn to_lib(self) -> crate::steer::install::Tool {
+        match self {
+            Tool::Bash => crate::steer::install::Tool::Bash,
+            Tool::Grep => crate::steer::install::Tool::Grep,
+            Tool::Glob => crate::steer::install::Tool::Glob,
+            Tool::Read => crate::steer::install::Tool::Read,
+        }
+    }
+}
+
 /// Which settings file `install`/`uninstall` target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Scope {
@@ -125,6 +154,10 @@ pub struct InstallArgs {
     /// The steering action baked into the installed hook command.
     #[arg(long, value_enum, default_value_t = Mode::Deny)]
     pub mode: Mode,
+
+    /// Harness tools to gate, comma-joined or repeated: Bash (default), Grep, Glob, Read. Grep/Glob steer to ct search, Read to ct view.
+    #[arg(long, value_enum, value_delimiter = ',', default_value = "Bash")]
+    pub tools: Vec<Tool>,
 
     /// Show the resulting settings file without writing it.
     #[arg(long)]

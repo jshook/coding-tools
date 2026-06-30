@@ -21,24 +21,49 @@ allowed silently. It runs ahead of *every* shell call, so a miss costs nothing.
 | `find … \| xargs grep`, `find … -exec grep` | `ct search` |
 | `grep -r`, `rg`, `ag` | `ct search` |
 | `find … -name` (no grep) | `ct search` |
+| `grep -c PATTERN file` (count matches) | `ct search --summary` (`--expect` to assert) |
 | `sed -i`, `perl -i` | `ct edit` (preview + `--expect` gate) |
 | `head`/`tail`/`sed -n 'A,Bp'` on a file | `ct view --range` |
+| `python -c`/`node -e`/`perl -e`/`ruby -e`/`jq` reading a file | `ct view` / `ct search` |
 | `ls -R`, `tree` | `ct tree` |
-| `wc -l` over files | `ct tree --summary` |
-| `for … do … done`, `while read` | `ct each` |
+| `wc -l`/`wc` over files (incl. `cat FILES \| wc`) | `ct tree --summary` |
+| `for … do … done`, `while read` (per-item map) | `ct each` |
+| `for`/`while`/`until … sleep …` (poll/wait loop) | `ct await` |
 | `A && B`, `A \|\| B` (every segment ct-serviceable) | `ct and` / `ct or` |
+
+A `for`/`while`/`until` loop whose body `sleep`s and re-probes is a bounded
+**wait**, steered to `ct await` (not `ct each`). An interpreter one-liner is
+steered only when it **reads** a file with no write signal — pure-compute
+one-liners (and ones that open a file for writing) are left alone.
 
 A chain (`&&` / `||`) is only steered when *every* segment is itself
 ct-serviceable, so `grep -r x && make` (no `ct` analogue for `make`) is left
 alone while `grep -r x && sed -i …` becomes `ct and search … ::: edit …`.
+
+### Harness tools (opt-in via `--tools`)
+
+Raw shell is not the only way around `ct` — the harness's own search/read tools
+are another. When installed for them, the hook also steers:
+
+| Harness tool | Steered to |
+| --- | --- |
+| `Grep` (pattern / path / glob) | `ct search --grep …` |
+| `Glob` (`**/*.rs` → base + name) | `ct search --name … --type f` |
+| `Read` (file_path / offset / limit → range) | `ct view [--range A:B]` |
+
+`Read` of an image, PDF, or notebook (`.png/.jpg/.gif/.pdf/.ipynb/…`) is **left
+alone** — `ct view` is a line reader and can't render those, so `Read` remains
+the right tool. These matchers are off by default; enable them with
+`install --tools Bash,Grep,Glob,Read`.
 
 ## Subcommands
 
 ### `hook`
 
 The runtime hook. Reads a Claude Code `PreToolUse` tool-call envelope as JSON on
-**stdin** (`{ "tool_name": "Bash", "tool_input": { "command": "…" }, … }`) and,
-on a match, prints a decision object on **stdout** and exits `0`:
+**stdin** (`{ "tool_name": "Bash", "tool_input": { "command": "…" }, … }`, or a
+`Grep`/`Glob`/`Read` envelope with its own fields) and, on a match, prints a
+decision object on **stdout** and exits `0`:
 
 - `--mode deny` *(default)* — `permissionDecision: "deny"` with the `ct`
   suggestion as the reason; the call is blocked and the agent re-issues.
@@ -50,6 +75,13 @@ on a match, prints a decision object on **stdout** and exits `0`:
 On a miss (or a non-`Bash` tool, or malformed input) it prints nothing and exits
 `0`. This is the command wired into settings; you rarely run it by hand.
 
+**Background-Bash limitation.** The hook gates the `Bash` tool, but a host may
+not run `PreToolUse` for **backgrounded** tool calls — so a `for … sleep … done`
+watcher launched in the background can slip past ungated. The durable fix is
+behavioural: launch a bounded wait as `ct await` (itself backgrounded), never a
+hand-rolled `sleep` loop. The `wait-loop` rule above steers the foreground form
+toward exactly that.
+
 ### `install` / `uninstall`
 
 Merge or remove the Bash `PreToolUse` hook in a Claude Code settings file.
@@ -58,6 +90,9 @@ Merge or remove the Bash `PreToolUse` hook in a Claude Code settings file.
 - `--scope local` → `.claude/settings.local.json`
 - `--scope user` → `~/.claude/settings.json`
 - `--mode deny|ask|warn` — baked into the installed hook command (`install`).
+- `--tools Bash,Grep,Glob,Read` *(default `Bash`)* — which tools to gate; one
+  `PreToolUse` matcher entry is written per tool. `Grep`/`Glob` steer to
+  `ct search`, `Read` to `ct view`.
 - `--dry-run` — show the resulting settings file without writing it.
 - `--print` — emit just the hook snippet (for manual paste) and exit.
 
@@ -91,10 +126,11 @@ this document or the MCP tool-use definition.
 ## Setup
 
 ```sh
-ct steer install            # add the deny-mode hook to .claude/settings.json
-ct steer install --mode ask # softer: ask instead of deny
-ct steer install --print    # see the snippet without writing
-ct steer uninstall          # remove it
+ct steer install                          # deny-mode Bash hook → .claude/settings.json
+ct steer install --mode ask               # softer: ask instead of deny
+ct steer install --tools Bash,Grep,Glob,Read  # also gate the harness search/read tools
+ct steer install --print                  # see the snippet without writing
+ct steer uninstall                        # remove every steer matcher
 ```
 
 ## Exit status

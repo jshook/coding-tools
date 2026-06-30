@@ -69,17 +69,18 @@ fn settings_path(args: &InstallArgs) -> Result<PathBuf, String> {
 /// `ct steer install`.
 fn cmd_install(cli: &Cli, args: &InstallArgs) -> Result<ExitCode, String> {
     let command = install::hook_command(args.mode.to_lib());
+    let tools: Vec<install::Tool> = args.tools.iter().map(|t| t.to_lib()).collect();
 
     // `--print` just shows the snippet to paste; it reads/writes nothing.
     if args.print {
-        let (snippet, _) = install::install(None, &command)?;
+        let (snippet, _) = install::install(None, &command, &tools)?;
         print!("{snippet}");
         return Ok(ExitCode::SUCCESS);
     }
 
     let path = settings_path(args)?;
     let existing = read_settings(&path)?;
-    let (text, changed) = install::install(existing.as_deref(), &command)?;
+    let (text, changed) = install::install(existing.as_deref(), &command, &tools)?;
 
     if args.dry_run {
         if !cli.quiet {

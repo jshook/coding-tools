@@ -6,8 +6,10 @@
 //! `ct` equivalent instead.
 //!
 //! Agents reach for raw shell — `find | xargs grep`, `sed -i`, `cat | head`,
-//! `for` loops — even when a suite tool would do the job bounded, deterministic,
-//! and self-verifying. [`analyze`] is the pure heart: it classifies a shell
+//! `for`/`while` loops, sleep-polling waits, `wc -l` counts, and `python -c`/
+//! `jq` file reads — even when a suite tool would do the job bounded,
+//! deterministic, and self-verifying. [`analyze`] is the pure heart: it
+//! classifies a shell
 //! command string into an optional [`Steer`] naming the `ct` tool that serves
 //! it and a best-effort equivalent command. The [`hook`] submodule wraps that
 //! in the Claude Code `PreToolUse` JSON protocol (deny / ask / warn); the
@@ -75,8 +77,8 @@ impl Steer {
     /// The reason text shown to the agent (the `ct` command plus the lesson).
     pub fn reason(&self) -> String {
         format!(
-            "A `ct` tool serves this more reliably than raw shell — bounded, \
-             deterministic, and self-verifying. Use instead:\n  {}\n({})",
+            "A `ct` tool serves this more reliably — bounded, deterministic, \
+             and self-verifying. Use instead:\n  {}\n({})",
             self.suggestion, self.note
         )
     }
@@ -317,18 +319,34 @@ pub fn analyze(command: &str) -> Option<Steer> {
         return None;
     }
 
-    // Shell loops (`for`/`while`) — a control word starting the first segment.
+    // Shell loops (`for`/`while`/`until`) — a control word starting the first
+    // segment. A loop whose body `sleep`s and re-probes is a bounded *wait*
+    // (steer to `ct await`); any other loop is a per-item map (`ct each`).
     if let Some(first) = seg_stages
         .first()
         .and_then(|s| s.first())
         .and_then(|s| cmd_of(s))
-        && (first == "for" || first == "while")
+        && matches!(first, "for" | "while" | "until")
     {
-        return Some(Steer {
-            rule_id: "shell-loop",
-            tool: "ct each",
-            suggestion: "ct each --items <a> <b> -- <cmd-template-with-{ITEM}>".to_string(),
-            note: "ct each runs a command template once per item with no shell and an aggregate --expect verdict",
+        let waits = seg_stages
+            .iter()
+            .flatten()
+            .flatten()
+            .any(|w| matches!(base_name(w), "sleep" | "usleep" | "Start-Sleep"));
+        return Some(if waits {
+            Steer {
+                rule_id: "wait-loop",
+                tool: "ct await",
+                suggestion: "ct await --timeout <SECS> --every <N> -- <probe-argv>".to_string(),
+                note: "ct await polls a read-only probe until it passes (or a timeout/abort fires) with no shell loop — and being the wait itself, it should be launched in the background, never wrapped in `for/while … sleep`",
+            }
+        } else {
+            Steer {
+                rule_id: "shell-loop",
+                tool: "ct each",
+                suggestion: "ct each --items <a> <b> -- <cmd-template-with-{ITEM}>".to_string(),
+                note: "ct each runs a command template once per item with no shell and an aggregate --expect verdict",
+            }
         });
     }
 
@@ -388,8 +406,10 @@ fn chain_steer(head: &'static str, parts: &[Steer]) -> Steer {
 fn analyze_segment(stages: &[Vec<String>]) -> Option<Steer> {
     rule_find_grep(stages)
         .or_else(|| rule_grep_recursive(stages))
+        .or_else(|| rule_grep_count(stages))
         .or_else(|| rule_sed_inplace(stages))
         .or_else(|| rule_read_range(stages))
+        .or_else(|| rule_interpreter_read(stages))
         .or_else(|| rule_find_files(stages))
         .or_else(|| rule_list_recursive(stages))
         .or_else(|| rule_count_lines(stages))
@@ -428,6 +448,57 @@ fn rule_grep_recursive(stages: &[Vec<String>]) -> Option<Steer> {
                 suggestion: search_suggestion(base, None, pat),
                 note: "ct search is the suite's recursive content search, with a framed --expect verdict (e.g. --expect none asserts absence)",
             });
+        }
+    }
+    None
+}
+
+/// `grep -c PATTERN FILE` (count matching lines) → `ct search … --summary`.
+fn rule_grep_count(stages: &[Vec<String>]) -> Option<Steer> {
+    for s in stages {
+        let Some(cmd) = cmd_of(s) else { continue };
+        if matches!(cmd, "grep" | "egrep" | "fgrep") && has_short(s, 'c') {
+            // `grep -c PATTERN FILE`: the second positional is the path.
+            let base = positionals(s).get(1).copied();
+            return Some(Steer {
+                rule_id: "grep-count",
+                tool: "ct search",
+                suggestion: format!(
+                    "{} --summary",
+                    search_suggestion(base, None, grep_pattern(s))
+                ),
+                note: "ct search --summary reports the match count directly (and --expect +N|=N turns it into a pass/fail assertion), replacing grep -c",
+            });
+        }
+    }
+    None
+}
+
+/// An interpreter one-liner that READS a file — `jq EXPR FILE`,
+/// `python -c '…open("x")…'`, `node -e`, `perl -e`, `ruby -e` — with no write
+/// signal → `ct view` / `ct search`. Pure-compute one-liners (no file read) and
+/// anything that looks like it writes are left alone.
+fn rule_interpreter_read(stages: &[Vec<String>]) -> Option<Steer> {
+    for s in stages {
+        let Some(cmd) = cmd_of(s) else { continue };
+        // `jq EXPR FILE…`: a file argument means it reads a file, not a stream.
+        if cmd == "jq" {
+            if let Some(&file) = positionals(s).get(1) {
+                return Some(interpreter_steer(Some(file)));
+            }
+            continue;
+        }
+        // `python/node/perl/ruby -c|-e '<body>'`: inspect the inline script.
+        let interp = matches!(
+            cmd,
+            "python" | "python3" | "node" | "nodejs" | "perl" | "ruby"
+        );
+        if interp
+            && let Some(body) = flag_value(s, &["-c", "-e"])
+            && reads_file(body)
+            && !writes_file(body)
+        {
+            return Some(interpreter_steer(quoted_path(body)));
         }
     }
     None
@@ -527,16 +598,20 @@ fn rule_list_recursive(stages: &[Vec<String>]) -> Option<Steer> {
     })
 }
 
-/// `wc -l` over files (not a piped stream) → `ct tree`.
+/// `wc` over files (not a bare piped stream) → `ct tree`. Counts files named
+/// directly, fed by `find`/`ls`, or read from a `cat FILE…` upstream; a stream
+/// with no file behind it (e.g. `ps aux | wc -l`) is left alone.
 fn rule_count_lines(stages: &[Vec<String>]) -> Option<Steer> {
     for (i, s) in stages.iter().enumerate() {
-        if cmd_of(s) != Some("wc") || !has_short(s, 'l') {
+        if cmd_of(s) != Some("wc") {
             continue;
         }
-        // Only when counting files: explicit file args, or fed by `find`/`ls`.
         let has_files = !positionals(s).is_empty();
-        let from_find = i > 0 && matches!(cmd_of(&stages[i - 1]), Some("find") | Some("ls"));
-        if has_files || from_find {
+        let upstream = i.checked_sub(1).map(|j| &stages[j]);
+        let from_find = upstream.is_some_and(|u| matches!(cmd_of(u), Some("find") | Some("ls")));
+        let from_cat =
+            upstream.is_some_and(|u| cmd_of(u) == Some("cat") && !positionals(u).is_empty());
+        if has_files || from_find || from_cat {
             return Some(Steer {
                 rule_id: "count-lines",
                 tool: "ct tree",
@@ -579,6 +654,80 @@ fn view_steer(file: Option<&str>, range: Option<(u32, u32)>) -> Steer {
         suggestion,
         note: "ct view shows a file's lines by range (or the regions around a pattern with context) — a precise, bounded read",
     }
+}
+
+/// Build a `ct view` suggestion for an interpreter one-liner that reads `file`.
+fn interpreter_steer(file: Option<&str>) -> Steer {
+    let f = file.unwrap_or("<file>");
+    Steer {
+        rule_id: "interpreter-read",
+        tool: "ct view",
+        suggestion: format!("ct view {f} --range <start>:<end>"),
+        note: "an interpreter one-liner that reads a file is a bounded read — `ct view` shows a line range (or `--match <pat> --context N`), and `ct search <file> --grep <pat> --detail` finds the matching record, both without a hand-rolled parser",
+    }
+}
+
+/// Whether an inline interpreter script reads a file.
+fn reads_file(body: &str) -> bool {
+    const READS: &[&str] = &[
+        "open(",
+        "json.load",
+        "readlines",
+        "read_text",
+        "readFileSync",
+        "JSON.parse",
+        "File.read",
+        "IO.read",
+        "Get-Content",
+    ];
+    READS.iter().any(|m| body.contains(m))
+}
+
+/// Whether an inline interpreter script appears to write/produce a file — used
+/// to leave read+write one-liners alone (only pure reads are steered).
+fn writes_file(body: &str) -> bool {
+    const WRITES: &[&str] = &[
+        ",'w'",
+        ", 'w'",
+        ",\"w\"",
+        ", \"w\"",
+        ",'a'",
+        ", 'a'",
+        ",\"a\"",
+        "'r+'",
+        "\"r+\"",
+        "'wb'",
+        "\"wb\"",
+        ".write(",
+        "writeFile",
+        "json.dump",
+        "to_csv",
+        "to_json(",
+        "File.write",
+    ];
+    WRITES.iter().any(|m| body.contains(m))
+}
+
+/// The first quoted token in an interpreter body that looks like a file path
+/// (contains `.` or `/`), for use in the suggested `ct view` command.
+fn quoted_path(body: &str) -> Option<&str> {
+    let bytes = body.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if (c == b'\'' || c == b'"')
+            && let Some(rel) = body[i + 1..].find(c as char)
+        {
+            let inner = &body[i + 1..i + 1 + rel];
+            if inner.contains('.') || inner.contains('/') {
+                return Some(inner);
+            }
+            i += 1 + rel + 1;
+            continue;
+        }
+        i += 1;
+    }
+    None
 }
 
 /// The PATTERN of a grep-family stage: an explicit `-e VALUE`, else the first
@@ -655,12 +804,103 @@ fn parse_sed_range(w: &str) -> Option<(u32, u32)> {
     }
 }
 
+// ----- Harness tool-envelope steers --------------------------------------------
+//
+// The hook can gate not just `Bash` but the harness's own `Grep` / `Glob` /
+// `Read` tools — the *other* channel by which an agent reaches around `ct`.
+// Those calls carry structured fields (a `pattern`, a `path`, a `file_path`)
+// rather than a shell line, so each gets its own builder rather than going
+// through [`analyze`].
+
+/// Steer a harness `Grep` call to `ct search` (the suite's content search).
+pub fn grep_steer(pattern: &str, path: Option<&str>, glob: Option<&str>) -> Steer {
+    Steer {
+        rule_id: "harness-grep",
+        tool: "ct search",
+        suggestion: search_suggestion(path, glob, Some(pattern)),
+        note: "ct search is the suite's content search — recursive, filtered by name/type/size, with a framed --expect verdict; ct outline maps a file's symbols when you are after a definition",
+    }
+}
+
+/// Steer a harness `Glob` call to `ct search` (name filter from a root).
+pub fn glob_steer(pattern: &str, path: Option<&str>) -> Steer {
+    let (glob_base, name) = split_glob(pattern);
+    let base = path.map(str::to_string).or(glob_base);
+    let mut out = String::from("ct search");
+    if let Some(b) = base {
+        out.push_str(&format!(" --base {b}"));
+    }
+    out.push_str(&format!(" --name {} --type f", q(&name)));
+    Steer {
+        rule_id: "harness-glob",
+        tool: "ct search",
+        suggestion: out,
+        note: "ct search selects files by --name/--type/--size from a chosen root and reports them — the suite's glob, recursive by default",
+    }
+}
+
+/// Split a glob into a literal directory prefix (its leading wildcard-free
+/// segments) and the file-name segment (its last component): `src/**/*.rs` →
+/// `(Some("src"), "*.rs")`; `**/*.rs` → `(None, "*.rs")`.
+fn split_glob(pattern: &str) -> (Option<String>, String) {
+    let segs: Vec<&str> = pattern.split('/').collect();
+    let name = segs.last().copied().unwrap_or(pattern).to_string();
+    let is_wild = |s: &str| s.contains(['*', '?', '[', '{']);
+    let literal: Vec<&str> = segs
+        .iter()
+        .take(segs.len().saturating_sub(1))
+        .take_while(|s| !is_wild(s) && !s.is_empty())
+        .copied()
+        .collect();
+    ((!literal.is_empty()).then(|| literal.join("/")), name)
+}
+
+/// Steer a harness `Read` call to `ct view` — unless the path is something
+/// `ct view` (a line reader) cannot render (an image, PDF, or notebook), where
+/// `Read` is the right tool and the call is left alone ([`None`]).
+pub fn read_steer(file_path: &str, offset: Option<i64>, limit: Option<i64>) -> Option<Steer> {
+    if is_unrenderable(file_path) {
+        return None;
+    }
+    // Read's offset is a 1-based start line and limit a line count; map both to
+    // `ct view --range`. A bare read (neither) views the whole file.
+    let range = match (offset, limit) {
+        (Some(o), Some(l)) => {
+            let start = o.max(1);
+            Some(format!("{start}:{}", (start + l - 1).max(start)))
+        }
+        (Some(o), None) => Some(format!("{}:", o.max(1))),
+        (None, Some(l)) => Some(format!("1:{}", l.max(1))),
+        (None, None) => None,
+    };
+    let suggestion = match range {
+        Some(r) => format!("ct view {file_path} --range {r}"),
+        None => format!("ct view {file_path}"),
+    };
+    Some(Steer {
+        rule_id: "harness-read",
+        tool: "ct view",
+        suggestion,
+        note: "ct view is the suite's bounded file reader — a line range, or --match with context (Read stays the tool for images, PDFs, and notebooks ct view cannot render)",
+    })
+}
+
+/// Whether a path's extension is a binary/rendered format `ct view` cannot
+/// usefully show as text — so a `Read` of it is left alone.
+fn is_unrenderable(path: &str) -> bool {
+    const EXTS: &[&str] = &[
+        "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tif", "tiff", "pdf", "ipynb",
+    ];
+    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    path.contains('.') && EXTS.contains(&ext.as_str())
+}
+
 // ----- Hook protocol -----------------------------------------------------------
 
 /// The Claude Code `PreToolUse` hook protocol: turn a stdin envelope into a
 /// steering decision.
 pub mod hook {
-    use super::{Mode, Steer, analyze};
+    use super::{Mode, Steer, analyze, glob_steer, grep_steer, read_steer};
     use serde_json::{Value, json};
 
     /// Build the `PreToolUse` decision JSON for a [`Steer`] under `mode`.
@@ -684,19 +924,43 @@ pub mod hook {
         }
     }
 
+    /// A string field of a tool-input object.
+    fn str_field<'a>(input: &'a Value, key: &str) -> Option<&'a str> {
+        input.get(key).and_then(Value::as_str)
+    }
+
+    /// An integer field of a tool-input object.
+    fn int_field(input: &Value, key: &str) -> Option<i64> {
+        input.get(key).and_then(Value::as_i64)
+    }
+
     /// Process a raw `PreToolUse` stdin envelope. Returns the decision JSON to
-    /// print, or [`None`] to allow silently. **Fail-open:** any parse error, a
-    /// non-`Bash` tool, or a missing command all yield [`None`].
+    /// print, or [`None`] to allow silently. The `Bash` command is classified by
+    /// [`analyze`]; the harness's own `Grep` / `Glob` / `Read` calls are steered
+    /// from their structured fields. **Fail-open:** any parse error, an
+    /// unhandled tool, or a missing field all yield [`None`].
     pub fn process(envelope: &str, mode: Mode) -> Option<Value> {
         let v: Value = serde_json::from_str(envelope).ok()?;
-        if v.get("tool_name").and_then(Value::as_str) != Some("Bash") {
-            return None;
-        }
-        let command = v
-            .get("tool_input")
-            .and_then(|t| t.get("command"))
-            .and_then(Value::as_str)?;
-        let steer = analyze(command)?;
+        let tool = v.get("tool_name").and_then(Value::as_str)?;
+        let input = v.get("tool_input")?;
+        let steer = match tool {
+            "Bash" => analyze(str_field(input, "command")?),
+            "Grep" => Some(grep_steer(
+                str_field(input, "pattern")?,
+                str_field(input, "path"),
+                str_field(input, "glob"),
+            )),
+            "Glob" => Some(glob_steer(
+                str_field(input, "pattern")?,
+                str_field(input, "path"),
+            )),
+            "Read" => read_steer(
+                str_field(input, "file_path")?,
+                int_field(input, "offset"),
+                int_field(input, "limit"),
+            ),
+            _ => None,
+        }?;
         Some(decision(&steer, mode))
     }
 }
@@ -747,6 +1011,43 @@ pub mod install {
         }
     }
 
+    /// A harness tool the steering hook can be installed to gate. Each becomes
+    /// its own `PreToolUse` matcher entry; `Bash` is the default.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Tool {
+        /// Shell commands — classified by the full shell-idiom matcher.
+        Bash,
+        /// The harness content search → `ct search`.
+        Grep,
+        /// The harness file glob → `ct search`.
+        Glob,
+        /// The harness file read → `ct view` (images/PDF/notebooks pass through).
+        Read,
+    }
+
+    impl Tool {
+        /// Parse a `--tools` value.
+        pub fn from_name(s: &str) -> Option<Tool> {
+            match s {
+                "Bash" => Some(Tool::Bash),
+                "Grep" => Some(Tool::Grep),
+                "Glob" => Some(Tool::Glob),
+                "Read" => Some(Tool::Read),
+                _ => None,
+            }
+        }
+
+        /// The `matcher` string this tool is written under in settings.
+        pub fn matcher(self) -> &'static str {
+            match self {
+                Tool::Bash => "Bash",
+                Tool::Grep => "Grep",
+                Tool::Glob => "Glob",
+                Tool::Read => "Read",
+            }
+        }
+    }
+
     /// The hook command string written into settings for `mode`.
     pub fn hook_command(mode: Mode) -> String {
         match mode {
@@ -774,13 +1075,16 @@ pub mod install {
     }
 
     /// The canonical full settings document, used only when there is no existing
-    /// file to merge into (so there are no comments or layout to preserve).
-    fn canonical(command: &str) -> String {
-        let v = json!({
-            "hooks": { "PreToolUse": [
-                { "matcher": "Bash", "hooks": [ { "type": "command", "command": command } ] }
-            ] }
-        });
+    /// file to merge into (so there are no comments or layout to preserve). One
+    /// `PreToolUse` matcher entry per requested tool.
+    fn canonical(command: &str, tools: &[Tool]) -> String {
+        let matchers: Vec<Value> = tools
+            .iter()
+            .map(|t| {
+                json!({ "matcher": t.matcher(), "hooks": [ { "type": "command", "command": command } ] })
+            })
+            .collect();
+        let v = json!({ "hooks": { "PreToolUse": matchers } });
         serde_json::to_string_pretty(&v).unwrap() + "\n"
     }
 
@@ -817,15 +1121,20 @@ pub mod install {
     }
 
     /// Install the steering hook into `existing` settings text (or create a
-    /// fresh document). Returns the new text and whether it changed. Idempotent:
-    /// re-installing the same command is a no-op; a `--mode` change rewrites the
-    /// command in place. Comments and layout in `existing` are preserved.
-    pub fn install(existing: Option<&str>, command: &str) -> Result<(String, bool), String> {
+    /// fresh document), gating each tool in `tools`. Returns the new text and
+    /// whether it changed. Idempotent: re-installing the same command/tools is a
+    /// no-op; a `--mode` change rewrites the command in place; a new tool adds
+    /// its matcher. Comments and layout in `existing` are preserved.
+    pub fn install(
+        existing: Option<&str>,
+        command: &str,
+        tools: &[Tool],
+    ) -> Result<(String, bool), String> {
         let Some(text) = existing.filter(|t| !t.trim().is_empty()) else {
-            return Ok((canonical(command), true));
+            return Ok((canonical(command, tools), true));
         };
         let root = inspect(text)?;
-        let ops = install_ops(&root, command)?;
+        let ops = install_ops(&root, command, tools)?;
         apply(text, &ops)
     }
 
@@ -841,24 +1150,6 @@ pub mod install {
         apply(text, &ops)
     }
 
-    /// The first `hooks.PreToolUse` hook whose command is one of ours, as
-    /// `(entry_index, hook_index, command)`.
-    fn find_steer_hook(root: &Value) -> Option<(usize, usize, &str)> {
-        let pre = pre_array(root)?;
-        for (ei, entry) in pre.iter().enumerate() {
-            if let Some(list) = entry.get("hooks").and_then(Value::as_array) {
-                for (hi, h) in list.iter().enumerate() {
-                    if let Some(c) = h.get("command").and_then(Value::as_str)
-                        && is_steer_command(c)
-                    {
-                        return Some((ei, hi, c));
-                    }
-                }
-            }
-        }
-        None
-    }
-
     /// The `hooks.PreToolUse` array, if present and well-shaped.
     fn pre_array(root: &Value) -> Option<&Vec<Value>> {
         root.get("hooks")
@@ -866,18 +1157,32 @@ pub mod install {
             .and_then(Value::as_array)
     }
 
-    /// Compute the ops that install `command`, given the parsed `root`.
-    fn install_ops(root: &Value, command: &str) -> Result<Vec<Op>, String> {
-        // Already present? Keep it, or rewrite the command for a mode change.
-        if let Some((ei, hi, existing_cmd)) = find_steer_hook(root) {
-            if existing_cmd == command {
-                return Ok(vec![]);
-            }
-            let path = format!(".hooks.PreToolUse[{ei}].hooks[{hi}].command");
-            return Ok(vec![op_set(&path, json!(command).to_string())?]);
-        }
+    /// Whether an array element is a `"matcher": <name>` entry.
+    fn is_matcher(entry: &Value, name: &str) -> bool {
+        entry.get("matcher").and_then(Value::as_str) == Some(name)
+    }
 
+    /// Whether a matcher entry already carries one of our steer hooks.
+    fn entry_has_steer(entry: &Value) -> bool {
+        entry
+            .get("hooks")
+            .and_then(Value::as_array)
+            .is_some_and(|l| {
+                l.iter().any(|h| {
+                    h.get("command")
+                        .and_then(Value::as_str)
+                        .is_some_and(is_steer_command)
+                })
+            })
+    }
+
+    /// Compute the ops that install `command` for every tool in `tools`, given
+    /// the parsed `root`. Indices come from the original parse and stay valid
+    /// because every op only adds keys/elements, never reorders entries.
+    fn install_ops(root: &Value, command: &str, tools: &[Tool]) -> Result<Vec<Op>, String> {
         let mut ops = Vec::new();
+
+        // Ensure the `hooks` / `hooks.PreToolUse` containers exist.
         let hooks = root.get("hooks");
         match hooks {
             None => ops.push(op_set(".hooks", "{}".to_string())?),
@@ -894,37 +1199,63 @@ pub mod install {
             }
             Some(_) => {}
         }
+        let pre_arr = pre.and_then(Value::as_array);
 
+        // Mode change: rewrite the command of any existing steer hook that differs.
+        if let Some(arr) = pre_arr {
+            for (ei, entry) in arr.iter().enumerate() {
+                let Some(list) = entry.get("hooks").and_then(Value::as_array) else {
+                    continue;
+                };
+                for (hi, h) in list.iter().enumerate() {
+                    if let Some(c) = h.get("command").and_then(Value::as_str)
+                        && is_steer_command(c)
+                        && c != command
+                    {
+                        ops.push(op_set(
+                            &format!(".hooks.PreToolUse[{ei}].hooks[{hi}].command"),
+                            json!(command).to_string(),
+                        )?);
+                    }
+                }
+            }
+        }
+
+        // Per requested tool: ensure a matcher for it carries our command.
         let hook_obj = json!({ "type": "command", "command": command }).to_string();
-        // Append to an existing Bash matcher (with a hooks array), else add a
-        // matcher. Indices come from the original parse and stay valid because
-        // the container-creating ops above only add keys, never reorder entries.
-        let bash = pre
-            .and_then(Value::as_array)
-            .and_then(|arr| arr.iter().position(is_bash_matcher).map(|i| (i, &arr[i])));
-        match bash {
-            Some((ei, entry)) if entry.get("hooks").and_then(Value::as_array).is_some() => {
-                ops.push(op_add(&format!(".hooks.PreToolUse[{ei}].hooks"), hook_obj)?);
+        for tool in tools {
+            let name = tool.matcher();
+            // Already steered for this tool (mode change handled above)?
+            if pre_arr.is_some_and(|arr| {
+                arr.iter()
+                    .any(|e| is_matcher(e, name) && entry_has_steer(e))
+            }) {
+                continue;
             }
-            Some((ei, _)) => {
-                ops.push(op_set(
-                    &format!(".hooks.PreToolUse[{ei}].hooks"),
-                    format!("[{hook_obj}]"),
-                )?);
-            }
-            None => {
-                let matcher =
-                    json!({ "matcher": "Bash", "hooks": [{ "type": "command", "command": command }] })
+            // Append to an existing matcher entry for this tool, else add one.
+            let target =
+                pre_arr.and_then(|arr| arr.iter().enumerate().find(|(_, e)| is_matcher(e, name)));
+            match target {
+                Some((ei, e)) if e.get("hooks").and_then(Value::as_array).is_some() => {
+                    ops.push(op_add(
+                        &format!(".hooks.PreToolUse[{ei}].hooks"),
+                        hook_obj.clone(),
+                    )?);
+                }
+                Some((ei, _)) => {
+                    ops.push(op_set(
+                        &format!(".hooks.PreToolUse[{ei}].hooks"),
+                        format!("[{hook_obj}]"),
+                    )?);
+                }
+                None => {
+                    let matcher = json!({ "matcher": name, "hooks": [ { "type": "command", "command": command } ] })
                         .to_string();
-                ops.push(op_add(".hooks.PreToolUse", matcher)?);
+                    ops.push(op_add(".hooks.PreToolUse", matcher)?);
+                }
             }
         }
         Ok(ops)
-    }
-
-    /// Whether an array element is a `"matcher": "Bash"` entry.
-    fn is_bash_matcher(entry: &Value) -> bool {
-        entry.get("matcher").and_then(Value::as_str) == Some("Bash")
     }
 
     /// Compute the ops that remove every steering hook, given the parsed `root`.
@@ -996,9 +1327,14 @@ pub mod install {
 
 #[cfg(test)]
 mod tests {
-    use super::install::{Scope, install, uninstall};
+    use super::install::{Scope, Tool, install, uninstall};
     use super::*;
     use std::path::Path;
+
+    /// Bash-only install, the common case in these tests.
+    fn install_bash(existing: Option<&str>, command: &str) -> Result<(String, bool), String> {
+        install(existing, command, &[Tool::Bash])
+    }
 
     fn tool(cmd: &str) -> Option<&'static str> {
         analyze(cmd).map(|s| s.tool)
@@ -1031,6 +1367,77 @@ mod tests {
             rule("for f in a b; do grep -r x $f; done"),
             Some("shell-loop")
         );
+    }
+
+    #[test]
+    fn steers_wait_loops_to_await_not_each() {
+        // a sleep-bearing poll/wait loop is a bounded wait → ct await
+        assert_eq!(
+            tool("for i in $(seq 1 900); do cat f; sleep 2; done"),
+            Some("ct await")
+        );
+        assert_eq!(
+            rule("for i in $(seq 1 900); do cat f; sleep 2; done"),
+            Some("wait-loop")
+        );
+        assert_eq!(
+            tool("while true; do check; sleep 5; done"),
+            Some("ct await")
+        );
+        assert_eq!(
+            tool("until curl -sf http://x; do sleep 3; done"),
+            Some("ct await")
+        );
+        // a sleep-free loop stays a per-item map → ct each
+        assert_eq!(tool("for f in a b; do grep -r x $f; done"), Some("ct each"));
+        assert_eq!(
+            rule("for f in a b; do grep -r x $f; done"),
+            Some("shell-loop")
+        );
+    }
+
+    #[test]
+    fn steers_interpreter_file_reads() {
+        // jq with a file argument reads a file → ct view
+        assert_eq!(tool("jq '.note' feedback/x.jsonl"), Some("ct view"));
+        assert_eq!(
+            rule("jq '.note' feedback/x.jsonl"),
+            Some("interpreter-read")
+        );
+        // python one-liner that opens a file and prints → ct view
+        let s = analyze(
+            "python -c \"rows=[json.loads(l) for l in open('feedback/x.jsonl')]; print(rows[-1])\"",
+        )
+        .unwrap();
+        assert_eq!(s.tool, "ct view");
+        assert!(
+            s.suggestion.contains("feedback/x.jsonl"),
+            "{}",
+            s.suggestion
+        );
+        assert_eq!(
+            tool("node -e 'const d=require(\"fs\").readFileSync(\"a.json\")'"),
+            Some("ct view")
+        );
+        // pure-compute one-liner (no file read) is left alone
+        assert!(analyze("python -c 'print(2+2)'").is_none());
+        // a one-liner that writes is left alone
+        assert!(analyze("python -c \"open('out.txt','w').write('hi')\"").is_none());
+        // a jq fed by a pipe (no file) is left alone
+        assert!(analyze("cat x | jq '.note'").is_none());
+    }
+
+    #[test]
+    fn steers_count_idioms() {
+        // grep -c counts matching lines → ct search --summary
+        assert_eq!(tool("grep -c TODO src/lib.rs"), Some("ct search"));
+        assert_eq!(rule("grep -c TODO src/lib.rs"), Some("grep-count"));
+        let s = analyze("grep -c TODO src/lib.rs").unwrap();
+        assert!(s.suggestion.contains("--grep 'TODO'") && s.suggestion.contains("--summary"));
+        // cat FILES | wc -l counts lines of real files → ct tree
+        assert_eq!(tool("cat a.jsonl b.jsonl | wc -l"), Some("ct tree"));
+        // a bare stream count has no file behind it → left alone
+        assert!(analyze("ps aux | wc -l").is_none());
     }
 
     #[test]
@@ -1111,6 +1518,75 @@ mod tests {
     }
 
     #[test]
+    fn hook_steers_harness_grep_glob_read() {
+        // Grep → ct search, carrying pattern / path / glob.
+        let grep = hook::process(
+            r#"{"tool_name":"Grep","tool_input":{"pattern":"TODO","path":"src","glob":"*.rs"}}"#,
+            Mode::Deny,
+        )
+        .unwrap();
+        let reason = grep["hookSpecificOutput"]["permissionDecisionReason"]
+            .as_str()
+            .unwrap();
+        assert!(reason.contains("ct search"), "{reason}");
+        assert!(
+            reason.contains("--grep 'TODO'") && reason.contains("--base src"),
+            "{reason}"
+        );
+        assert!(reason.contains("--name '*.rs'"), "{reason}");
+
+        // Glob → ct search; a `dir/**/*.ext` glob splits into --base / --name.
+        let s = glob_steer("src/**/*.rs", None);
+        assert_eq!(s.tool, "ct search");
+        assert!(s.suggestion.contains("--base src"), "{}", s.suggestion);
+        assert!(s.suggestion.contains("--name '*.rs'"), "{}", s.suggestion);
+
+        // Read → ct view with a range derived from offset/limit.
+        let read = read_steer("src/lib.rs", Some(10), Some(20)).unwrap();
+        assert_eq!(read.tool, "ct view");
+        assert!(
+            read.suggestion.contains("ct view src/lib.rs --range 10:29"),
+            "{}",
+            read.suggestion
+        );
+        // a bare read views the whole file
+        assert_eq!(
+            read_steer("notes.md", None, None).unwrap().suggestion,
+            "ct view notes.md"
+        );
+        // images / PDFs / notebooks are left for Read (None)
+        assert!(read_steer("diagram.png", None, None).is_none());
+        assert!(read_steer("paper.pdf", None, None).is_none());
+        assert!(read_steer("nb.ipynb", None, None).is_none());
+    }
+
+    #[test]
+    fn install_covers_multiple_tools() {
+        let (text, changed) =
+            install(None, "ct steer hook", &[Tool::Bash, Tool::Grep, Tool::Read]).unwrap();
+        assert!(changed);
+        for m in ["\"Bash\"", "\"Grep\"", "\"Read\""] {
+            assert!(text.contains(m), "missing matcher {m} in {text}");
+        }
+        // re-install with the same tools is a no-op
+        let (_, again) = install(
+            Some(&text),
+            "ct steer hook",
+            &[Tool::Bash, Tool::Grep, Tool::Read],
+        )
+        .unwrap();
+        assert!(!again);
+        // adding a tool to an existing install only appends its matcher
+        let (grown, did) = install(Some(&text), "ct steer hook", &[Tool::Glob]).unwrap();
+        assert!(did);
+        assert!(grown.contains("\"Glob\""));
+        assert_eq!(grown.matches("\"matcher\"").count(), 4);
+        // uninstall clears every steer matcher we added
+        let (cleared, _) = uninstall(Some(&grown)).unwrap();
+        assert!(!cleared.contains("steer hook"));
+    }
+
+    #[test]
     fn hook_fails_open() {
         assert!(hook::process("not json", Mode::Deny).is_none());
         assert!(hook::process(r#"{"tool_name":"Read"}"#, Mode::Deny).is_none());
@@ -1127,22 +1603,22 @@ mod tests {
     #[test]
     fn install_is_idempotent_and_preserves_other_settings() {
         // fresh install
-        let (text, changed) = install(None, "ct steer hook").unwrap();
+        let (text, changed) = install_bash(None, "ct steer hook").unwrap();
         assert!(changed);
         assert!(text.contains("PreToolUse"));
         assert!(text.contains("\"matcher\": \"Bash\""));
         assert!(text.contains("ct steer hook"));
         // re-install is a no-op
-        let (text2, changed2) = install(Some(&text), "ct steer hook").unwrap();
+        let (text2, changed2) = install_bash(Some(&text), "ct steer hook").unwrap();
         assert!(!changed2);
         assert_eq!(text, text2);
         // a mode change rewrites in place (still one hook)
-        let (text3, changed3) = install(Some(&text), "ct steer hook --mode ask").unwrap();
+        let (text3, changed3) = install_bash(Some(&text), "ct steer hook --mode ask").unwrap();
         assert!(changed3);
         assert_eq!(text3.matches("steer hook").count(), 1);
         // existing unrelated settings survive
         let existing = r#"{ "model": "opus", "hooks": { "PreToolUse": [] } }"#;
-        let (merged, _) = install(Some(existing), "ct steer hook").unwrap();
+        let (merged, _) = install_bash(Some(existing), "ct steer hook").unwrap();
         assert!(merged.contains("\"model\": \"opus\""));
     }
 
@@ -1175,7 +1651,7 @@ mod tests {
             \"PreToolUse\": [\n      \
             { \"matcher\": \"Bash\", \"hooks\": [ { \"type\": \"command\", \"command\": \"./guard.sh\" } ] }\n    \
             ]\n  }\n}\n";
-        let (installed, changed) = install(Some(existing), "ct steer hook").unwrap();
+        let (installed, changed) = install_bash(Some(existing), "ct steer hook").unwrap();
         assert!(changed);
         // comments survive the merge
         assert!(installed.contains("// pin the model"), "{installed}");

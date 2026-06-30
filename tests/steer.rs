@@ -78,6 +78,44 @@ fn hook_denies_a_find_grep_pipeline() {
 }
 
 #[test]
+fn hook_denies_a_harness_grep_call() {
+    let envelope = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Grep",
+        "tool_input": { "pattern": "TODO", "path": "src", "glob": "*.rs" },
+    })
+    .to_string();
+    let out = run_hook(&envelope, &[]);
+    assert_eq!(code(&out), 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("decision JSON");
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
+    assert!(
+        v["hookSpecificOutput"]["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("ct search"),
+        "reason names ct search: {}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn hook_allows_a_read_of_an_image() {
+    // Read of a non-renderable path passes through (Read stays the right tool).
+    let envelope = serde_json::json!({
+        "tool_name": "Read",
+        "tool_input": { "file_path": "docs/diagram.png" },
+    })
+    .to_string();
+    let out = run_hook(&envelope, &[]);
+    assert_eq!(code(&out), 0);
+    assert!(
+        stdout(&out).trim().is_empty(),
+        "image Read is allowed silently"
+    );
+}
+
+#[test]
 fn hook_modes_change_the_decision() {
     let env = bash_envelope("grep -r TODO src");
     let ask: serde_json::Value =
@@ -152,6 +190,35 @@ fn install_creates_idempotent_settings_then_uninstalls() {
     assert_eq!(std::fs::read_to_string(&settings).unwrap(), written);
 
     // uninstall removes the hook
+    let removed = steer()
+        .args(["uninstall", "--scope", "project"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(code(&removed), 0);
+    assert!(
+        !std::fs::read_to_string(&settings)
+            .unwrap()
+            .contains("steer hook")
+    );
+}
+
+#[test]
+fn install_with_multiple_tools_writes_a_matcher_each() {
+    let dir = scratch("multitool");
+    let settings = dir.join(".claude").join("settings.json");
+    let out = steer()
+        .args(["install", "--tools", "Bash,Grep,Glob,Read"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0);
+    let written = std::fs::read_to_string(&settings).expect("settings.json created");
+    for matcher in ["\"Bash\"", "\"Grep\"", "\"Glob\"", "\"Read\""] {
+        assert!(written.contains(matcher), "missing {matcher} in {written}");
+    }
+
+    // uninstall removes every steer matcher in one pass
     let removed = steer()
         .args(["uninstall", "--scope", "project"])
         .current_dir(&dir)
