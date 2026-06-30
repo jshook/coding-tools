@@ -232,9 +232,9 @@ fn cmd_of(stage: &[String]) -> Option<&str> {
 /// Whether a stage carries a single-dash short flag containing `ch` (so `-r`,
 /// `-rn`, `-Rl` all count for `'r'`), excluding `--long` words.
 fn has_short(stage: &[String], ch: char) -> bool {
-    stage.iter().any(|w| {
-        w.starts_with('-') && !w.starts_with("--") && w[1..].chars().any(|c| c == ch)
-    })
+    stage
+        .iter()
+        .any(|w| w.starts_with('-') && !w.starts_with("--") && w[1..].chars().any(|c| c == ch))
 }
 
 /// Whether a stage carries `flag` exactly, or `flag=…`.
@@ -318,7 +318,10 @@ pub fn analyze(command: &str) -> Option<Steer> {
     }
 
     // Shell loops (`for`/`while`) — a control word starting the first segment.
-    if let Some(first) = seg_stages.first().and_then(|s| s.first()).and_then(|s| cmd_of(s))
+    if let Some(first) = seg_stages
+        .first()
+        .and_then(|s| s.first())
+        .and_then(|s| cmd_of(s))
         && (first == "for" || first == "while")
     {
         return Some(Steer {
@@ -338,7 +341,10 @@ pub fn analyze(command: &str) -> Option<Steer> {
     // ct-serviceable and the joiners are uniform, so `ct and`/`ct or`
     // reproduces it faithfully. A mixed chain (e.g. `grep -r x && make`) is
     // left alone.
-    let matches: Vec<Steer> = seg_stages.iter().filter_map(|st| analyze_segment(st)).collect();
+    let matches: Vec<Steer> = seg_stages
+        .iter()
+        .filter_map(|st| analyze_segment(st))
+        .collect();
     if matches.len() == segs.len() && !joiners.is_empty() {
         if joiners.iter().all(|j| *j == Tok::And) {
             return Some(chain_steer("ct and", &matches));
@@ -410,8 +416,8 @@ fn rule_find_grep(stages: &[Vec<String>]) -> Option<Steer> {
 fn rule_grep_recursive(stages: &[Vec<String>]) -> Option<Steer> {
     for s in stages {
         let Some(cmd) = cmd_of(s) else { continue };
-        let recursive_grep = cmd == "grep"
-            && (has_short(s, 'r') || has_short(s, 'R') || has_flag(s, "--recursive"));
+        let recursive_grep =
+            cmd == "grep" && (has_short(s, 'r') || has_short(s, 'R') || has_flag(s, "--recursive"));
         if recursive_grep || matches!(cmd, "rg" | "ripgrep" | "ag") {
             let pat = grep_pattern(s);
             // `grep -r PAT PATH` / `rg PAT PATH`: the second positional is the path.
@@ -444,8 +450,8 @@ fn rule_find_files(stages: &[Vec<String>]) -> Option<Steer> {
 fn rule_sed_inplace(stages: &[Vec<String>]) -> Option<Steer> {
     let stage = stages.iter().find(|s| {
         let cmd = cmd_of(s);
-        let sed_i = cmd == Some("sed")
-            && s.iter().any(|w| w.starts_with("-i") || w == "--in-place");
+        let sed_i =
+            cmd == Some("sed") && s.iter().any(|w| w.starts_with("-i") || w == "--in-place");
         let perl_i = cmd == Some("perl") && s.iter().any(|w| w.starts_with("-i"));
         sed_i || perl_i
     })?;
@@ -505,9 +511,9 @@ fn rule_read_range(stages: &[Vec<String>]) -> Option<Steer> {
 
 /// `ls -R` / `tree` → `ct tree`.
 fn rule_list_recursive(stages: &[Vec<String>]) -> Option<Steer> {
-    let stage = stages.iter().find(|s| {
-        cmd_of(s) == Some("tree") || (cmd_of(s) == Some("ls") && has_short(s, 'R'))
-    })?;
+    let stage = stages
+        .iter()
+        .find(|s| cmd_of(s) == Some("tree") || (cmd_of(s) == Some("ls") && has_short(s, 'R')))?;
     let base = positionals(stage).first().copied();
     let suggestion = match base {
         Some(b) => format!("ct tree --base {b}"),
@@ -584,7 +590,12 @@ fn grep_pattern(stage: &[String]) -> Option<&str> {
     }
     let start = stage
         .iter()
-        .position(|w| matches!(base_name(w), "grep" | "egrep" | "fgrep" | "rg" | "ripgrep" | "ag"))
+        .position(|w| {
+            matches!(
+                base_name(w),
+                "grep" | "egrep" | "fgrep" | "rg" | "ripgrep" | "ag"
+            )
+        })
         .map_or(1, |i| i + 1);
     stage[start..]
         .iter()
@@ -870,7 +881,9 @@ pub mod install {
         let hooks = root.get("hooks");
         match hooks {
             None => ops.push(op_set(".hooks", "{}".to_string())?),
-            Some(h) if !h.is_object() => return Err("settings `hooks` must be an object".to_string()),
+            Some(h) if !h.is_object() => {
+                return Err("settings `hooks` must be an object".to_string());
+            }
             Some(_) => {}
         }
         let pre = hooks.and_then(|h| h.get("PreToolUse"));
@@ -957,7 +970,11 @@ pub mod install {
                 .get("hooks")
                 .and_then(Value::as_object)
                 .is_some_and(|o| o.len() == 1);
-            let path = if hooks_solo { ".hooks" } else { ".hooks.PreToolUse" };
+            let path = if hooks_solo {
+                ".hooks"
+            } else {
+                ".hooks.PreToolUse"
+            };
             return Ok(vec![op_delete(path)?]);
         }
 
@@ -992,8 +1009,14 @@ mod tests {
 
     #[test]
     fn steers_high_confidence_idioms() {
-        assert_eq!(tool("find . -name '*.rs' | xargs grep TODO"), Some("ct search"));
-        assert_eq!(rule("find . -name '*.rs' | xargs grep TODO"), Some("find-grep"));
+        assert_eq!(
+            tool("find . -name '*.rs' | xargs grep TODO"),
+            Some("ct search")
+        );
+        assert_eq!(
+            rule("find . -name '*.rs' | xargs grep TODO"),
+            Some("find-grep")
+        );
         assert_eq!(tool("grep -rn TODO src"), Some("ct search"));
         assert_eq!(tool("rg TODO src"), Some("ct search"));
         assert_eq!(tool("find src -name '*.rs'"), Some("ct search"));
@@ -1004,7 +1027,10 @@ mod tests {
         assert_eq!(tool("ls -R src"), Some("ct tree"));
         assert_eq!(tool("wc -l src/lib.rs"), Some("ct tree"));
         assert_eq!(tool("for f in a b; do grep -r x $f; done"), Some("ct each"));
-        assert_eq!(rule("for f in a b; do grep -r x $f; done"), Some("shell-loop"));
+        assert_eq!(
+            rule("for f in a b; do grep -r x $f; done"),
+            Some("shell-loop")
+        );
     }
 
     #[test]
@@ -1012,9 +1038,17 @@ mod tests {
         let s = analyze("grep -rn TODO src").unwrap();
         assert!(s.suggestion.contains("--grep 'TODO'"), "{}", s.suggestion);
         let e = analyze("sed -i 's/foo/bar/g' f.rs").unwrap();
-        assert!(e.suggestion.contains("--find 'foo'") && e.suggestion.contains("--replace 'bar'"), "{}", e.suggestion);
+        assert!(
+            e.suggestion.contains("--find 'foo'") && e.suggestion.contains("--replace 'bar'"),
+            "{}",
+            e.suggestion
+        );
         let v = analyze("head -n 40 src/lib.rs").unwrap();
-        assert!(v.suggestion.contains("src/lib.rs --range 1:40"), "{}", v.suggestion);
+        assert!(
+            v.suggestion.contains("src/lib.rs --range 1:40"),
+            "{}",
+            v.suggestion
+        );
         // the grep pattern is taken after the `grep` token, not after `xargs`
         let fg = analyze("find . -name '*.rs' | xargs grep TODO").unwrap();
         assert!(fg.suggestion.contains("--grep 'TODO'"), "{}", fg.suggestion);
@@ -1025,7 +1059,11 @@ mod tests {
     fn chain_only_when_all_segments_serviceable() {
         let s = analyze("grep -r foo src && sed -i 's/a/b/' f.rs").unwrap();
         assert_eq!(s.tool, "ct and");
-        assert!(s.suggestion.starts_with("ct and search"), "{}", s.suggestion);
+        assert!(
+            s.suggestion.starts_with("ct and search"),
+            "{}",
+            s.suggestion
+        );
         assert!(s.suggestion.contains(":::"), "{}", s.suggestion);
         // a mixed chain (one non-ct segment) is left alone
         assert!(analyze("grep -r foo src && make").is_none());
@@ -1065,7 +1103,11 @@ mod tests {
         assert_eq!(ask["hookSpecificOutput"]["permissionDecision"], "ask");
         let warn = hook::process(envelope, Mode::Warn).unwrap();
         assert!(warn["hookSpecificOutput"]["additionalContext"].is_string());
-        assert!(warn["hookSpecificOutput"].get("permissionDecision").is_none());
+        assert!(
+            warn["hookSpecificOutput"]
+                .get("permissionDecision")
+                .is_none()
+        );
     }
 
     #[test]

@@ -189,7 +189,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     let _pulse = cli.heartbeat.start("ct-steer", PulseState::new())?;
 
     let Some(command) = &cli.command else {
-        return Err("specify a subcommand (hook, install, uninstall, check — see `ct-steer --help`)".to_string());
+        return Err(
+            "specify a subcommand (hook, install, uninstall, check — see `ct-steer --help`)"
+                .to_string(),
+        );
     };
     match command {
         Command::Hook(a) => Ok(cmd_hook(a)),

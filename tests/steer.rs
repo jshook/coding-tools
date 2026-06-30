@@ -87,7 +87,11 @@ fn hook_modes_change_the_decision() {
     let warn: serde_json::Value =
         serde_json::from_str(&stdout(&run_hook(&env, &["--mode", "warn"]))).unwrap();
     assert!(warn["hookSpecificOutput"]["additionalContext"].is_string());
-    assert!(warn["hookSpecificOutput"].get("permissionDecision").is_none());
+    assert!(
+        warn["hookSpecificOutput"]
+            .get("permissionDecision")
+            .is_none()
+    );
 }
 
 #[test]
@@ -110,7 +114,10 @@ fn hook_is_silent_and_fails_open_on_misses() {
 
 #[test]
 fn check_exit_codes_mirror_the_decision() {
-    let steered = steer().args(["check", "grep -r TODO src"]).output().unwrap();
+    let steered = steer()
+        .args(["check", "grep -r TODO src"])
+        .output()
+        .unwrap();
     assert_eq!(code(&steered), 1, "a steered command exits 1");
     assert!(stdout(&steered).contains("ct search"));
 
@@ -151,7 +158,11 @@ fn install_creates_idempotent_settings_then_uninstalls() {
         .output()
         .unwrap();
     assert_eq!(code(&removed), 0);
-    assert!(!std::fs::read_to_string(&settings).unwrap().contains("steer hook"));
+    assert!(
+        !std::fs::read_to_string(&settings)
+            .unwrap()
+            .contains("steer hook")
+    );
 }
 
 #[test]
