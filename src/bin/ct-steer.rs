@@ -49,11 +49,89 @@ fn cmd_hook(args: &HookArgs) -> ExitCode {
     if std::io::stdin().read_to_string(&mut envelope).is_err() {
         return ExitCode::SUCCESS; // fail-open
     }
-    if let Some(decision) = steer::hook::process(&envelope, args.mode.to_lib()) {
+    let mode = args.mode.to_lib();
+    // Tool-call logging is on by default: record every call (steered or allowed)
+    // for later analysis. Best-effort and fail-open — a logging error must never
+    // disturb the tool call, so it is swallowed and the decision still emitted.
+    if let Some((dir, managed)) = resolve_log_dir(args) {
+        append_log(&dir, managed, &envelope, mode);
+    }
+    if let Some(decision) = steer::hook::process(&envelope, mode) {
         // Compact JSON on stdout is how Claude Code reads the decision.
         println!("{decision}");
     }
     ExitCode::SUCCESS
+}
+
+/// The daily-log directory and whether it is the managed default. `--no-log`
+/// disables logging; `--log-dir`/`CT_STEER_LOG` name an explicit directory (not
+/// managed — we leave its gitignore to the operator); otherwise it defaults to
+/// `.ct/tclog` under the nearest `.ct` (the managed case, whose `.ct/.gitignore`
+/// we keep current).
+fn resolve_log_dir(args: &HookArgs) -> Option<(PathBuf, bool)> {
+    if args.no_log {
+        return None;
+    }
+    if let Some(dir) = &args.log_dir {
+        return Some((dir.clone(), false));
+    }
+    if let Some(dir) = std::env::var_os("CT_STEER_LOG") {
+        return Some((PathBuf::from(dir), false));
+    }
+    let cwd = std::env::current_dir().ok()?;
+    let root = coding_tools::rules::discover_root(&cwd).unwrap_or(cwd);
+    Some((root.join(".ct").join("tclog"), true))
+}
+
+/// Append one JSONL record for this envelope to the day's file in `dir`, stamped
+/// with the current time. Best-effort: the directory is created as needed and any
+/// error is discarded. When `managed`, the enclosing `.ct/.gitignore` is kept
+/// current so the log directory stays out of version control.
+fn append_log(dir: &std::path::Path, managed: bool, envelope: &str, mode: steer::Mode) {
+    let now_ms = epoch_ms();
+    let mut record = steer::hook::log_record(envelope, mode);
+    if let serde_json::Value::Object(map) = &mut record {
+        map.insert("ts_ms".to_string(), serde_json::json!(now_ms));
+    }
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    if managed {
+        ensure_ct_gitignore(dir);
+    }
+    let stem = steer::date_stem((now_ms / 1000) as i64);
+    let file = dir.join(format!("{stem}.jsonl"));
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&file)
+    {
+        use std::io::Write;
+        let mut line = record.to_string();
+        line.push('\n');
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
+/// Ensure the `.ct/.gitignore` alongside a `.ct/tclog` log directory carries the
+/// `*log` rule, so the logs are excluded from version control. Best-effort.
+fn ensure_ct_gitignore(tclog_dir: &std::path::Path) {
+    let Some(ct_dir) = tclog_dir.parent() else {
+        return;
+    };
+    let path = ct_dir.join(".gitignore");
+    let existing = std::fs::read_to_string(&path).ok();
+    if let Some(contents) = steer::gitignore_with_log_rule(existing.as_deref()) {
+        let _ = std::fs::write(&path, contents);
+    }
+}
+
+/// Milliseconds since the Unix epoch (0 if the clock is before it).
+fn epoch_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
 }
 
 /// Resolve the settings file path for an install/uninstall.
@@ -68,8 +146,18 @@ fn settings_path(args: &InstallArgs) -> Result<PathBuf, String> {
 
 /// `ct steer install`.
 fn cmd_install(cli: &Cli, args: &InstallArgs) -> Result<ExitCode, String> {
-    let command = install::hook_command(args.mode.to_lib());
-    let tools: Vec<install::Tool> = args.tools.iter().map(|t| t.to_lib()).collect();
+    let log_dir = args
+        .log_dir
+        .as_deref()
+        .map(|p| p.to_string_lossy().into_owned());
+    let command = install::hook_command(args.mode.to_lib(), log_dir.as_deref(), args.no_log);
+    // --all-tools installs a single "*" matcher (full coverage); it supersedes
+    // any explicit --tools list.
+    let tools: Vec<install::Tool> = if args.all_tools {
+        vec![install::Tool::All]
+    } else {
+        args.tools.iter().map(|t| t.to_lib()).collect()
+    };
 
     // `--print` just shows the snippet to paste; it reads/writes nothing.
     if args.print {

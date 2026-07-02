@@ -75,6 +75,31 @@ decision object on **stdout** and exits `0`:
 On a miss (or a non-`Bash` tool, or malformed input) it prints nothing and exits
 `0`. This is the command wired into settings; you rarely run it by hand.
 
+**Tool-call logging (on by default).** The hook appends one JSON object per line
+to a daily log — a record of **every** call it sees, the silent *allows*
+included. That allow stream is the point: it is the raw material for spotting
+shell idioms that *should* have been steered to `ct` but no rule yet covers. Each
+record carries `tool`, `command` (for `Bash`), `cwd`, `session_id`, the
+`decision` (`deny`/`ask`/`warn`/`allow`), the `rule_id` and `ct_tool` when
+steered, and a `ts_ms` timestamp.
+
+- **Location.** Logs default to `.ct/tclog/` under the nearest `.ct` directory
+  (git-style upward discovery; created if absent). Files rotate daily as
+  `<yyyy-mm-dd>.jsonl` (UTC). The log directory is kept out of version control
+  automatically: the hook ensures `.ct/.gitignore` carries a `*log` rule, which
+  matches the `tclog` directory.
+- **Controls.** `--log-dir DIR` (or the `CT_STEER_LOG` environment variable)
+  redirects the logs to another directory — one you manage yourself, so its
+  gitignore is left untouched. `--no-log` disables logging entirely.
+- **Coverage.** The hook only sees the tools it is installed for, so pair logging
+  with `install --all-tools` (a single `*` matcher) to capture the full tool
+  stream; recognised idioms are still steered, everything else passes through and
+  is merely recorded.
+
+Logging is **best-effort and fail-open** — a write error never disturbs the tool
+call. Analyse a day's log with the suite itself, e.g.
+`ct search --base .ct/tclog --grep '"decision":"allow"'`.
+
 **Background-Bash limitation.** The hook gates the `Bash` tool, but a host may
 not run `PreToolUse` for **backgrounded** tool calls — so a `for … sleep … done`
 watcher launched in the background can slip past ungated. The durable fix is
@@ -93,6 +118,13 @@ Merge or remove the Bash `PreToolUse` hook in a Claude Code settings file.
 - `--tools Bash,Grep,Glob,Read` *(default `Bash`)* — which tools to gate; one
   `PreToolUse` matcher entry is written per tool. `Grep`/`Glob` steer to
   `ct search`, `Read` to `ct view`.
+- `--all-tools` — gate every tool under a single `*` matcher (supersedes
+  `--tools`), so the default logging records the full tool stream, not just the
+  steerable tools.
+- `--log-dir DIR` — bake a `--log-dir` override into the installed hook command
+  (logging is on by default to `.ct/tclog`, so this is only for redirecting it).
+- `--no-log` — bake `--no-log` into the installed hook command, disabling the
+  default tool-call logging.
 - `--dry-run` — show the resulting settings file without writing it.
 - `--print` — emit just the hook snippet (for manual paste) and exit.
 
@@ -129,8 +161,17 @@ this document or the MCP tool-use definition.
 ct steer install                          # deny-mode Bash hook → .claude/settings.json
 ct steer install --mode ask               # softer: ask instead of deny
 ct steer install --tools Bash,Grep,Glob,Read  # also gate the harness search/read tools
-ct steer install --print                  # see the snippet without writing
-ct steer uninstall                        # remove every steer matcher
+ct steer install --all-tools --mode warn      # log every call, steer non-intrusively
+ct steer install --no-log                     # opt out of the default tool-call logging
+ct steer install --print                      # see the snippet without writing
+ct steer uninstall                            # remove every steer matcher
+```
+
+Tool-call logging is on by default (`.ct/tclog/<yyyy-mm-dd>.jsonl`). Analyse a
+day's log to find un-steered patterns worth a new rule:
+
+```sh
+ct search --base .ct/tclog --grep '"decision":"allow"'  # the misses to mine
 ```
 
 ## Exit status

@@ -19,6 +19,7 @@ pub mod ct_patch;
 pub mod ct_rules;
 pub mod ct_search;
 pub mod ct_steer;
+pub mod ct_survey;
 pub mod ct_test;
 pub mod ct_tree;
 pub mod ct_view;
@@ -38,6 +39,7 @@ pub fn commands() -> Vec<(&'static str, clap::Command)> {
         ("ct-rules", ct_rules::Cli::command()),
         ("ct-search", ct_search::Cli::command()),
         ("ct-steer", ct_steer::Cli::command()),
+        ("ct-survey", ct_survey::Cli::command()),
         ("ct-test", ct_test::Cli::command()),
         ("ct-tree", ct_tree::Cli::command()),
         ("ct-view", ct_view::Cli::command()),

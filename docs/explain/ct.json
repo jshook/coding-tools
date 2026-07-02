@@ -1,6 +1,6 @@
 {
   "name": "ct",
-  "description": "Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, ct okf runs ct-okf, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). Two built-in boolean chains sequence several sub-commands in a single argv without a shell, using the separator ::: between segments: `ct and A ::: B ::: C` runs each in turn and stops at the first non-zero exit (shell-less &&, returning that code; 0 if all succeed); `ct or A ::: B` runs each in turn and stops at the first zero exit (shell-less ||, returning 0; the last segment's code if all fail). A blank segment is a usage error (exit 2), and chains do not nest. To invoke a chain through this schema set command to 'and' or 'or' and put the segments (with ::: separators) in args. This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
+  "description": "USE ct — DO NOT ROUTE AROUND IT. When a task has a ct tool, call that tool instead of raw shell or the harness's generic search/read tools; each ct tool is bounded (it will not flood context), deterministic, and self-verifying (a framed --expect/--question verdict, exit 0/1/2), and the ad-hoc equivalent is none of those even when it appears to work. Map: search = find files / search content (not find, grep -r, rg, ag, Grep, Glob); view --range = read a line range or regions (not sed -n, head, tail, Read offset/limit); tree --summary = file tree with counts/totals and survey = crate/module survey (not ls -R, wc -l, ad-hoc cargo metadata); outline = declarations in a file/tree (not grepping for 'fn '/'class '/'def '); edit = previewed, --expect-gated find/replace (not sed -i, perl -i); patch = set/delete JSON/JSONC/JSONL nodes (not jq -i or hand-editing); test = run a command as a checked experiment (not eyeballing output); each = one command template per item (not for/while loops); await = poll until a probe passes (not sleep/retry loops). ONE CALL, NOT A PIPELINE: do not cobble commands with pipes, xargs, and command substitution — combine steps with `ct and`/`ct or` (shell-less &&/||), fan out with `ct each`, and get totals/verdicts with --summary and --expect/--question instead of piping into wc, grep, or test. A hand-built pipeline is unbounded and silent on failure; a ct call is bounded and reports its verdict. --- Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, ct okf runs ct-okf, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). Two built-in boolean chains sequence several sub-commands in a single argv without a shell, using the separator ::: between segments: `ct and A ::: B ::: C` runs each in turn and stops at the first non-zero exit (shell-less &&, returning that code; 0 if all succeed); `ct or A ::: B` runs each in turn and stops at the first zero exit (shell-less ||, returning 0; the last segment's code if all fail). A blank segment is a usage error (exit 2), and chains do not nest. To invoke a chain through this schema set command to 'and' or 'or' and put the segments (with ::: separators) in args. This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -1166,6 +1166,75 @@
       }
     },
     {
+      "name": "ct-survey",
+      "description": "Survey a codebase by the units its build system defines, not by raw filesystem shape — for Rust, the workspace -> crate -> module hierarchy, each element carrying file, line, word, character, and test counts. Reachable as `ct survey ...` or `ct-survey ...`; read-only. Honesty classes are kept distinct and never conflated: crate identity, workspace membership, and cargo target kinds are AUTHORITATIVE (read from `cargo metadata --no-deps --offline`); file/line/word/char counts are EXACT; the module bucketing (nearest source root, path-derived like ct's module graph) and the #[test] tally are HEURISTIC and render with a trailing '~' in text output (JSON tags each block under `honesty`). With no --group, the contextual group type is inferred from the given path's Cargo.toml: a [workspace] table -> cargo-workspace (survey every member crate); a lone [package] -> cargo-crate (survey just that crate, even inside a workspace). --group overrides the inference. --depth chooses crate (per-crate rows only) or module (per-crate then per-module, the default). --sort orders by name (ascending) or files/lines/tests (largest first), applied to crates and their modules. The heuristic test count scans for attributes whose final segment is `test` (#[test], #[tokio::test]); it excludes #[cfg(test)] and does not discount attributes in strings/comments. Authoritative cargo test/bench TARGET counts sit beside it. A crate total can exceed its module sum: integration tests and benches count toward the crate but belong to no module. Requires a resolvable Cargo.toml; cargo/metadata/argument errors exit 2 with a one-line message. Invoke as `ct survey ...` or `ct-survey ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to survey: a directory, or a Cargo.toml file. A directory uses its Cargo.toml. Default '.'.",
+            "default": "."
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "cargo-workspace",
+              "cargo-crate"
+            ],
+            "description": "Contextual group type. Omit to infer from the path's Cargo.toml ([workspace] -> cargo-workspace, else cargo-crate). cargo-workspace surveys every member; cargo-crate surveys just the crate whose Cargo.toml the path names."
+          },
+          "depth": {
+            "type": "string",
+            "enum": [
+              "crate",
+              "module"
+            ],
+            "description": "How deep to descend: crate (per-crate rows only) or module (per-crate then per-module). Default: module."
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "name",
+              "files",
+              "lines",
+              "tests"
+            ],
+            "description": "Sort key for crates and, within each crate, its modules: name (ascending) or files/lines/tests (largest first). Default: name."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result {tool, group, name, root, honesty, crates:[{name,version,files,lines,words,chars,tests,test_targets,bench_targets,modules:[...]}], totals} instead of text."
+          },
+          "json-pretty": {
+            "type": "boolean",
+            "description": "Like --json, but pretty-printed (indented)."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if the run exceeds SECS seconds (fractional allowed)."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
+          }
+        },
+        "required": []
+      }
+    },
+    {
       "name": "ct-rules",
       "description": "Say what the rules are: the specification and storage interface of the project's invariant surface (.ct/rules.jsonc; the verifying side is ct-check). Verbs (exactly one per invocation): --init scaffolds a commented store under .ct/ (the suite's home for project-local state; discovered by walking upward to the nearest .ct, --file overrides); --add ID records a rule — the probe after `--` is gate-validated and RUN immediately, and must hold (a violated candidate is refused exit 1 with the probe's own violation output; a broken probe is refused exit 2) unless --pending parks it as an aspiration that ct-check reports separately and never enforces; --promote ID re-runs a pending rule's probe and clears the pending flag once it holds; --remove ID deletes by exact id (duplicate ids are always refused — ids are history); --def NAME=VALUE sets named vocabulary (VALUE parsed as JSON, e.g. a list, else taken as a string) that rules reference as {def:NAME} inside probe argvs; --list prints defs and rules; --prompt TEXT (with --add) retains the verbatim human request behind the rule as provenance — the confirmation tells the user it was retained — and --flatten strips every retained prompt in one pass, leaving only the mechanical definitions; the store itself is human-friendly JSONC (a standing header comment re-established on every write, one field per line per rule, blank lines between rules); --hook cargo writes tests/ct_invariants.rs, a plain reviewed-in-git shim that makes `cargo test` run `ct check --quiet` and fail loudly (including when the ct binary is missing; a shim ct-rules did not generate is never overwritten). A bare probe with no verb runs it and reports without saving — prototyping; the same probe with --add ID --question … then records it. Probes observe and never change anything: the gate is compiled-in and immutable — the suite's read-only tools (ct-search ct-outline ct-tree ct-view, ct-test, ct-each without --mutating), the built-in checks deps|mods (crate/module graph invariants, run in-process), plus the bridge (cargo metadata / cargo tree hermetic, cargo deny check offline unless --network, rust-analyzer search|symbols search-only); never the mutating tools, ct-check (no self-recursion), ct-rules itself, shells, or unlisted externals. --add options: --question (required), --why (printed whenever the rule fails), --tag, --severity warn (violations report but never redden the exit), --expect empty | --expect-ok PATTERN | --expect-err PATTERN (outcome adapters for bridge tools; ct-test matcher semantics), --network, --timeout SECS, --pending. All store mutations are comment-preserving (the suite's own patch machinery). ct-rules writes only the store and the hook shim, and is on no allow-gate. Exit: 0 success; 1 refused on the merits (candidate/promotion does not hold); 2 usage or store error. Invoke as `ct rules ...` or `ct-rules ...`.",
       "input_schema": {
@@ -1483,11 +1552,11 @@
       "commands": [
         {
           "name": "hook",
-          "description": "Runtime PreToolUse hook: read a tool-call envelope on stdin, print a deny/ask/warn decision on a match (nothing on a miss). Handles Bash plus the harness Grep/Glob/Read tools. Always exits 0. --mode deny|ask|warn (default deny)."
+          "description": "Runtime PreToolUse hook: read a tool-call envelope on stdin, print a deny/ask/warn decision on a match (nothing on a miss). Handles Bash plus the harness Grep/Glob/Read tools. Always exits 0. --mode deny|ask|warn (default deny). Tool-call logging is ON by default: it appends one JSONL record per call — including the silent allows, the raw material for spotting un-steered idioms — to .ct/tclog/<yyyy-mm-dd>.jsonl under the nearest .ct (created if absent), and keeps a .ct/.gitignore '*log' rule so the logs stay out of git. Each record has tool, command, cwd, session_id, decision, rule_id, ct_tool, ts_ms. --log-dir DIR (or CT_STEER_LOG) redirects the logs; --no-log disables them. Best-effort and fail-open."
         },
         {
           "name": "install",
-          "description": "Merge the PreToolUse steering hook into a Claude Code settings file. --scope project|local|user (default project), --mode deny|ask|warn, --tools Bash,Grep,Glob,Read (default Bash; one matcher per tool), --dry-run (show the file), --print (emit just the snippet). Idempotent."
+          "description": "Merge the PreToolUse steering hook into a Claude Code settings file. --scope project|local|user (default project), --mode deny|ask|warn, --tools Bash,Grep,Glob,Read (default Bash; one matcher per tool), --all-tools (a single '*' matcher, supersedes --tools; for full-coverage logging), --log-dir DIR (bake a log-directory override; logging is on by default), --no-log (bake in disabling the default tool-call logging), --dry-run (show the file), --print (emit just the snippet). Idempotent."
         },
         {
           "name": "uninstall",
@@ -1503,7 +1572,7 @@
   "builtin_checks": [
     {
       "name": "deps",
-      "description": "Built-in crate-graph check — a reserved probe head the rule layer runs in-process (not a standalone command). Asserts properties of the resolved dependency graph from one hermetic `cargo metadata --format-version 1 --locked --offline` invocation, with every violation carrying an evidence path. Use it as a rule probe (`ct rules --add ID --question … -- deps …`, verified by `ct check`) or prototype it without saving (`ct rules -- deps …`). It classifies its own outcome, so it takes no --expect adapter. Assertions (at least one required): --deny NAME (a crate reachable from any workspace member), --forbid 'A=>B' (package A reaches package B; A absent is broken), --duplicates (a crate at more than one version), --acyclic (any dependency cycle — Tarjan SCC; --members scopes it to the workspace-member subgraph, the actionable form), --layers L0,L1,... (ordered highest first, crate-name patterns; a lower layer must not reach a higher one, indirectly; --layers-closed flags members matching no layer). --edges normal,build,dev restricts traversed edge kinds (default all three). Outcome: holds (no violations), violated (with the evidence paths), or broken (no assertion, defective --forbid spec, empty --layers pattern, or cargo metadata failure).",
+      "description": "Built-in crate-graph check — a reserved probe head the rule layer runs in-process (not a standalone command). Asserts properties of the resolved dependency graph from one hermetic `cargo metadata --format-version 1 --locked --offline` invocation, with every violation carrying an evidence path. Use it as a rule probe (`ct rules --add ID --question … -- deps …`, verified by `ct check`) or prototype it without saving (`ct rules -- deps …`). It classifies its own outcome, so it takes no --expect adapter. Assertions (at least one required): --deny NAME (a crate reachable from any workspace member), --forbid 'A=>B' (package A reaches package B; A absent is broken), --duplicates (a crate at more than one version; --allow-duplicate NAME exempts low-level platform crates like windows-sys), --acyclic (any dependency cycle — Tarjan SCC; --members scopes it to the workspace-member subgraph, the actionable form), --layers L0,L1,... (ordered highest first, crate-name patterns; a lower layer must not reach a higher one, indirectly; --layers-closed flags members matching no layer). --edges normal,build,dev restricts traversed edge kinds (default all three). Outcome: holds (no violations), violated (with the evidence paths), or broken (no assertion, defective --forbid spec, empty --layers pattern, or cargo metadata failure).",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1524,6 +1593,13 @@
           "duplicates": {
             "type": "boolean",
             "description": "Violation for every crate that resolves at more than one version, with the version list as evidence."
+          },
+          "allow-duplicate": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With --duplicates: crate names exempt from the duplicate check (comma-joined or repeated), for low-level platform crates like windows-sys that legitimately resolve at several versions."
           },
           "acyclic": {
             "type": "boolean",

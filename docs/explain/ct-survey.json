@@ -1,0 +1,69 @@
+{
+  "name": "ct-survey",
+  "description": "Survey a codebase by the units its build system defines, not by raw filesystem shape — for Rust, the workspace -> crate -> module hierarchy, each element carrying file, line, word, character, and test counts. Reachable as `ct survey ...` or `ct-survey ...`; read-only. Honesty classes are kept distinct and never conflated: crate identity, workspace membership, and cargo target kinds are AUTHORITATIVE (read from `cargo metadata --no-deps --offline`); file/line/word/char counts are EXACT; the module bucketing (nearest source root, path-derived like ct's module graph) and the #[test] tally are HEURISTIC and render with a trailing '~' in text output (JSON tags each block under `honesty`). With no --group, the contextual group type is inferred from the given path's Cargo.toml: a [workspace] table -> cargo-workspace (survey every member crate); a lone [package] -> cargo-crate (survey just that crate, even inside a workspace). --group overrides the inference. --depth chooses crate (per-crate rows only) or module (per-crate then per-module, the default). --sort orders by name (ascending) or files/lines/tests (largest first), applied to crates and their modules. The heuristic test count scans for attributes whose final segment is `test` (#[test], #[tokio::test]); it excludes #[cfg(test)] and does not discount attributes in strings/comments. Authoritative cargo test/bench TARGET counts sit beside it. A crate total can exceed its module sum: integration tests and benches count toward the crate but belong to no module. Requires a resolvable Cargo.toml; cargo/metadata/argument errors exit 2 with a one-line message. Invoke as `ct survey ...` or `ct-survey ...`.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Path to survey: a directory, or a Cargo.toml file. A directory uses its Cargo.toml. Default '.'.",
+        "default": "."
+      },
+      "group": {
+        "type": "string",
+        "enum": [
+          "cargo-workspace",
+          "cargo-crate"
+        ],
+        "description": "Contextual group type. Omit to infer from the path's Cargo.toml ([workspace] -> cargo-workspace, else cargo-crate). cargo-workspace surveys every member; cargo-crate surveys just the crate whose Cargo.toml the path names."
+      },
+      "depth": {
+        "type": "string",
+        "enum": [
+          "crate",
+          "module"
+        ],
+        "description": "How deep to descend: crate (per-crate rows only) or module (per-crate then per-module). Default: module."
+      },
+      "sort": {
+        "type": "string",
+        "enum": [
+          "name",
+          "files",
+          "lines",
+          "tests"
+        ],
+        "description": "Sort key for crates and, within each crate, its modules: name (ascending) or files/lines/tests (largest first). Default: name."
+      },
+      "json": {
+        "type": "boolean",
+        "description": "Emit a structured JSON result {tool, group, name, root, honesty, crates:[{name,version,files,lines,words,chars,tests,test_targets,bench_targets,modules:[...]}], totals} instead of text."
+      },
+      "json-pretty": {
+        "type": "boolean",
+        "description": "Like --json, but pretty-printed (indented)."
+      },
+      "timeout": {
+        "type": "number",
+        "description": "Abort with exit 2 (and a one-line message) if the run exceeds SECS seconds (fractional allowed)."
+      },
+      "heartbeat": {
+        "type": "number",
+        "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+      },
+      "heartbeat-emit": {
+        "type": "string",
+        "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+      },
+      "heartbeat-to": {
+        "type": "string",
+        "enum": [
+          "stderr",
+          "stdout"
+        ],
+        "description": "Stream heartbeat pulses are written to. Default: stderr."
+      }
+    },
+    "required": []
+  }
+}

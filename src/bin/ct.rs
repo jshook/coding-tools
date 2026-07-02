@@ -61,6 +61,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "Report the declarations in a file or tree: kind, name, start:end span (ct-outline)",
     ),
     (
+        "survey",
+        "Survey a codebase by build-system units: crates and modules, with file/line/test counts (ct-survey)",
+    ),
+    (
         "okf",
         "Author, query, and index Open Knowledge Format bundles: search, roots, index, validate (ct-okf)",
     ),
@@ -81,6 +85,38 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "Steer ad-hoc shell to the ct tool that serves it; install the PreToolUse hook (ct-steer)",
     ),
 ];
+
+/// The standing directive shown to any agent that looks at `ct` — the whole
+/// reason the suite exists. Deliberately blunt: past agents have quietly
+/// reached for `grep`/`sed`/`find` or the harness's generic tools out of habit,
+/// and cobbled multi-step pipelines where one compound `ct` call would do.
+const DIRECTIVE: &str = "\
+Use ct — do not route around it. When a task below has a ct tool, call that tool
+instead of raw shell or the harness's generic search/read tools. Each ct tool is
+bounded (it will not flood your context), deterministic, and self-verifying (a
+framed --expect/--question verdict, exit 0/1/2). The ad-hoc equivalent is none of
+those — reaching for it \"because it is quick\" is the exact mistake this suite fixes:
+  search   find files / search content     not  find, grep -r, rg, ag, Grep, Glob
+  view     read a line range or regions    not  sed -n, head, tail, Read + offset
+  tree     file tree with counts / totals  not  ls -R, tree, wc -l
+  survey   crate / module survey w/ counts not  ad-hoc cargo metadata + wc
+  outline  declarations in a file or tree  not  grepping for 'fn '/'class '/'def '
+  edit     find/replace, previewed + gated not  sed -i, perl -i
+  patch    set/delete JSON/JSONC nodes     not  jq -i, hand-editing JSON
+  test     run a command as an experiment  not  eyeballing raw output
+  each     one command template per item   not  for / while read loops
+  await    poll until a probe passes       not  sleep / retry loops
+
+One call, not a pipeline. Do NOT cobble commands together with pipes, xargs, and
+command substitution. Use ct's native compound and aggregate forms so the task is
+a single, checkable call:
+  ct and A ::: B ::: C   shell-less &&  — chain steps, stop at the first failure
+  ct or  A ::: B         shell-less ||  — try alternatives, stop at the first success
+  ct each ...            fan one command over many items, with one aggregate verdict
+  --summary --expect --question   totals and pass/fail built in — never pipe into wc, grep, or test
+A hand-built pipeline is unbounded, order-dependent, and silent on failure; a ct
+call is bounded, deterministic, and reports whether it succeeded.
+";
 
 /// The `ct --help` / usage text.
 fn usage() -> String {
@@ -103,6 +139,7 @@ fn usage() -> String {
          \n\
          Commands:\n\
          {commands}\n\
+         {DIRECTIVE}\n\
          ct <command> runs ct-<command> — found beside ct or on PATH — the same way\n\
          git runs git-<command>, so any ct-* tool you install is reachable through ct.\n"
     )
@@ -290,6 +327,14 @@ fn main() -> ExitCode {
     }
 
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // The detached background update poll re-invokes `ct` with this hidden flag;
+    // it does the crates.io network check and exits, never dispatching.
+    if args.first().map(String::as_str) == Some(coding_tools::update::BG_FLAG) {
+        coding_tools::update::run_background_poll();
+        return ExitCode::SUCCESS;
+    }
+
     let Some(first) = args.first() else {
         // No command: a usage error, but show the banner so it is actionable.
         eprint!("{}", usage());
@@ -336,14 +381,25 @@ fn main() -> ExitCode {
         "completions" => completions(&args[1..]),
         // Shell-less boolean chains: run several ct sub-commands in one argv,
         // short-circuiting like `&&` / `||` but without a shell to interpret them.
-        "and" => run_chain(ChainMode::And, "and", &args[1..]),
-        "or" => run_chain(ChainMode::Or, "or", &args[1..]),
+        "and" => {
+            coding_tools::update::on_invocation();
+            run_chain(ChainMode::And, "and", &args[1..])
+        }
+        "or" => {
+            coding_tools::update::on_invocation();
+            run_chain(ChainMode::Or, "or", &args[1..])
+        }
         flag if flag.starts_with('-') => {
             eprintln!("ct: unknown option '{flag}'");
             eprint!("\n{}", usage());
             ExitCode::from(2)
         }
-        sub => dispatch(sub, &args[1..]),
+        sub => {
+            // A real sub-command run: the only place the (cheap, non-blocking)
+            // update check fires, so help/version/explain/completions stay quiet.
+            coding_tools::update::on_invocation();
+            dispatch(sub, &args[1..])
+        }
     }
 }
 

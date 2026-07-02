@@ -22,6 +22,7 @@ const TOOLS: &[&str] = &[
     "ct-each",
     "ct-okf",
     "ct-outline",
+    "ct-survey",
     "ct-rules",
     "ct-check",
     "ct-await",
@@ -39,6 +40,7 @@ const LEAVES: &[&str] = &[
     "ct-each",
     "ct-okf",
     "ct-outline",
+    "ct-survey",
     "ct-rules",
     "ct-check",
     "ct-await",
@@ -115,6 +117,7 @@ fn ct_manifest_bundles_each_leaf_definition_verbatim() {
 fn non_flag_props(tool: &str) -> &'static [&'static str] {
     match tool {
         "ct-view" => &["path"],    // positional <PATH>
+        "ct-survey" => &["path"],  // positional [PATH]
         "ct-test" => &["args"],    // positional [ARGS] (the command argv)
         "ct-each" => &["command"], // trailing argv after `--`
         "ct-rules" => &["probe"],  // trailing argv after `--`

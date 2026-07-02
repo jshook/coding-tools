@@ -15,6 +15,46 @@ This document is the canonical reference for `ct`. It is also what the tool prin
 for `ct --explain` (`--explain md`); `ct --explain json` prints a machine-readable
 **manifest** of the whole suite (see *Agent discovery*).
 
+## Use ct — do not route around it
+
+**If a task below has a `ct` tool, use it — not raw shell, and not the harness's
+generic search/read tools.** Each `ct` tool is *bounded* (it will not flood your
+context), *deterministic*, and *self-verifying* (a framed `--expect`/`--question`
+verdict and the `0`/`1`/`2` exit contract). The ad-hoc equivalent is none of those,
+even when it appears to work — and reaching for it "because it's quick" is the exact
+habit this suite exists to correct. This is not a style preference; treat routing
+around a `ct` tool that fits the task as a defect.
+
+| Task | Use | Not |
+| --- | --- | --- |
+| find files / search content | `ct search` | `find`, `grep -r`, `rg`, `ag`, harness `Grep`/`Glob` |
+| read a line range or regions around a match | `ct view --range` | `sed -n`, `head`, `tail`, `Read` with offset/limit |
+| file tree with per-file counts / totals | `ct tree --summary` | `ls -R`, `tree`, `wc -l` |
+| survey crates / modules with counts | `ct survey` | ad-hoc `cargo metadata` + `wc` |
+| declarations in a file or tree | `ct outline` | grepping for `fn `/`class `/`def ` |
+| find/replace across files | `ct edit` (previewed, `--expect`-gated) | `sed -i`, `perl -i` |
+| set/delete nodes in JSON/JSONC/JSONL | `ct patch` | `jq -i`, hand-editing JSON |
+| run a command as a checked experiment | `ct test` | eyeballing raw output |
+| run one command per item | `ct each` | `for` / `while read` loops |
+| poll until a condition holds | `ct await` | `sleep` / retry loops |
+
+### One call, not a pipeline
+
+**Do not cobble commands together with pipes, `xargs`, and command substitution.**
+`ct` has native compound and aggregate forms so a task is a single, checkable call:
+
+- **Chain or choose** with `ct and` / `ct or` — shell-less `&&`/`||` in one argv
+  (see below), not a shell pipeline.
+- **Fan out** with `ct each` — one command template over many items with a single
+  aggregate verdict, not a `for` loop.
+- **Aggregate and assert in place** — `--summary` gives totals; `--expect` /
+  `--question` give a pass/fail verdict. Never pipe `ct` output into `wc`, `grep`,
+  or `test` to get an answer the tool will hand you directly.
+
+A hand-built pipeline is unbounded, order-dependent, and silent on failure. A `ct`
+call is bounded, deterministic, and tells you whether it succeeded — prefer it
+every time, even for a one-off.
+
 ## Usage
 
 ```
@@ -108,6 +148,34 @@ call yields every tool an agent can drive. Agents that only read a single
 understand the `tools` array get the whole suite at once.
 
 `ct --explain md` (this page) is the human-oriented overview.
+
+## Update check
+
+The first time you run a `ct` command, the suite tells you it will check
+crates.io for a newer release about **once a day**, in the background. The check
+is polite and never in your way:
+
+- It polls the crates.io **sparse index** with a conditional request (sending the
+  last `ETag` so an unchanged index answers `304 Not Modified`), the same
+  CDN-friendly path cargo's registry uses.
+- The network poll runs in a **detached background process**, so a `ct` command
+  never waits on it. When a newer version is found, the next run prints a one-line
+  notice (to stderr, and only on a terminal — scripts and pipes stay clean).
+
+Configure it with the `CT_UPDATE_CHECK` environment variable:
+
+| Value | Effect |
+| --- | --- |
+| _(unset)_ / `daily` | check once a day (default) |
+| `weekly` / `hourly` | check at that cadence |
+| `<seconds>` | check no more often than this many seconds |
+| `never` / `off` / `0` | disable the check entirely |
+
+State (last check time, the latest seen version, the `ETag`) lives in the user
+cache directory — `%LOCALAPPDATA%\coding-tools` on Windows, `~/Library/Caches/coding-tools`
+on macOS, `$XDG_CACHE_HOME/coding-tools` (or `~/.cache/coding-tools`) elsewhere —
+overridable with `CT_STATE_DIR`. Everything is best-effort: no network, a
+malformed index, or an unwritable cache is ignored silently.
 
 ## Exit status
 

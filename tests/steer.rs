@@ -25,6 +25,54 @@ fn steer() -> Command {
     Command::new(env!("CARGO_BIN_EXE_ct-steer"))
 }
 
+/// A scratch project **outside** the repo tree (under the system temp dir), so
+/// the default `.ct` discovery does not walk up into the repo's own `.ct`.
+fn temp_scratch(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join("ct-steer-tests").join(tag);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Run `ct steer hook <extra…>` in `dir` with logging left at its default, and
+/// with `CT_STEER_LOG` scrubbed so the environment can't redirect it.
+fn run_hook_in(dir: &Path, envelope: &str, extra: &[&str]) -> Output {
+    let mut child = steer()
+        .arg("hook")
+        .args(extra)
+        .current_dir(dir)
+        .env_remove("CT_STEER_LOG")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(envelope.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+/// The single daily-log file in a directory, asserting there is exactly one and
+/// that it is named `yyyy-mm-dd.jsonl`.
+fn only_daily_log(dir: &Path) -> PathBuf {
+    let files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(files.len(), 1, "exactly one daily log file in {dir:?}");
+    let name = files[0].file_name().unwrap().to_string_lossy().into_owned();
+    assert_eq!(name.len(), "yyyy-mm-dd.jsonl".len(), "name was {name}");
+    assert!(
+        name.ends_with(".jsonl") && name.as_bytes()[4] == b'-',
+        "name was {name}"
+    );
+    files[0].clone()
+}
+
 fn code(out: &Output) -> i32 {
     out.status.code().expect("child exited via a signal")
 }
@@ -33,10 +81,13 @@ fn stdout(out: &Output) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-/// Run `ct steer hook <extra…>` feeding `envelope` on stdin.
+/// Run `ct steer hook <extra…>` feeding `envelope` on stdin. Logging is disabled
+/// (`--no-log`) so these decision-focused runs never touch the filesystem; the
+/// default-on logging path has its own dedicated tests below.
 fn run_hook(envelope: &str, extra: &[&str]) -> Output {
     let mut child = steer()
         .arg("hook")
+        .arg("--no-log")
         .args(extra)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -245,5 +296,64 @@ fn install_print_writes_nothing() {
     assert!(
         !dir.join(".claude").exists(),
         "--print must not touch the filesystem"
+    );
+}
+
+#[test]
+fn hook_logs_every_call_by_default_under_ct_tclog() {
+    let dir = temp_scratch("default-log");
+    // A `.ct` here makes this the project root, so logs land in <dir>/.ct/tclog.
+    std::fs::create_dir_all(dir.join(".ct")).unwrap();
+
+    // An allowed command is still logged — the missed-pattern raw material.
+    let out = run_hook_in(&dir, &bash_envelope("git status"), &[]);
+    assert_eq!(code(&out), 0);
+    assert!(stdout(&out).trim().is_empty(), "an allow is still silent");
+
+    let file = only_daily_log(&dir.join(".ct").join("tclog"));
+    let content = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("git status"),
+        "logged the command: {content}"
+    );
+    assert!(content.contains("\"decision\":\"allow\""), "{content}");
+    assert!(content.contains("\"tool\":\"Bash\""), "{content}");
+
+    // The log directory is excluded via .ct/.gitignore (*log matches tclog).
+    let gitignore = std::fs::read_to_string(dir.join(".ct").join(".gitignore")).unwrap();
+    assert!(gitignore.contains("*log"), "gitignore: {gitignore}");
+
+    // A second call appends to the same day's file.
+    run_hook_in(&dir, &bash_envelope("ls"), &[]);
+    let after = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(after.lines().count(), 2, "second call appends: {after}");
+}
+
+#[test]
+fn hook_log_dir_override_writes_there_and_leaves_ct_alone() {
+    let dir = temp_scratch("override-log");
+    let logs = dir.join("mylogs");
+    let out = run_hook_in(
+        &dir,
+        &bash_envelope("git status"),
+        &["--log-dir", logs.to_str().unwrap()],
+    );
+    assert_eq!(code(&out), 0);
+    only_daily_log(&logs); // a daily file landed in the override directory
+    assert!(
+        !dir.join(".ct").exists(),
+        "an explicit --log-dir must not create or manage .ct"
+    );
+}
+
+#[test]
+fn hook_no_log_writes_nothing() {
+    let dir = temp_scratch("no-log");
+    std::fs::create_dir_all(dir.join(".ct")).unwrap();
+    let out = run_hook_in(&dir, &bash_envelope("git status"), &["--no-log"]);
+    assert_eq!(code(&out), 0);
+    assert!(
+        !dir.join(".ct").join("tclog").exists(),
+        "--no-log must write no log files"
     );
 }

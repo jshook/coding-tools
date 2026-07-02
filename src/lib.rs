@@ -38,6 +38,8 @@
 //! * [`steer`] — the redirection analyzer behind `ct-steer`: classify a shell
 //!   command into the `ct` tool that serves it, the `PreToolUse` hook protocol,
 //!   and the `.claude/settings.json` install/uninstall merge.
+//! * [`update`] — the daily, non-blocking crates.io sparse-index update check
+//!   wired into the `ct` umbrella (conditional GET, detached background poll).
 //!
 //! Per-command surfaces (the pure logic each `ct-*` tool is built on):
 //!
@@ -58,6 +60,9 @@
 //!   detection.
 //! * [`view`] — `ct-view`'s range parsing and context-window merging.
 //! * [`tree`] — `ct-tree`'s line/word/character counts and grouping.
+//! * [`survey`] — `ct-survey`'s format-contextualized workspace → crate → module
+//!   survey, reusing [`deps`]'s `cargo metadata` mechanism for authoritative
+//!   crate grouping and [`modgraph`]'s module naming for the heuristic breakdown.
 //! * [`edit`] — `ct-edit`'s line-scoped, byte-preserving replacement engine.
 //! * [`patch`] — `ct-patch`'s node-path / predicate / value parsing.
 //! * [`testrun`] — `ct-test`'s `--focus` output distiller.
@@ -85,9 +90,11 @@ pub mod pulse;
 pub mod rules;
 pub mod steer;
 pub mod supervise;
+pub mod survey;
 pub mod template;
 pub mod testrun;
 pub mod tree;
+pub mod update;
 pub mod verdict;
 pub mod view;
 pub mod walk;

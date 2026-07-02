@@ -44,12 +44,11 @@
 
     {
       "id": "no-duplicate-deps",
-      "question": "Is the dependency tree free of duplicate crate versions?",
-      "why": "duplicate versions bloat the binary and split trait impls",
+      "question": "Is the dependency tree free of duplicate crate versions (windows-sys excepted)?",
+      "why": "duplicate versions bloat the binary and split trait impls; windows-sys is exempt because low-level platform crates (ring, behind the rustls update check) pin an older one that cannot unify",
       "tags": ["deps"],
-      "expect": "empty",
       "added": "2026-06-11",
-      "probe": ["cargo","tree","-d"]
+      "probe": ["deps","--duplicates","--allow-duplicate","windows-sys"]
     },
 
     {

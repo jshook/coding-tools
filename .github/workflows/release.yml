@@ -3,9 +3,11 @@
 #   1. `build`          — compile every binary for each arch target, in parallel.
 #   2. `github-release` — gather all per-arch archives into one GitHub Release.
 #
-# Publishing to crates.io is done by hand from the project (`cargo publish`), not
-# from CI. `workflow_dispatch` runs just the build matrix on demand (no release),
-# so the cross builds can be exercised without cutting a release.
+# Publishing to crates.io is done by hand from the project (`cargo ws publish`),
+# not from CI; the security audit is enforced by the `audit` job in ci.yml, which
+# runs `cargo audit` on every push. `workflow_dispatch` runs just the build
+# matrix on demand (no release), so the cross builds can be exercised without
+# cutting a release.
 name: release
 
 on:

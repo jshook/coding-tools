@@ -77,6 +77,10 @@ path = "src/bin/ct-check.rs"
 name = "ct-await"
 path = "src/bin/ct-await.rs"
 
+[[bin]]
+name = "ct-survey"
+path = "src/bin/ct-survey.rs"
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 regex = "1.12.3"
@@ -87,6 +91,9 @@ yaml-edit = "0.2.1"
 veks-completion = "1.6"
 fst = { version = "0.4.7", features = ["levenshtein"] }
 regex-automata = { version = "0.4.14", features = ["dfa-build", "dfa-search"] }
+# Daily best-effort update check against the crates.io sparse index. rustls with
+# bundled webpki roots (ureq's default features), so no OpenSSL/system-cert reliance.
+ureq = "3"
 
 # Unix only: process-group kill for `--timeout` on the child-running tools.
 [target.'cfg(unix)'.dependencies]

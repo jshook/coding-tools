@@ -84,6 +84,75 @@ impl Steer {
     }
 }
 
+// ----- Tool-call logging -------------------------------------------------------
+
+/// The UTC calendar date `yyyy-mm-dd` for `epoch_secs` seconds since the Unix
+/// epoch — the daily tool-call-log filename stem. Pure (it reads no clock), via
+/// Howard Hinnant's civil-from-days algorithm, so it is deterministic and
+/// testable; the caller supplies the current time.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::steer::date_stem;
+/// assert_eq!(date_stem(0), "1970-01-01");
+/// assert_eq!(date_stem(1_600_000_000), "2020-09-13");
+/// ```
+pub fn date_stem(epoch_secs: i64) -> String {
+    let (y, m, d) = civil_from_days(epoch_secs.div_euclid(86_400));
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// `(year, month, day)` for a count of days since 1970-01-01 (Hinnant's
+/// `civil_from_days`). Handles negative days (pre-epoch) via Euclidean division.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// The gitignore rule that hides the tool-call log directory. Placed in
+/// `.ct/.gitignore`, the pattern `*log` matches the `tclog` directory (and any
+/// other `…log` entry under `.ct`), keeping the logs out of version control
+/// while the `.gitignore` itself stays tracked.
+pub const LOG_IGNORE_RULE: &str = "*log";
+
+/// Given a `.ct/.gitignore`'s current contents (or [`None`] when it is absent),
+/// return the contents to write so it carries [`LOG_IGNORE_RULE`], or [`None`]
+/// when the rule is already present (no write needed). Existing lines are
+/// preserved; the rule is appended.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::steer::gitignore_with_log_rule;
+/// assert_eq!(gitignore_with_log_rule(None).as_deref(), Some("*log\n"));
+/// assert_eq!(gitignore_with_log_rule(Some("*log\n")), None); // already there
+/// assert_eq!(gitignore_with_log_rule(Some("target\n")).as_deref(), Some("target\n*log\n"));
+/// ```
+pub fn gitignore_with_log_rule(existing: Option<&str>) -> Option<String> {
+    match existing {
+        None => Some(format!("{LOG_IGNORE_RULE}\n")),
+        Some(text) if text.lines().any(|l| l.trim() == LOG_IGNORE_RULE) => None,
+        Some(text) => {
+            let mut out = text.to_string();
+            if !out.is_empty() && !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(LOG_IGNORE_RULE);
+            out.push('\n');
+            Some(out)
+        }
+    }
+}
+
 // ----- Lexing ------------------------------------------------------------------
 
 /// A shell token: either a word (quoted regions collapse into the surrounding
@@ -934,16 +1003,13 @@ pub mod hook {
         input.get(key).and_then(Value::as_i64)
     }
 
-    /// Process a raw `PreToolUse` stdin envelope. Returns the decision JSON to
-    /// print, or [`None`] to allow silently. The `Bash` command is classified by
-    /// [`analyze`]; the harness's own `Grep` / `Glob` / `Read` calls are steered
-    /// from their structured fields. **Fail-open:** any parse error, an
-    /// unhandled tool, or a missing field all yield [`None`].
-    pub fn process(envelope: &str, mode: Mode) -> Option<Value> {
-        let v: Value = serde_json::from_str(envelope).ok()?;
-        let tool = v.get("tool_name").and_then(Value::as_str)?;
-        let input = v.get("tool_input")?;
-        let steer = match tool {
+    /// Classify one tool call — its `tool_name` and `tool_input` object — into
+    /// the [`Steer`] that serves it, or [`None`] to allow. The `Bash` command is
+    /// classified by [`analyze`]; the harness's own `Grep` / `Glob` / `Read`
+    /// calls are steered from their structured fields. Shared by [`process`] and
+    /// [`log_record`]; an unhandled tool or a missing field yields [`None`].
+    pub fn classify(tool: &str, input: &Value) -> Option<Steer> {
+        match tool {
             "Bash" => analyze(str_field(input, "command")?),
             "Grep" => Some(grep_steer(
                 str_field(input, "pattern")?,
@@ -960,8 +1026,45 @@ pub mod hook {
                 int_field(input, "limit"),
             ),
             _ => None,
-        }?;
+        }
+    }
+
+    /// Process a raw `PreToolUse` stdin envelope. Returns the decision JSON to
+    /// print, or [`None`] to allow silently. **Fail-open:** any parse error, an
+    /// unhandled tool, or a missing field all yield [`None`].
+    pub fn process(envelope: &str, mode: Mode) -> Option<Value> {
+        let v: Value = serde_json::from_str(envelope).ok()?;
+        let tool = v.get("tool_name").and_then(Value::as_str)?;
+        let input = v.get("tool_input")?;
+        let steer = classify(tool, input)?;
         Some(decision(&steer, mode))
+    }
+
+    /// Build a structured log record for one `PreToolUse` envelope: which tool
+    /// ran, its `Bash` command, the call's `cwd`/`session_id`, and what the hook
+    /// decided under `mode`. Unlike [`process`] this also records the silent
+    /// **allows** — the raw material for spotting shell idioms that *should* have
+    /// been steered to `ct` but currently are not. Lenient: a malformed envelope
+    /// still yields a record of what could be read. No timestamp is stamped here,
+    /// so the record stays deterministic; the caller adds the time and appends it
+    /// as one JSONL line.
+    pub fn log_record(envelope: &str, mode: Mode) -> Value {
+        let v: Value = serde_json::from_str(envelope).unwrap_or(Value::Null);
+        let tool = v.get("tool_name").and_then(Value::as_str).unwrap_or("");
+        let input = v.get("tool_input").cloned().unwrap_or(Value::Null);
+        let (decision, rule_id, ct_tool) = match classify(tool, &input) {
+            Some(s) => (mode.name(), Some(s.rule_id), Some(s.tool)),
+            None => ("allow", None, None),
+        };
+        json!({
+            "tool": tool,
+            "command": input.get("command").and_then(Value::as_str),
+            "cwd": v.get("cwd").and_then(Value::as_str),
+            "session_id": v.get("session_id").and_then(Value::as_str),
+            "decision": decision,
+            "rule_id": rule_id,
+            "ct_tool": ct_tool,
+        })
     }
 }
 
@@ -1023,6 +1126,9 @@ pub mod install {
         Glob,
         /// The harness file read → `ct view` (images/PDF/notebooks pass through).
         Read,
+        /// Every tool (a `*` matcher) — full-coverage logging; the hook still only
+        /// steers the recognised idioms and passes everything else through.
+        All,
     }
 
     impl Tool {
@@ -1033,6 +1139,7 @@ pub mod install {
                 "Grep" => Some(Tool::Grep),
                 "Glob" => Some(Tool::Glob),
                 "Read" => Some(Tool::Read),
+                "all" | "*" => Some(Tool::All),
                 _ => None,
             }
         }
@@ -1044,16 +1151,32 @@ pub mod install {
                 Tool::Grep => "Grep",
                 Tool::Glob => "Glob",
                 Tool::Read => "Read",
+                Tool::All => "*",
             }
         }
     }
 
-    /// The hook command string written into settings for `mode`.
-    pub fn hook_command(mode: Mode) -> String {
-        match mode {
+    /// The hook command string written into settings for `mode`. Tool-call
+    /// logging is on by default (to `.ct/tclog/`), so the bare command already
+    /// logs; `no_log` bakes in `--no-log` to disable it, and `log_dir` bakes in a
+    /// `--log-dir PATH` override. A path with whitespace is double-quoted to
+    /// survive the shell the hook runs under.
+    pub fn hook_command(mode: Mode, log_dir: Option<&str>, no_log: bool) -> String {
+        let mut cmd = match mode {
             Mode::Deny => "ct steer hook".to_string(),
             other => format!("ct steer hook --mode {}", other.name()),
+        };
+        if no_log {
+            cmd.push_str(" --no-log");
+        } else if let Some(path) = log_dir {
+            let quoted = if path.chars().any(char::is_whitespace) {
+                format!("\"{path}\"")
+            } else {
+                path.to_string()
+            };
+            cmd.push_str(&format!(" --log-dir {quoted}"));
         }
+        cmd
     }
 
     /// Whether a settings hook command is one of ours (any mode).
@@ -1598,6 +1721,111 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn log_record_captures_steered_and_allowed_calls() {
+        // A steered Bash command: the decision reflects the mode and the rule fires.
+        let steered = hook::log_record(
+            r#"{"tool_name":"Bash","tool_input":{"command":"grep -r TODO src"},"cwd":"/work","session_id":"s1"}"#,
+            Mode::Deny,
+        );
+        assert_eq!(steered["tool"], "Bash");
+        assert_eq!(steered["command"], "grep -r TODO src");
+        assert_eq!(steered["decision"], "deny");
+        assert_eq!(steered["ct_tool"], "ct search");
+        assert!(steered["rule_id"].is_string());
+        assert_eq!(steered["cwd"], "/work");
+        assert_eq!(steered["session_id"], "s1");
+
+        // An allowed command is still recorded — the missed-pattern raw material.
+        let allowed = hook::log_record(
+            r#"{"tool_name":"Bash","tool_input":{"command":"git status"}}"#,
+            Mode::Deny,
+        );
+        assert_eq!(allowed["decision"], "allow");
+        assert!(allowed["rule_id"].is_null());
+        assert!(allowed["ct_tool"].is_null());
+        assert_eq!(allowed["command"], "git status");
+
+        // A non-shell tool the hook doesn't steer is logged as an allow.
+        let other = hook::log_record(
+            r#"{"tool_name":"Edit","tool_input":{"file_path":"a.rs"}}"#,
+            Mode::Warn,
+        );
+        assert_eq!(other["tool"], "Edit");
+        assert_eq!(other["decision"], "allow");
+
+        // Warn mode labels a steered call as "warn".
+        let warned = hook::log_record(
+            r#"{"tool_name":"Grep","tool_input":{"pattern":"TODO"}}"#,
+            Mode::Warn,
+        );
+        assert_eq!(warned["decision"], "warn");
+    }
+
+    #[test]
+    fn log_record_is_lenient_on_malformed_envelopes() {
+        // Not JSON at all: an empty-tool allow record, never a panic.
+        let bad = hook::log_record("not json", Mode::Deny);
+        assert_eq!(bad["tool"], "");
+        assert_eq!(bad["decision"], "allow");
+        assert!(bad["command"].is_null());
+    }
+
+    #[test]
+    fn hook_command_bakes_logging_flags() {
+        // Default: logging is on, so the bare command needs no flag.
+        assert_eq!(
+            install::hook_command(Mode::Deny, None, false),
+            "ct steer hook"
+        );
+        // --no-log wins over a directory override.
+        assert_eq!(
+            install::hook_command(Mode::Warn, Some("/x"), true),
+            "ct steer hook --mode warn --no-log"
+        );
+        // A directory override is baked as --log-dir.
+        assert_eq!(
+            install::hook_command(Mode::Deny, Some("/var/log/tc"), false),
+            "ct steer hook --log-dir /var/log/tc"
+        );
+        // A path with a space is quoted so the hook's shell keeps it one argument.
+        assert_eq!(
+            install::hook_command(Mode::Deny, Some("/my logs/tc"), false),
+            "ct steer hook --log-dir \"/my logs/tc\""
+        );
+    }
+
+    #[test]
+    fn date_stem_is_utc_civil_date() {
+        assert_eq!(date_stem(0), "1970-01-01");
+        assert_eq!(date_stem(86_399), "1970-01-01"); // same day, last second
+        assert_eq!(date_stem(86_400), "1970-01-02"); // next day
+        assert_eq!(date_stem(1_600_000_000), "2020-09-13");
+        // A leap day resolves correctly.
+        assert_eq!(date_stem(1_582_934_400), "2020-02-29");
+    }
+
+    #[test]
+    fn gitignore_rule_is_added_once() {
+        assert_eq!(gitignore_with_log_rule(None).as_deref(), Some("*log\n"));
+        assert!(gitignore_with_log_rule(Some("*log\n")).is_none());
+        // Appended to existing rules, and a missing trailing newline is repaired.
+        assert_eq!(
+            gitignore_with_log_rule(Some("target")).as_deref(),
+            Some("target\n*log\n")
+        );
+    }
+
+    #[test]
+    fn install_all_tools_writes_a_wildcard_matcher() {
+        let (text, changed) = install(None, "ct steer hook", &[install::Tool::All]).unwrap();
+        assert!(changed);
+        assert!(text.contains("\"matcher\": \"*\""), "{text}");
+        // uninstall still clears it (it scans by command, not matcher name).
+        let (cleared, _) = uninstall(Some(&text)).unwrap();
+        assert!(!cleared.contains("steer hook"));
     }
 
     #[test]

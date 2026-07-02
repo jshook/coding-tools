@@ -87,6 +87,11 @@ less supervision:
   verdict `ERROR`; `2` = usage or runtime error. The `0`/`1` split composes in
   `&&`/`||` pipelines.
 - **`--explain [md|json]`.** Every tool is self-describing for humans and agents.
+- **Update check.** `ct` checks crates.io for a newer release about once a day, in
+  a detached background process (a conditional `GET` of the sparse index, so it is
+  cheap and never blocks a command). Set `CT_UPDATE_CHECK=never` to disable, or
+  `=weekly` / `=hourly` / a number of seconds to retune. You are told this on first
+  run.
 
 ## Examples
 
@@ -142,6 +147,20 @@ ct steer install --mode ask # softer: ask to confirm instead of denying
 ct steer check 'grep -r TODO src'   # see what the hook would decide (exit 1 = steer)
 ct steer uninstall          # remove it
 ```
+
+## Releasing
+
+Publishing to crates.io is manual. Neither cargo nor cargo-workspaces has a
+native pre-publish hook, so the security audit is enforced in **CI**: the `audit`
+job runs `cargo audit` on every push and pull request, so `main` can't go green
+with a RustSec advisory in the locked tree. Publish only from a green commit:
+
+```sh
+cargo audit          # the same check CI runs — advisories fail the build
+cargo ws publish     # (cargo-workspaces) — or `cargo publish`
+```
+
+Requires `cargo install cargo-audit`.
 
 ## License
 

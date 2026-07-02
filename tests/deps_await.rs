@@ -90,8 +90,17 @@ fn deps_forbid_duplicates_and_defective_assertions() {
     assert_eq!(o, ProbeOutcome::Broken);
     assert!(reason.contains("no package named 'ghost'"), "{reason:?}");
 
-    // Duplicates: this repo's own invariant says there are none.
-    assert_eq!(deps_check(&["--duplicates"]).0, ProbeOutcome::Holds);
+    // Duplicates: the repo permits windows-sys at multiple versions — low-level
+    // platform crates (e.g. ring, behind the rustls update check) pin an older
+    // one — but every other crate must resolve to a single version.
+    assert_eq!(
+        deps_check(&["--duplicates", "--allow-duplicate", "windows-sys"]).0,
+        ProbeOutcome::Holds
+    );
+    // The allow-list is scoped: a bare --duplicates still reports windows-sys.
+    let (o, _, report) = deps_check(&["--duplicates"]);
+    assert_eq!(o, ProbeOutcome::Violated);
+    assert!(report.contains("windows-sys"), "{report:?}");
 
     // No assertions is a defective probe.
     let (o, reason, _) = deps_check(&[]);

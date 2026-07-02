@@ -38,6 +38,26 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
+  # Security audit: fail on any RustSec advisory against the locked dependency
+  # tree. Cargo has no native pre-publish hook, so the audit is enforced here on
+  # every push and PR — `main` can't go green (or be published) with an advisory.
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit
+        run: cargo audit
+
   # Linux (Unix coreutils) and native Windows (no MSYS2: the cross-platform ct-*
   # core + stock Windows read-only utilities). Each uses its OS's default shell.
   test:

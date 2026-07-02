@@ -11,6 +11,8 @@
 //! are declared `global` so they may appear before or after the subcommand;
 //! per-verb flags live on each subcommand's args struct.
 
+use std::path::PathBuf;
+
 use clap::{Args, Parser, Subcommand};
 
 use crate::explain::Format;
@@ -102,6 +104,9 @@ pub enum Tool {
     /// The harness file read → ct view (images/PDF/notebooks pass through).
     #[value(name = "Read")]
     Read,
+    /// Every tool (a "*" matcher) — full-coverage logging; only recognised idioms are steered.
+    #[value(name = "all")]
+    All,
 }
 
 impl Tool {
@@ -112,6 +117,7 @@ impl Tool {
             Tool::Grep => crate::steer::install::Tool::Grep,
             Tool::Glob => crate::steer::install::Tool::Glob,
             Tool::Read => crate::steer::install::Tool::Read,
+            Tool::All => crate::steer::install::Tool::All,
         }
     }
 }
@@ -143,6 +149,14 @@ pub struct HookArgs {
     /// Steering action on a match: deny (default), ask, or warn.
     #[arg(long, value_enum, default_value_t = Mode::Deny)]
     pub mode: Mode,
+
+    /// Directory for the daily tool-call log; defaults to .ct/tclog (nearest .ct). Also settable via CT_STEER_LOG.
+    #[arg(long, value_name = "DIR")]
+    pub log_dir: Option<PathBuf>,
+
+    /// Disable tool-call logging (it is on by default).
+    #[arg(long)]
+    pub no_log: bool,
 }
 
 #[derive(Args, Debug)]
@@ -155,9 +169,21 @@ pub struct InstallArgs {
     #[arg(long, value_enum, default_value_t = Mode::Deny)]
     pub mode: Mode,
 
-    /// Harness tools to gate, comma-joined or repeated: Bash (default), Grep, Glob, Read. Grep/Glob steer to ct search, Read to ct view.
+    /// Harness tools to gate, comma-joined or repeated: Bash (default), Grep, Glob, Read. Grep/Glob steer to ct search, Read to ct view. Ignored when --all-tools is set.
     #[arg(long, value_enum, value_delimiter = ',', default_value = "Bash")]
     pub tools: Vec<Tool>,
+
+    /// Gate every tool call under a single "*" matcher (superseding --tools) — for full-coverage logging.
+    #[arg(long)]
+    pub all_tools: bool,
+
+    /// Bake a `--log-dir DIR` override into the installed hook command (logging is on by default to .ct/tclog).
+    #[arg(long, value_name = "DIR")]
+    pub log_dir: Option<PathBuf>,
+
+    /// Bake `--no-log` into the installed hook command, disabling tool-call logging.
+    #[arg(long)]
+    pub no_log: bool,
 
     /// Show the resulting settings file without writing it.
     #[arg(long)]

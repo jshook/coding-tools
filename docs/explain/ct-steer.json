@@ -37,11 +37,11 @@
   "commands": [
     {
       "name": "hook",
-      "description": "Runtime PreToolUse hook: read a tool-call envelope on stdin, print a deny/ask/warn decision on a match (nothing on a miss). Handles Bash plus the harness Grep/Glob/Read tools. Always exits 0. --mode deny|ask|warn (default deny)."
+      "description": "Runtime PreToolUse hook: read a tool-call envelope on stdin, print a deny/ask/warn decision on a match (nothing on a miss). Handles Bash plus the harness Grep/Glob/Read tools. Always exits 0. --mode deny|ask|warn (default deny). Tool-call logging is ON by default: it appends one JSONL record per call — including the silent allows, the raw material for spotting un-steered idioms — to .ct/tclog/<yyyy-mm-dd>.jsonl under the nearest .ct (created if absent), and keeps a .ct/.gitignore '*log' rule so the logs stay out of git. Each record has tool, command, cwd, session_id, decision, rule_id, ct_tool, ts_ms. --log-dir DIR (or CT_STEER_LOG) redirects the logs; --no-log disables them. Best-effort and fail-open."
     },
     {
       "name": "install",
-      "description": "Merge the PreToolUse steering hook into a Claude Code settings file. --scope project|local|user (default project), --mode deny|ask|warn, --tools Bash,Grep,Glob,Read (default Bash; one matcher per tool), --dry-run (show the file), --print (emit just the snippet). Idempotent."
+      "description": "Merge the PreToolUse steering hook into a Claude Code settings file. --scope project|local|user (default project), --mode deny|ask|warn, --tools Bash,Grep,Glob,Read (default Bash; one matcher per tool), --all-tools (a single '*' matcher, supersedes --tools; for full-coverage logging), --log-dir DIR (bake a log-directory override; logging is on by default), --no-log (bake in disabling the default tool-call logging), --dry-run (show the file), --print (emit just the snippet). Idempotent."
     },
     {
       "name": "uninstall",

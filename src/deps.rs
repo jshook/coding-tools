@@ -577,6 +577,8 @@ struct DepsCheck {
     forbid: Vec<String>,
     #[arg(long)]
     duplicates: bool,
+    #[arg(long, value_name = "NAME", value_delimiter = ',')]
+    allow_duplicate: Vec<String>,
     #[arg(long)]
     acyclic: bool,
     #[arg(long)]
@@ -753,7 +755,11 @@ pub fn check(
         }
     }
     if cli.duplicates {
+        let allowed_dups: HashSet<&str> = cli.allow_duplicate.iter().map(String::as_str).collect();
         for (name, versions) in graph.duplicates() {
+            if allowed_dups.contains(name.as_str()) {
+                continue; // a sanctioned multi-version crate (e.g. windows-sys)
+            }
             violations.push(Violation {
                 check: "duplicates".to_string(),
                 subject: name,

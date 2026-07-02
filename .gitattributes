@@ -1,0 +1,21 @@
+# Enforce Unix (LF) line endings across the repo, regardless of each
+# contributor's `core.autocrlf` / `core.eol`. `text=auto` lets git detect text
+# vs binary; `eol=lf` pins both the stored and the checked-out ending to LF, so
+# a Windows checkout no longer rewrites LF -> CRLF.
+* text=auto eol=lf
+
+# Belt-and-suspenders: never line-ending-normalize these, even if git's content
+# detection would misjudge them as text.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.fst   binary
