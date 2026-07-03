@@ -40,6 +40,27 @@ A chain (`&&` / `||`) is only steered when *every* segment is itself
 ct-serviceable, so `grep -r x && make` (no `ct` analogue for `make`) is left
 alone while `grep -r x && sed -i …` becomes `ct and search … ::: edit …`.
 
+### Multi-line scriptlets
+
+A **multi-line** command (a here-doc-style scriptlet an agent runs in one `Bash`
+call) is classified line by line. Scaffolding — comments, `cd`, variable
+assignments, `echo` — is ignored; each remaining line is scored as *already
+`ct`*, *ct-advisable* (a raw idiom with a `ct` form), or *opaque* (no `ct`
+analogue). The feedback is tiered:
+
+- **Fold into one `ct and` chain** — when *every* meaningful line is already `ct`
+  or ct-advisable **and at least one is not yet `ct`**: the whole scriptlet is one
+  compound operation, so it is steered to a single shell-less
+  `ct and A ::: B ::: C` call (the `ct edit`s kept, the `grep -c` verifications
+  becoming `ct search … --summary`). One atomic, verdict-gated call replaces a
+  hand-sequenced script.
+- **Advise the lines individually** — when some lines are ct-advisable but others
+  are opaque: it can't fold whole, so the `ct` equivalents are listed for the
+  steerable steps.
+- A scriptlet that is *already* all `ct`, or has nothing serviceable, is left
+  alone. (Backslash line-continuations are joined first, so a single wrapped
+  command is not mistaken for a scriptlet.)
+
 ### Harness tools (opt-in via `--tools`)
 
 Raw shell is not the only way around `ct` — the harness's own search/read tools
@@ -55,6 +76,8 @@ are another. When installed for them, the hook also steers:
 alone** — `ct view` is a line reader and can't render those, so `Read` remains
 the right tool. These matchers are off by default; enable them with
 `install --tools Bash,Grep,Glob,Read`.
+
+> **Read gating and the harness `Edit` tool.** Steering `Read` to `ct view` in `deny`/`ask` mode blocks the harness read that the `Edit` tool's must-read-first precondition depends on — so after a steered `Read` you must mutate via `ct edit` (the intended pairing). To observe `Read` for logging without disrupting `Edit`, gate it in `--mode warn`, which only injects a suggestion and lets the read proceed.
 
 ## Subcommands
 
@@ -107,6 +130,30 @@ behavioural: launch a bounded wait as `ct await` (itself backgrounded), never a
 hand-rolled `sleep` loop. The `wait-loop` rule above steers the foreground form
 toward exactly that.
 
+**Pipeline nudge (`--nudge-pipelines`).** With this flag, a `Bash` command that
+contains a shell pipe **but that no specific rule steered** gets a **warn-only**
+nudge (`additionalContext`, never a deny) prompting the agent to try harder to
+express the task with `ct` — a single `ct` call, or a `ct and A ::: B` chain —
+before falling back to a pipe. It fires only when the specific idiom matcher
+found nothing, so it never double-fires with the concrete rewrites above.
+
+### `post`
+
+The PostToolUse **recorder**. Reads a `PostToolUse` envelope on stdin and appends
+a record of the call *as it actually executed* to the same daily `.ct/tclog` log,
+tagged `event: "post"` with a `ct` boolean (did the executed command use `ct`?),
+`tool`, `command`, `cwd`, `session_id`, and `ts_ms`. It only observes — it prints
+nothing and always exits `0`. Paired with the `pre` records the hook writes, this
+lets you **measure whether steer guidance was followed**: after a `pre` record
+shows a `deny`/`warn` on a raw command, did the next `post` record in the same
+`session_id` show a `ct` call? Wire it with `install --measure`; it shares
+`--log-dir`/`--no-log` with the hook.
+
+```sh
+# the executed calls that actually went to ct (the follow-through signal)
+ct search --base .ct/tclog --grep '"ct":true'
+```
+
 ### `install` / `uninstall`
 
 Merge or remove the Bash `PreToolUse` hook in a Claude Code settings file.
@@ -121,12 +168,33 @@ Merge or remove the Bash `PreToolUse` hook in a Claude Code settings file.
 - `--all-tools` — gate every tool under a single `*` matcher (supersedes
   `--tools`), so the default logging records the full tool stream, not just the
   steerable tools.
+- `--nudge-pipelines` — bake the warn-only pipeline nudge (above) into the
+  installed hook command.
+- `--measure` — also install a `PostToolUse` `*` matcher running `ct steer post`,
+  so executed calls are recorded for effectiveness analysis. `uninstall` removes
+  both the steer hook and the recorder in one pass.
 - `--log-dir DIR` — bake a `--log-dir` override into the installed hook command
   (logging is on by default to `.ct/tclog`, so this is only for redirecting it).
 - `--no-log` — bake `--no-log` into the installed hook command, disabling the
   default tool-call logging.
+- `--pin` — bake the **absolute path of this `ct-steer` binary** into the hook
+  instead of resolving `ct` on `PATH`, so a version-skewed or missing `ct` can't
+  break it.
+- `--force` — skip the install preflight (below) and install anyway.
 - `--dry-run` — show the resulting settings file without writing it.
 - `--print` — emit just the hook snippet (for manual paste) and exit.
+
+**Preflight (and why it matters).** A hook runs `ct steer …` on *every* tool call,
+resolving `ct` from `PATH` at fire time. If that `ct` is an older build that does
+not understand the subcommand or a baked flag (`post`, `--nudge-pipelines`,
+`--log-dir`, …), the call fails at argument parsing — *before* the fail-open logic
+runs — and a hook error is **blocking**, so a skewed `ct` can block every tool call
+in the session. To prevent arming that, a real `install` first runs the resolving
+`ct steer <sub> --help` and checks the subcommand and baked flags parse; if not, it
+**refuses** (exit non-zero) with a recovery hint. Use `--pin` to eliminate the skew
+(absolute path), or `--force` to install regardless. Recovery is always possible:
+`ct steer uninstall` uses only long-stable syntax, so a working `ct` can always
+clear a bad hook.
 
 The merge is **idempotent** (re-installing is a no-op; a `--mode` change rewrites
 in place) and preserves the rest of the file — **including comments and layout**.
@@ -173,6 +241,17 @@ day's log to find un-steered patterns worth a new rule:
 ```sh
 ct search --base .ct/tclog --grep '"decision":"allow"'  # the misses to mine
 ```
+
+## Examples
+
+- **Log every tool call to .ct/tclog and non-intrusively steer recognized idioms.**
+  ```sh
+  ct steer install --all-tools --mode warn
+  ```
+- **Ask what the hook would do with a command (exit 1 means it would steer to ct).**
+  ```sh
+  ct steer check 'grep -r TODO src'
+  ```
 
 ## Exit status
 

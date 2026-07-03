@@ -92,6 +92,19 @@ fn md_payloads_lead_with_the_tool_heading() {
     }
 }
 
+/// A tool definition with its `examples` array removed. The hoisted `ct`
+/// manifest deliberately omits per-tool `examples` to stay lean — worked
+/// examples live in each leaf's own `.json` (what `ct <tool> --explain json`
+/// emits) and `.md`. So the bundle must match the leaf on everything *except*
+/// `examples`.
+fn without_examples(v: &serde_json::Value) -> serde_json::Value {
+    let mut v = v.clone();
+    if let Some(obj) = v.as_object_mut() {
+        obj.remove("examples");
+    }
+    v
+}
+
 #[test]
 fn ct_manifest_bundles_each_leaf_definition_verbatim() {
     let manifest = read_json("ct");
@@ -106,8 +119,10 @@ fn ct_manifest_bundles_each_leaf_definition_verbatim() {
             .unwrap_or_else(|| panic!("ct manifest is missing the '{leaf}' tool definition"));
         let standalone = read_json(leaf);
         assert_eq!(
-            *bundled, standalone,
-            "ct manifest's '{leaf}' definition has drifted from docs/explain/{leaf}.json"
+            without_examples(bundled),
+            without_examples(&standalone),
+            "ct manifest's '{leaf}' definition has drifted from docs/explain/{leaf}.json \
+             (ignoring `examples`, which the manifest intentionally omits)"
         );
     }
 }

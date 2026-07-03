@@ -358,9 +358,12 @@ fn q(s: &str) -> String {
 
 // ----- Rules -------------------------------------------------------------------
 
-/// Classify a shell command. [`None`] means "allow" — no `ct` tool clearly
-/// serves it. The matcher only fires on high-confidence idioms and never
-/// re-steers a command that already invokes `ct`.
+/// Classify a shell command or multi-line scriptlet. [`None`] means "allow" — no
+/// `ct` tool clearly serves it. A single command runs the high-confidence idiom
+/// matcher ([`analyze_one`]); a **multi-line scriptlet** is classified line by
+/// line ([`analyze_script`]) so a hand-sequenced series of ct-serviceable steps
+/// is steered toward one shell-less `ct and` chain. Never re-steers a command
+/// that already invokes `ct`.
 ///
 /// ```
 /// use coding_tools::steer::analyze;
@@ -369,7 +372,219 @@ fn q(s: &str) -> String {
 /// assert!(analyze("cargo build && cargo test").is_none());
 /// assert!(analyze("ct search --grep TODO").is_none());
 /// ```
+///
+/// A multi-line scriptlet whose every meaningful step is `ct` or ct-advisable
+/// (and not all are `ct` yet) folds into a single `ct and A ::: B` chain; see the
+/// `folds_all_ct_or_advisable_scriptlet_into_one_chain` test.
 pub fn analyze(command: &str) -> Option<Steer> {
+    // Split into statements (joining bash line-continuations first), dropping
+    // blank and comment lines. One real statement → the single-command matcher;
+    // several → the scriptlet analyzer.
+    let stmts = statements(command);
+    let real: Vec<&str> = stmts
+        .iter()
+        .map(String::as_str)
+        .filter(|s| {
+            let t = s.trim();
+            !t.is_empty() && !t.starts_with('#')
+        })
+        .collect();
+    if real.len() <= 1 {
+        return analyze_one(real.first().copied().unwrap_or(command));
+    }
+    analyze_script(&real)
+}
+
+/// Split a command into statements: join bash line-continuations (`\` + newline),
+/// then break on newlines. Statement-internal `;`/`&&`/`|` are left for
+/// [`analyze_one`] to interpret.
+fn statements(command: &str) -> Vec<String> {
+    command
+        .replace("\\\r\n", "")
+        .replace("\\\n", "")
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// The role a single scriptlet line plays in [`analyze_script`].
+enum LineKind {
+    /// Blank, a comment, or shell scaffolding (`cd`, an assignment, `echo`, …).
+    Skip,
+    /// Already a `ct` call; the string is its `ct and` segment form (no `ct ` head).
+    Ct(String),
+    /// Raw shell with a `ct` equivalent (its steer).
+    Advisable(Steer),
+    /// A real command with no `ct` analogue.
+    Opaque,
+}
+
+/// Whether a leading word is a shell variable assignment (`NAME=value`).
+fn is_assignment(word: &str) -> bool {
+    match word.split_once('=') {
+        Some((name, _)) => {
+            !name.is_empty()
+                && name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        }
+        None => false,
+    }
+}
+
+/// The `ct and` segment form of an already-`ct` line: drop the leading `ct ` /
+/// `ct-` so it slots in after `ct and … :::`.
+fn ct_segment(line: &str) -> String {
+    let t = line.trim();
+    if let Some(rest) = t.strip_prefix("ct ") {
+        rest.trim_start().to_string()
+    } else if let Some(rest) = t.strip_prefix("ct-") {
+        rest.to_string()
+    } else {
+        t.to_string()
+    }
+}
+
+/// Classify one scriptlet line. Scaffolding (comments, `cd`, assignments, `echo`)
+/// is [`LineKind::Skip`]; an existing `ct` call is [`LineKind::Ct`]; otherwise the
+/// single-command matcher decides advisable vs. opaque.
+fn line_kind(line: &str) -> LineKind {
+    let t = line.trim();
+    if t.is_empty() || t.starts_with('#') {
+        return LineKind::Skip;
+    }
+    let toks = lex(t);
+    let (segs, _) = control_segments(&toks);
+    let first_word = segs
+        .first()
+        .map(|s| pipe_stages(s))
+        .and_then(|stages| stages.into_iter().next())
+        .and_then(|stage| stage.into_iter().next());
+    let Some(raw) = first_word else {
+        return LineKind::Skip;
+    };
+    if is_assignment(&raw) {
+        return LineKind::Skip;
+    }
+    let cmd = base_name(&raw);
+    if matches!(
+        cmd,
+        "cd" | "export" | "echo" | "pushd" | "popd" | "set" | "true" | ":"
+    ) {
+        return LineKind::Skip;
+    }
+    if cmd == "ct" || cmd.starts_with("ct-") {
+        return LineKind::Ct(ct_segment(t));
+    }
+    match analyze(t) {
+        Some(s) => LineKind::Advisable(s),
+        None => LineKind::Opaque,
+    }
+}
+
+/// Classify a multi-statement scriptlet. Feedback is tiered on how ct-ready the
+/// steps are:
+///
+/// * **compound** — every meaningful step is already `ct` or ct-advisable, and at
+///   least one is not yet `ct`: fold the whole thing into one `ct and` chain.
+/// * **per-line** — some steps are ct-advisable but others have no ct analogue:
+///   advise the ct forms individually (it can't fold whole).
+/// * a lone real step among scaffolding is steered on its own; anything else is
+///   left alone (all-`ct` already, or nothing serviceable).
+fn analyze_script(stmts: &[&str]) -> Option<Steer> {
+    let kinds: Vec<LineKind> = stmts.iter().map(|s| line_kind(s)).collect();
+    let meaningful = kinds
+        .iter()
+        .filter(|k| !matches!(k, LineKind::Skip))
+        .count();
+    if meaningful < 2 {
+        // A single real operation among setup lines: steer it if advisable.
+        return kinds.into_iter().find_map(|k| match k {
+            LineKind::Advisable(s) => Some(s),
+            _ => None,
+        });
+    }
+
+    let mut segments: Vec<String> = Vec::new();
+    let mut advisable: Vec<String> = Vec::new();
+    let mut opaque = 0usize;
+    for k in &kinds {
+        match k {
+            LineKind::Skip => {}
+            LineKind::Ct(seg) => segments.push(seg.clone()),
+            LineKind::Advisable(s) => {
+                segments.push(s.suggestion.trim_start_matches("ct ").to_string());
+                advisable.push(s.suggestion.clone());
+            }
+            LineKind::Opaque => opaque += 1,
+        }
+    }
+    if advisable.is_empty() {
+        return None; // nothing to steer (all already `ct`, or all opaque)
+    }
+    if opaque == 0 {
+        // Every step is ct or ct-advisable, and not all are ct yet → one chain.
+        return Some(Steer {
+            rule_id: "script-compound",
+            tool: "ct and",
+            suggestion: format!("ct and {}", segments.join(" ::: ")),
+            note: "these steps are one compound operation — run them as a single shell-less `ct and` chain (::: between segments): one atomic, verdict-gated call instead of a hand-sequenced multi-line script",
+        });
+    }
+    // Mixed: some steps have ct forms, others have no ct analogue.
+    Some(Steer {
+        rule_id: "script-lines",
+        tool: "ct",
+        suggestion: advisable.join("\n  "),
+        note: "several steps here have direct ct equivalents — use them instead of raw shell (other steps have no ct analogue, so the whole script can't fold into one `ct and`)",
+    })
+}
+
+/// A generic nudge against *any* shell pipeline that we could not map to a
+/// specific `ct` tool: prompt the agent to try harder to express it with `ct`,
+/// without a concrete rewrite. [`None`] unless the command contains a pipe, is
+/// not already a `ct` call, and [`analyze`] found no specific steer (so the two
+/// never both fire). Meant to be shown **warn-only** — it never denies.
+///
+/// ```
+/// use coding_tools::steer::pipeline_nudge;
+/// assert!(pipeline_nudge("ps aux | grep server").is_some()); // an unmapped pipe
+/// assert!(pipeline_nudge("git status").is_none());           // no pipe
+/// assert!(pipeline_nudge("ct search --grep x | head").is_none()); // already ct
+/// // A pipe with a specific steer is left to that rule, not the generic nudge.
+/// assert!(pipeline_nudge("find . -name '*.rs' | xargs grep TODO").is_none());
+/// ```
+pub fn pipeline_nudge(command: &str) -> Option<Steer> {
+    if analyze(command).is_some() {
+        return None; // a specific rule already serves it
+    }
+    let toks = lex(command);
+    let (segs, _) = control_segments(&toks);
+    let seg_stages: Vec<Vec<Vec<String>>> = segs.iter().map(|s| pipe_stages(s)).collect();
+    let touches_ct = seg_stages.iter().flatten().flatten().any(|w| {
+        let b = base_name(w);
+        b == "ct" || b.starts_with("ct-")
+    });
+    if touches_ct {
+        return None;
+    }
+    let has_pipe = seg_stages.iter().any(|stages| stages.len() > 1);
+    if !has_pipe {
+        return None;
+    }
+    Some(Steer {
+        rule_id: "pipeline",
+        tool: "ct",
+        suggestion: "reach for a single ct call (or a `ct and A ::: B` chain) instead of piping shell commands together".to_string(),
+        note: "shell pipelines are unbounded and silent on failure; try harder to express this with the ct tools (search/view/tree/edit/…) before falling back to a pipe",
+    })
+}
+
+/// Classify a single shell command (its pipes and `&&`/`||`/`;` control). The
+/// idiom matcher behind [`analyze`]; never re-steers a command already using `ct`.
+fn analyze_one(command: &str) -> Option<Steer> {
     let toks = lex(command);
     if toks.is_empty() {
         return None;
@@ -1040,6 +1255,23 @@ pub mod hook {
         Some(decision(&steer, mode))
     }
 
+    /// The generic pipeline nudge for a `Bash` envelope [`process`] did not steer:
+    /// a **warn-only** decision (never a deny) prompting the agent to reach for a
+    /// `ct` call instead of a shell pipeline. [`None`] unless the command is a
+    /// pipe with no specific steer (see [`super::pipeline_nudge`]).
+    pub fn pipeline_nudge_decision(envelope: &str) -> Option<Value> {
+        let v: Value = serde_json::from_str(envelope).ok()?;
+        if v.get("tool_name").and_then(Value::as_str)? != "Bash" {
+            return None;
+        }
+        let cmd = v
+            .get("tool_input")?
+            .get("command")
+            .and_then(Value::as_str)?;
+        let steer = super::pipeline_nudge(cmd)?;
+        Some(decision(&steer, Mode::Warn))
+    }
+
     /// Build a structured log record for one `PreToolUse` envelope: which tool
     /// ran, its `Bash` command, the call's `cwd`/`session_id`, and what the hook
     /// decided under `mode`. Unlike [`process`] this also records the silent
@@ -1057,6 +1289,7 @@ pub mod hook {
             None => ("allow", None, None),
         };
         json!({
+            "event": "pre",
             "tool": tool,
             "command": input.get("command").and_then(Value::as_str),
             "cwd": v.get("cwd").and_then(Value::as_str),
@@ -1064,6 +1297,39 @@ pub mod hook {
             "decision": decision,
             "rule_id": rule_id,
             "ct_tool": ct_tool,
+        })
+    }
+
+    /// Whether an executed `Bash` command is itself a `ct` call — the follow-the-
+    /// guidance signal: after a steered/nudged call, did the agent's next command
+    /// actually reach for `ct`?
+    fn is_ct_command(command: &str) -> bool {
+        command
+            .split_whitespace()
+            .next()
+            .map(super::base_name)
+            .is_some_and(|b| b == "ct" || b.starts_with("ct-"))
+    }
+
+    /// Build a structured log record for one `PostToolUse` envelope — the call as
+    /// it actually **executed** (`event: "post"`), paired with whether it used
+    /// `ct`. Logged alongside the `pre` records in the same daily file so an
+    /// analysis can correlate a steer decision with the follow-up call by
+    /// `session_id` and time. Lenient, and stamps no time (the caller does).
+    pub fn post_record(envelope: &str) -> Value {
+        let v: Value = serde_json::from_str(envelope).unwrap_or(Value::Null);
+        let tool = v.get("tool_name").and_then(Value::as_str).unwrap_or("");
+        let command = v
+            .get("tool_input")
+            .and_then(|i| i.get("command"))
+            .and_then(Value::as_str);
+        json!({
+            "event": "post",
+            "tool": tool,
+            "command": command,
+            "ct": command.is_some_and(is_ct_command),
+            "cwd": v.get("cwd").and_then(Value::as_str),
+            "session_id": v.get("session_id").and_then(Value::as_str),
         })
     }
 }
@@ -1156,32 +1422,52 @@ pub mod install {
         }
     }
 
-    /// The hook command string written into settings for `mode`. Tool-call
-    /// logging is on by default (to `.ct/tclog/`), so the bare command already
-    /// logs; `no_log` bakes in `--no-log` to disable it, and `log_dir` bakes in a
-    /// `--log-dir PATH` override. A path with whitespace is double-quoted to
-    /// survive the shell the hook runs under.
-    pub fn hook_command(mode: Mode, log_dir: Option<&str>, no_log: bool) -> String {
-        let mut cmd = match mode {
-            Mode::Deny => "ct steer hook".to_string(),
-            other => format!("ct steer hook --mode {}", other.name()),
-        };
+    /// The `--log-dir`/`--no-log` suffix baked into an installed command. A path
+    /// with whitespace is double-quoted to survive the shell the hook runs under.
+    fn log_flags(log_dir: Option<&str>, no_log: bool) -> String {
         if no_log {
-            cmd.push_str(" --no-log");
-        } else if let Some(path) = log_dir {
-            let quoted = if path.chars().any(char::is_whitespace) {
-                format!("\"{path}\"")
-            } else {
-                path.to_string()
-            };
-            cmd.push_str(&format!(" --log-dir {quoted}"));
+            return " --no-log".to_string();
         }
+        match log_dir {
+            Some(path) if path.chars().any(char::is_whitespace) => format!(" --log-dir \"{path}\""),
+            Some(path) => format!(" --log-dir {path}"),
+            None => String::new(),
+        }
+    }
+
+    /// The `PreToolUse` hook command written into settings, built on `head` — the
+    /// invocation prefix, `"ct steer hook"` by default or a pinned
+    /// `"<abs-path> hook"` (see `--pin`). Tool-call logging is on by default (to
+    /// `.ct/tclog/`), so the bare command already logs; `no_log`/`log_dir` bake in
+    /// the logging override, and `nudge_pipelines` bakes in `--nudge-pipelines`.
+    pub fn hook_command(
+        head: &str,
+        mode: Mode,
+        log_dir: Option<&str>,
+        no_log: bool,
+        nudge_pipelines: bool,
+    ) -> String {
+        let mut cmd = head.to_string();
+        if !matches!(mode, Mode::Deny) {
+            cmd.push_str(&format!(" --mode {}", mode.name()));
+        }
+        if nudge_pipelines {
+            cmd.push_str(" --nudge-pipelines");
+        }
+        cmd.push_str(&log_flags(log_dir, no_log));
         cmd
     }
 
-    /// Whether a settings hook command is one of ours (any mode).
+    /// The `PostToolUse` command written into settings by `--measure` (records
+    /// each executed call), built on `head` (`"ct steer post"` or a pinned form).
+    pub fn post_command(head: &str, log_dir: Option<&str>, no_log: bool) -> String {
+        format!("{head}{}", log_flags(log_dir, no_log))
+    }
+
+    /// Whether a settings hook command is one of ours — the `hook` (any mode) or
+    /// the `post` recorder.
     fn is_steer_command(s: &str) -> bool {
-        s.contains("steer") && s.contains("hook")
+        s.contains("steer") && (s.contains("hook") || s.contains("post"))
     }
 
     /// Parse existing settings text (JSONC tolerated) for read-only inspection.
@@ -1261,9 +1547,26 @@ pub mod install {
         apply(text, &ops)
     }
 
-    /// Remove every steering hook from `existing` settings text, pruning emptied
-    /// matcher entries (and the `PreToolUse`/`hooks` containers when they end up
-    /// empty). Comments and layout elsewhere are preserved.
+    /// Install the `PostToolUse` recorder (`--measure`) as a single `*` matcher
+    /// running `command`, so every executed call is logged for effectiveness
+    /// analysis. Idempotent, comment-preserving, and independent of the
+    /// `PreToolUse` steering hook.
+    pub fn install_post(existing: Option<&str>, command: &str) -> Result<(String, bool), String> {
+        let Some(text) = existing.filter(|t| !t.trim().is_empty()) else {
+            let v = json!({ "hooks": { "PostToolUse": [
+                { "matcher": "*", "hooks": [ { "type": "command", "command": command } ] }
+            ] } });
+            return Ok((serde_json::to_string_pretty(&v).unwrap() + "\n", true));
+        };
+        let root = inspect(text)?;
+        let ops = post_install_ops(&root, command)?;
+        apply(text, &ops)
+    }
+
+    /// Remove every steering hook (`PreToolUse` steer and `PostToolUse` recorder)
+    /// from `existing` settings text, pruning emptied matcher entries and the
+    /// `hooks` containers when they end up empty. Comments and layout elsewhere
+    /// are preserved.
     pub fn uninstall(existing: Option<&str>) -> Result<(String, bool), String> {
         let Some(text) = existing.filter(|t| !t.trim().is_empty()) else {
             return Ok((existing.unwrap_or_default().to_string(), false));
@@ -1271,13 +1574,6 @@ pub mod install {
         let root = inspect(text)?;
         let ops = uninstall_ops(&root)?;
         apply(text, &ops)
-    }
-
-    /// The `hooks.PreToolUse` array, if present and well-shaped.
-    fn pre_array(root: &Value) -> Option<&Vec<Value>> {
-        root.get("hooks")
-            .and_then(|h| h.get("PreToolUse"))
-            .and_then(Value::as_array)
     }
 
     /// Whether an array element is a `"matcher": <name>` entry.
@@ -1381,16 +1677,93 @@ pub mod install {
         Ok(ops)
     }
 
-    /// Compute the ops that remove every steering hook, given the parsed `root`.
-    fn uninstall_ops(root: &Value) -> Result<Vec<Op>, String> {
-        let Some(pre) = pre_array(root) else {
+    /// The ops that install the `PostToolUse` recorder under a single `*` matcher,
+    /// given the parsed `root`. Idempotent, and rewrites a differing post command
+    /// in place — the `PostToolUse` analogue of [`install_ops`].
+    fn post_install_ops(root: &Value, command: &str) -> Result<Vec<Op>, String> {
+        let mut ops = Vec::new();
+        let hooks = root.get("hooks");
+        match hooks {
+            None => ops.push(op_set(".hooks", "{}".to_string())?),
+            Some(h) if !h.is_object() => {
+                return Err("settings `hooks` must be an object".to_string());
+            }
+            Some(_) => {}
+        }
+        let post = hooks.and_then(|h| h.get("PostToolUse"));
+        match post {
+            None => ops.push(op_set(".hooks.PostToolUse", "[]".to_string())?),
+            Some(p) if !p.is_array() => {
+                return Err("settings `hooks.PostToolUse` must be an array".to_string());
+            }
+            Some(_) => {}
+        }
+        let post_arr = post.and_then(Value::as_array);
+
+        // Rewrite an existing post recorder whose command differs.
+        if let Some(arr) = post_arr {
+            for (ei, entry) in arr.iter().enumerate() {
+                let Some(list) = entry.get("hooks").and_then(Value::as_array) else {
+                    continue;
+                };
+                for (hi, h) in list.iter().enumerate() {
+                    if let Some(c) = h.get("command").and_then(Value::as_str)
+                        && is_steer_command(c)
+                        && c != command
+                    {
+                        ops.push(op_set(
+                            &format!(".hooks.PostToolUse[{ei}].hooks[{hi}].command"),
+                            json!(command).to_string(),
+                        )?);
+                    }
+                }
+            }
+        }
+        // Already have a `*` matcher carrying our recorder?
+        if post_arr.is_some_and(|arr| arr.iter().any(|e| is_matcher(e, "*") && entry_has_steer(e)))
+        {
+            return Ok(ops);
+        }
+        let hook_obj = json!({ "type": "command", "command": command }).to_string();
+        let target =
+            post_arr.and_then(|arr| arr.iter().enumerate().find(|(_, e)| is_matcher(e, "*")));
+        match target {
+            Some((ei, e)) if e.get("hooks").and_then(Value::as_array).is_some() => {
+                ops.push(op_add(
+                    &format!(".hooks.PostToolUse[{ei}].hooks"),
+                    hook_obj,
+                )?);
+            }
+            Some((ei, _)) => {
+                ops.push(op_set(
+                    &format!(".hooks.PostToolUse[{ei}].hooks"),
+                    format!("[{hook_obj}]"),
+                )?);
+            }
+            None => {
+                let matcher =
+                    json!({ "matcher": "*", "hooks": [ { "type": "command", "command": command } ] })
+                        .to_string();
+                ops.push(op_add(".hooks.PostToolUse", matcher)?);
+            }
+        }
+        Ok(ops)
+    }
+
+    /// The ops that remove our hooks from one `hooks.<event>` array. Deletes the
+    /// event array whole (or `hooks` itself, when this event is its only key) when
+    /// every entry is ours; otherwise prunes just our hooks/entries.
+    fn removal_ops_for_event(root: &Value, event: &str) -> Result<Vec<Op>, String> {
+        let Some(arr) = root
+            .get("hooks")
+            .and_then(|h| h.get(event))
+            .and_then(Value::as_array)
+        else {
             return Ok(vec![]);
         };
-        // Per matcher entry: which of its hooks are ours, and whether removing
-        // them empties the entry.
         let mut whole_entries = Vec::new(); // entry indices to delete outright
         let mut partial = Vec::new(); // (entry index, our hook indices)
-        for (ei, entry) in pre.iter().enumerate() {
+        for (ei, entry) in arr.iter().enumerate() {
             let Some(list) = entry.get("hooks").and_then(Value::as_array) else {
                 continue;
             };
@@ -1417,33 +1790,40 @@ pub mod install {
             return Ok(vec![]);
         }
 
-        // Every entry removed outright and none surviving → the whole
-        // PreToolUse goes (or `hooks` itself if PreToolUse was its only key).
-        if partial.is_empty() && whole_entries.len() == pre.len() {
+        // Every entry ours → the whole event array goes (or `hooks` itself when
+        // this event is its only key).
+        if partial.is_empty() && whole_entries.len() == arr.len() {
             let hooks_solo = root
                 .get("hooks")
                 .and_then(Value::as_object)
                 .is_some_and(|o| o.len() == 1);
             let path = if hooks_solo {
-                ".hooks"
+                ".hooks".to_string()
             } else {
-                ".hooks.PreToolUse"
+                format!(".hooks.{event}")
             };
-            return Ok(vec![op_delete(path)?]);
+            return Ok(vec![op_delete(&path)?]);
         }
 
         let mut ops = Vec::new();
         // Inner-hook deletes first (descending index, so earlier indices stay
-        // valid), then whole-entry deletes (descending, likewise). Inner deletes
-        // never shift entry indices, and partial vs whole entries are disjoint.
+        // valid), then whole-entry deletes (descending, likewise).
         for (ei, his) in &partial {
             for hi in his.iter().rev() {
-                ops.push(op_delete(&format!(".hooks.PreToolUse[{ei}].hooks[{hi}]"))?);
+                ops.push(op_delete(&format!(".hooks.{event}[{ei}].hooks[{hi}]"))?);
             }
         }
         for ei in whole_entries.iter().rev() {
-            ops.push(op_delete(&format!(".hooks.PreToolUse[{ei}]"))?);
+            ops.push(op_delete(&format!(".hooks.{event}[{ei}]"))?);
         }
+        Ok(ops)
+    }
+
+    /// Compute the ops that remove every steering hook, across both the
+    /// `PreToolUse` steer and the `PostToolUse` recorder.
+    fn uninstall_ops(root: &Value) -> Result<Vec<Op>, String> {
+        let mut ops = removal_ops_for_event(root, "PreToolUse")?;
+        ops.extend(removal_ops_for_event(root, "PostToolUse")?);
         Ok(ops)
     }
 }
@@ -1597,6 +1977,69 @@ mod tests {
         assert!(s.suggestion.contains(":::"), "{}", s.suggestion);
         // a mixed chain (one non-ct segment) is left alone
         assert!(analyze("grep -r foo src && make").is_none());
+    }
+
+    #[test]
+    fn folds_all_ct_or_advisable_scriptlet_into_one_chain() {
+        // The motivating gambit: cd + assignments + two `ct edit` + an echo +
+        // two `grep -cE` verifications. Every real step is ct or ct-advisable
+        // (and not all are ct), so it folds into a single `ct and` chain.
+        let script = "cd /repo\n\
+             G=crates/a/src/game.rs\n\
+             S=/tmp/scratch\n\
+             ct edit --base \"$G\" --find file:$S/a.txt --replace file:$S/b.txt --mode literal --expect =1 --quiet\n\
+             ct edit --base \"$G\" --find file:$S/c.txt --replace file:$S/d.txt --mode literal --expect =1 --quiet\n\
+             echo \"--- verify ---\"\n\
+             grep -cE \"submit_request|UserRequest\" \"$G\"\n\
+             grep -cE \"submit_agent_request\" \"$G\"";
+        let s = analyze(script).expect("a foldable scriptlet");
+        assert_eq!(s.rule_id, "script-compound");
+        assert_eq!(s.tool, "ct and");
+        // Two ct edits (kept) plus two greps (→ ct search): four segments, three
+        // separators, and it leads with the first already-ct step.
+        assert!(s.suggestion.starts_with("ct and edit "), "{}", s.suggestion);
+        assert!(s.suggestion.contains(" ::: search "), "{}", s.suggestion);
+        assert_eq!(s.suggestion.matches(" ::: ").count(), 3, "{}", s.suggestion);
+    }
+
+    #[test]
+    fn scriptlet_with_an_opaque_step_advises_lines_not_a_fold() {
+        // grep -r (advisable) + cargo build (no ct analogue) + sed -i (advisable):
+        // it can't fold whole, so advise the ct forms individually.
+        let script = "grep -r TODO src\ncargo build\nsed -i 's/a/b/' x.rs";
+        let s = analyze(script).expect("some steps are advisable");
+        assert_eq!(s.rule_id, "script-lines");
+        assert_eq!(s.tool, "ct");
+        assert!(s.suggestion.contains("ct search"), "{}", s.suggestion);
+        assert!(s.suggestion.contains("ct edit"), "{}", s.suggestion);
+        // the opaque `cargo build` is not dressed up as a ct command
+        assert!(!s.suggestion.contains("cargo"), "{}", s.suggestion);
+    }
+
+    #[test]
+    fn scriptlet_of_only_ct_calls_is_left_alone() {
+        // Already all ct (just in separate calls): not our business to nag.
+        assert!(
+            analyze("ct search --grep A --quiet\nct edit --find a --replace b --base x.rs")
+                .is_none()
+        );
+        // All-opaque multi-line is likewise allowed.
+        assert!(analyze("cargo build\ncargo test\ngit status").is_none());
+    }
+
+    #[test]
+    fn lone_real_step_among_setup_is_still_steered() {
+        // One advisable operation wrapped in scaffolding lines.
+        let s = analyze("cd /repo\nG=src\ngrep -r TODO \"$G\"").expect("the grep is advisable");
+        assert_eq!(s.tool, "ct search");
+    }
+
+    #[test]
+    fn line_continuations_are_one_command() {
+        // A backslash-continued pipeline is a single command, not a scriptlet.
+        let s = analyze("find . -name '*.rs' \\\n  | xargs grep TODO").expect("joined command");
+        assert_eq!(s.tool, "ct search");
+        assert_eq!(s.rule_id, "find-grep");
     }
 
     #[test]
@@ -1775,25 +2218,45 @@ mod tests {
 
     #[test]
     fn hook_command_bakes_logging_flags() {
+        let head = "ct steer hook";
         // Default: logging is on, so the bare command needs no flag.
         assert_eq!(
-            install::hook_command(Mode::Deny, None, false),
+            install::hook_command(head, Mode::Deny, None, false, false),
             "ct steer hook"
         );
         // --no-log wins over a directory override.
         assert_eq!(
-            install::hook_command(Mode::Warn, Some("/x"), true),
+            install::hook_command(head, Mode::Warn, Some("/x"), true, false),
             "ct steer hook --mode warn --no-log"
         );
         // A directory override is baked as --log-dir.
         assert_eq!(
-            install::hook_command(Mode::Deny, Some("/var/log/tc"), false),
+            install::hook_command(head, Mode::Deny, Some("/var/log/tc"), false, false),
             "ct steer hook --log-dir /var/log/tc"
         );
         // A path with a space is quoted so the hook's shell keeps it one argument.
         assert_eq!(
-            install::hook_command(Mode::Deny, Some("/my logs/tc"), false),
+            install::hook_command(head, Mode::Deny, Some("/my logs/tc"), false, false),
             "ct steer hook --log-dir \"/my logs/tc\""
+        );
+        // The pipeline nudge is baked before the logging flags.
+        assert_eq!(
+            install::hook_command(head, Mode::Warn, None, false, true),
+            "ct steer hook --mode warn --nudge-pipelines"
+        );
+        // A pinned head bakes an absolute path instead of `ct steer`.
+        assert_eq!(
+            install::hook_command("/opt/ct/ct-steer hook", Mode::Deny, None, false, false),
+            "/opt/ct/ct-steer hook"
+        );
+        // The post recorder shares the logging suffix.
+        assert_eq!(
+            install::post_command("ct steer post", None, false),
+            "ct steer post"
+        );
+        assert_eq!(
+            install::post_command("ct steer post", Some("/tc"), false),
+            "ct steer post --log-dir /tc"
         );
     }
 
@@ -1826,6 +2289,57 @@ mod tests {
         // uninstall still clears it (it scans by command, not matcher name).
         let (cleared, _) = uninstall(Some(&text)).unwrap();
         assert!(!cleared.contains("steer hook"));
+    }
+
+    #[test]
+    fn pipeline_nudge_only_on_unmapped_pipes() {
+        // A pipe with no specific steer → generic nudge.
+        let n = pipeline_nudge("ps aux | grep server").expect("unmapped pipe");
+        assert_eq!(n.rule_id, "pipeline");
+        assert_eq!(n.tool, "ct");
+        // A pipe that IS specifically steered is left to that rule.
+        assert!(pipeline_nudge("find . -name '*.rs' | xargs grep TODO").is_none());
+        // No pipe, or already ct → nothing.
+        assert!(pipeline_nudge("git status").is_none());
+        assert!(pipeline_nudge("ct search --grep x | head").is_none());
+    }
+
+    #[test]
+    fn post_record_marks_ct_calls_and_carries_context() {
+        let post = hook::post_record(
+            r#"{"tool_name":"Bash","tool_input":{"command":"ct search --grep x"},"session_id":"s1"}"#,
+        );
+        assert_eq!(post["event"], "post");
+        assert_eq!(post["ct"], true);
+        assert_eq!(post["session_id"], "s1");
+
+        let raw =
+            hook::post_record(r#"{"tool_name":"Bash","tool_input":{"command":"grep -r x ."}}"#);
+        assert_eq!(raw["ct"], false);
+        assert_eq!(raw["command"], "grep -r x .");
+
+        // A non-Bash tool has no command and is not a ct call.
+        let edit = hook::post_record(r#"{"tool_name":"Edit","tool_input":{"file_path":"a.rs"}}"#);
+        assert_eq!(edit["tool"], "Edit");
+        assert_eq!(edit["ct"], false);
+    }
+
+    #[test]
+    fn install_post_adds_recorder_and_uninstall_clears_both_events() {
+        // Steering hook, then the PostToolUse recorder on top.
+        let (pre, _) = install_bash(None, "ct steer hook").unwrap();
+        let (both, changed) = install::install_post(Some(&pre), "ct steer post").unwrap();
+        assert!(changed);
+        assert!(both.contains("\"PreToolUse\""), "{both}");
+        assert!(both.contains("\"PostToolUse\""), "{both}");
+        assert!(both.contains("ct steer post"), "{both}");
+        // Re-installing the recorder is a no-op.
+        let (_, again) = install::install_post(Some(&both), "ct steer post").unwrap();
+        assert!(!again);
+        // One uninstall clears both the steer hook and the recorder.
+        let (cleared, _) = uninstall(Some(&both)).unwrap();
+        assert!(!cleared.contains("steer hook"), "{cleared}");
+        assert!(!cleared.contains("steer post"), "{cleared}");
     }
 
     #[test]

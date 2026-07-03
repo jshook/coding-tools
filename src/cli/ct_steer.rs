@@ -59,6 +59,8 @@ pub struct Cli {
 pub enum Command {
     /// Runtime PreToolUse hook: read a tool-call envelope on stdin, emit a decision.
     Hook(HookArgs),
+    /// Runtime PostToolUse recorder: log the executed call (for effectiveness analysis).
+    Post(PostArgs),
     /// Merge the steering hook into a Claude Code settings file.
     Install(InstallArgs),
     /// Remove the steering hook from a Claude Code settings file.
@@ -157,6 +159,21 @@ pub struct HookArgs {
     /// Disable tool-call logging (it is on by default).
     #[arg(long)]
     pub no_log: bool,
+
+    /// Also nudge (warn-only, never deny) against ANY shell pipeline the specific rules did not steer, prompting harder use of ct.
+    #[arg(long)]
+    pub nudge_pipelines: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct PostArgs {
+    /// Directory for the daily log; defaults to .ct/tclog (nearest .ct). Also settable via CT_STEER_LOG.
+    #[arg(long, value_name = "DIR")]
+    pub log_dir: Option<PathBuf>,
+
+    /// Disable logging (the recorder does nothing).
+    #[arg(long)]
+    pub no_log: bool,
 }
 
 #[derive(Args, Debug)]
@@ -184,6 +201,22 @@ pub struct InstallArgs {
     /// Bake `--no-log` into the installed hook command, disabling tool-call logging.
     #[arg(long)]
     pub no_log: bool,
+
+    /// Bake `--nudge-pipelines` into the installed hook (warn-only nudge against any un-steered shell pipeline).
+    #[arg(long)]
+    pub nudge_pipelines: bool,
+
+    /// Also install a PostToolUse recorder (a `*` matcher running `ct steer post`) to measure whether steer guidance was followed.
+    #[arg(long)]
+    pub measure: bool,
+
+    /// Bake the absolute path of THIS ct-steer binary into the hook (instead of resolving `ct` on PATH), so a version-skewed or missing `ct` can't break the hook.
+    #[arg(long)]
+    pub pin: bool,
+
+    /// Skip the preflight that verifies the resolving `ct` can parse the hook command; install even if it looks incompatible.
+    #[arg(long)]
+    pub force: bool,
 
     /// Show the resulting settings file without writing it.
     #[arg(long)]

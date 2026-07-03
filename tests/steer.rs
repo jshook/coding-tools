@@ -219,9 +219,10 @@ fn install_creates_idempotent_settings_then_uninstalls() {
     let dir = scratch("install");
     let settings = dir.join(".claude").join("settings.json");
 
-    // fresh install writes the hook
+    // fresh install writes the hook (--force skips the PATH-`ct` preflight so the
+    // test is deterministic wherever `ct` is or isn't installed)
     let first = steer()
-        .args(["install", "--scope", "project"])
+        .args(["install", "--scope", "project", "--force"])
         .current_dir(&dir)
         .output()
         .unwrap();
@@ -233,7 +234,7 @@ fn install_creates_idempotent_settings_then_uninstalls() {
 
     // re-install is a no-op (content unchanged)
     let again = steer()
-        .args(["install", "--scope", "project"])
+        .args(["install", "--scope", "project", "--force"])
         .current_dir(&dir)
         .output()
         .unwrap();
@@ -259,7 +260,7 @@ fn install_with_multiple_tools_writes_a_matcher_each() {
     let dir = scratch("multitool");
     let settings = dir.join(".claude").join("settings.json");
     let out = steer()
-        .args(["install", "--tools", "Bash,Grep,Glob,Read"])
+        .args(["install", "--tools", "Bash,Grep,Glob,Read", "--force"])
         .current_dir(&dir)
         .output()
         .unwrap();
@@ -296,6 +297,76 @@ fn install_print_writes_nothing() {
     assert!(
         !dir.join(".claude").exists(),
         "--print must not touch the filesystem"
+    );
+}
+
+#[test]
+fn install_preflight_refuses_unresolvable_ct_and_force_overrides() {
+    // Copy ct-steer into an isolated dir with NO `ct` beside it, then run it with
+    // an empty PATH: the hook's `ct steer hook` can't be resolved, so the
+    // preflight must refuse (arming it would block tool calls).
+    let dir = temp_scratch("preflight");
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let exe = bin.join(if cfg!(windows) {
+        "ct-steer.exe"
+    } else {
+        "ct-steer"
+    });
+    std::fs::copy(env!("CARGO_BIN_EXE_ct-steer"), &exe).unwrap();
+    let proj = dir.join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+
+    let refused = Command::new(&exe)
+        .args(["install", "--scope", "project"])
+        .current_dir(&proj)
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_ne!(
+        code(&refused),
+        0,
+        "preflight should refuse an unresolvable ct"
+    );
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("preflight"),
+        "stderr: {}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    assert!(
+        !proj.join(".claude").exists(),
+        "a refused install must write nothing"
+    );
+
+    // --force overrides the preflight and installs anyway.
+    let forced = Command::new(&exe)
+        .args(["install", "--scope", "project", "--force"])
+        .current_dir(&proj)
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_eq!(code(&forced), 0);
+    assert!(proj.join(".claude").join("settings.json").exists());
+}
+
+#[test]
+fn install_pin_bakes_absolute_path_and_passes_preflight() {
+    // --pin probes the pinned binary itself, so it passes even with no `ct` on
+    // PATH, and bakes this binary's absolute path instead of `ct steer`.
+    let dir = temp_scratch("pin");
+    let out = steer()
+        .args(["install", "--pin", "--scope", "project"])
+        .current_dir(&dir)
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", String::from_utf8_lossy(&out.stderr));
+    let s = std::fs::read_to_string(dir.join(".claude").join("settings.json")).unwrap();
+    assert!(s.contains("ct-steer"), "pinned absolute path baked: {s}");
+    assert!(s.contains(" hook"), "{s}");
+    assert!(
+        !s.contains("ct steer hook"),
+        "pinned, not the bare umbrella: {s}"
     );
 }
 
