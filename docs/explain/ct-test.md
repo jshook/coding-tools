@@ -271,3 +271,12 @@ ct-test --question "Is there a Cargo.toml at the root?" \
 # Hand an agent the machine-readable tool definition.
 ct-test --explain json
 ```
+
+- **Run cargo build as a framed experiment with a pass/fail verdict from its output, instead of eyeballing raw output.**
+  ```sh
+  ct test --question 'Does the crate build?' --cmd cargo --ok-match Finished -- build
+  ```
+- **Classify a test run by its output, not just its exit code.**
+  ```sh
+  ct test --question 'Do the steer tests pass?' --cmd cargo --err-match FAILED -- test --test steer
+  ```

@@ -139,3 +139,12 @@ ct okf --base bundle log "Moved orders to facts/" --kind Update
 ct okf --base bundle script batch.ctb --dry-run   # preview
 ct okf --base bundle script batch.ctb             # apply atomically
 ```
+
+- **Judge a bundle's OKF conformance with a framed pass/fail verdict.**
+  ```sh
+  ct okf validate --base docs/concepts
+  ```
+- **Report broken cross-links within an OKF bundle.**
+  ```sh
+  ct okf links --base docs/concepts
+  ```

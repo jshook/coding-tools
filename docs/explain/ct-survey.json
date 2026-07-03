@@ -65,5 +65,9 @@
       }
     },
     "required": []
-  }
+  },
+  "examples": [
+    {"cmd": "ct survey --sort lines", "why": "Per-crate and per-module file/line/test survey of the current project, largest first, instead of ad-hoc cargo metadata plus wc."},
+    {"cmd": "ct survey --depth crate --json", "why": "Per-crate totals only, as JSON for further processing."}
+  ]
 }

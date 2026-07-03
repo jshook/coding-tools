@@ -17,6 +17,8 @@ This document is the canonical reference for `ct-edit`. It is also what the tool
 prints for `ct-edit --explain` (`--explain md`); `ct-edit --explain json` prints
 the equivalent MCP / tool-use definition.
 
+> **Pair `ct view` reads with `ct edit` writes.** The harness's own `Edit` tool requires that it has *read* a file (via its `Read` tool) before it will modify it. A `ct view` read does not satisfy that precondition, so if you read with `ct view` and then reach for the harness `Edit`, it will refuse. Mutate with `ct edit` instead — it needs no prior harness read.
+
 ## When to use it
 
 - Rename or rewrite a token and assert the blast radius: `--expect =1` (exactly
@@ -277,3 +279,12 @@ ct-edit --base src --name '*.rs' \
 ct-edit --base polydat/src --name '*.rs' --script target/edits.ctb --dry-run
 ct-edit --base polydat/src --name '*.rs' --script target/edits.ctb
 ```
+
+- **Preview a rename across Rust sources before writing, instead of sed -i 's/foo_bar/foo_baz/g'.**
+  ```sh
+  ct edit --base src --name '*.rs' --find 'foo_bar' --replace 'foo_baz' --mode literal --dry-run
+  ```
+- **Rename in one file, refusing the write unless exactly the expected number of sites change.**
+  ```sh
+  ct edit --base src/steer.rs --find 'old_name' --replace 'new_name' --mode literal --expect 3
+  ```

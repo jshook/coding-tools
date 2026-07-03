@@ -94,5 +94,9 @@
       }
     },
     "required": []
-  }
+  },
+  "examples": [
+    {"cmd": "ct edit --base src --name '*.rs' --find 'foo_bar' --replace 'foo_baz' --mode literal --dry-run", "why": "Preview a rename across Rust sources before writing, instead of sed -i 's/foo_bar/foo_baz/g'."},
+    {"cmd": "ct edit --base src/steer.rs --find 'old_name' --replace 'new_name' --mode literal --expect 3", "why": "Rename in one file, refusing the write unless exactly the expected number of sites change."}
+  ]
 }

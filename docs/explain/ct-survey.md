@@ -87,6 +87,17 @@ totals  files 34  lines 9210  tests 112~  test-targets 9  benches 0
 (~ = heuristic; file/line counts exact; grouping and target counts authoritative)
 ```
 
+## Examples
+
+- **Per-crate and per-module file/line/test survey of the current project, largest first, instead of ad-hoc cargo metadata plus wc.**
+  ```sh
+  ct survey --sort lines
+  ```
+- **Per-crate totals only, as JSON for further processing.**
+  ```sh
+  ct survey --depth crate --json
+  ```
+
 ## Exit status
 
 `0` on a rendered survey. `2` on a usage error, an unresolvable path, or a

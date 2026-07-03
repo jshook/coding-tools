@@ -77,5 +77,10 @@
       }
     },
     "required": []
-  }
+  },
+  "examples": [
+    {"cmd": "ct check", "why": "Verify every recorded invariant; exit 1 if any fails."},
+    {"cmd": "ct check --list", "why": "List the invariants that would run, without executing them."},
+    {"cmd": "ct check --id no-cycles --json", "why": "Run one invariant by id and get a structured JSON verdict."}
+  ]
 }

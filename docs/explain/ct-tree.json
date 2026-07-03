@@ -155,5 +155,10 @@
       }
     },
     "required": []
-  }
+  },
+  "examples": [
+    {"cmd": "ct tree --ext rs --summary --group dir --base src", "why": "Per-directory line and file totals for Rust sources in one table, instead of ls -R and wc -l pipelines."},
+    {"cmd": "ct tree --ext rs --flat --sort lines --desc", "why": "List Rust files by descending line count, instead of wc -l on a find result piped to sort."},
+    {"cmd": "ct tree --ext rs --min-lines 500 --base src", "why": "Surface Rust files over 500 lines that may want splitting."}
+  ]
 }

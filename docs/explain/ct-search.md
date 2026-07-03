@@ -224,6 +224,19 @@ ct-search --base out --name 'migrated-*.json' --expect +0 \
 ct-search --explain json
 ```
 
+- **Find every TODO/FIXME in Rust sources under src/ in one call, instead of grep -rn -E 'TODO|FIXME' --include='*.rs' src.**
+  ```sh
+  ct search --grep 'TODO|FIXME' --name '*.rs' --base src
+  ```
+- **List Rust file paths under src/, instead of find src -name '*.rs' -type f.**
+  ```sh
+  ct search --name '*.rs' --type f --base src --list
+  ```
+- **Assert there are no panic! calls as a pass/fail gate (exit 1 if any exist), with no piping into wc or grep.**
+  ```sh
+  ct search --grep 'panic!' --name '*.rs' --quiet --expect none
+  ```
+
 ## OKF awareness
 
 When searching a knowledge bundle, two predicates filter Markdown concepts by

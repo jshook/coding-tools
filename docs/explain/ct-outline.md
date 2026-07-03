@@ -189,6 +189,17 @@ ct-search --base src --name '*.rs' | \
   ct-each --stdin -- ct-outline --base '{ITEM}' --depth 1 --flat
 ```
 
+## Examples
+
+- **List the functions in a file, then read one with ct view --range, instead of grepping for 'fn '.**
+  ```sh
+  ct outline --base src/steer.rs --kind fn
+  ```
+- **Find test functions across the tree as grep-friendly path:line rows.**
+  ```sh
+  ct outline --base src --ext rs --match 'test_*' --flat
+  ```
+
 ## Exit status
 
 | Code | Meaning                                                    |

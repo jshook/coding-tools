@@ -139,6 +139,19 @@ ct-tree --base assets --flat --sort bytes --desc
 ct-tree --base assets/cache --ext png --max-bytes 256 --bytes --flat
 ```
 
+- **Per-directory line and file totals for Rust sources in one table, instead of ls -R and wc -l pipelines.**
+  ```sh
+  ct tree --ext rs --summary --group dir --base src
+  ```
+- **List Rust files by descending line count, instead of wc -l on a find result piped to sort.**
+  ```sh
+  ct tree --ext rs --flat --sort lines --desc
+  ```
+- **Surface Rust files over 500 lines that may want splitting.**
+  ```sh
+  ct tree --ext rs --min-lines 500 --base src
+  ```
+
 ## OKF awareness
 
 For a knowledge bundle, `--sort okf-type` orders files by their Markdown

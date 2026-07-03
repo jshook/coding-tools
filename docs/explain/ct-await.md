@@ -113,6 +113,15 @@ ct-await --every 2 --timeout 1800 \
   -- cat ci.log
 ```
 
+- **Poll until ct-search finds 'server ready' in logs (bounded at 60s), instead of a hand-rolled sleep/retry loop.**
+  ```sh
+  ct await --timeout 60 --every 2 -- ct-search --base logs --grep 'server ready' --quiet
+  ```
+- **Wait until 'ok' appears in health.txt (probe exit 0), bounded at 30s.**
+  ```sh
+  ct await --timeout 30 -- ct-search --base . --name health.txt --grep ok --quiet
+  ```
+
 ### Documentation
 
 | Option                 | Effect |

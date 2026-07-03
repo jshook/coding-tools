@@ -72,5 +72,9 @@
       }
     },
     "required": []
-  }
+  },
+  "examples": [
+    {"cmd": "ct okf validate --base docs/concepts", "why": "Judge a bundle's OKF conformance with a framed pass/fail verdict."},
+    {"cmd": "ct okf links --base docs/concepts", "why": "Report broken cross-links within an OKF bundle."}
+  ]
 }

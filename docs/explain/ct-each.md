@@ -233,3 +233,12 @@ ct-search --base src --name '*.rs' | \
 # Hand an agent the machine-readable tool definition.
 ct-each --explain json
 ```
+
+- **Survey every crate manifest in the workspace in one sweep, instead of a shell for-loop.**
+  ```sh
+  ct each --base crates --name 'Cargo.toml' -- ct-survey {ITEM}
+  ```
+- **Outline the functions of several files in a single call.**
+  ```sh
+  ct each --items src/steer.rs --items src/deps.rs -- ct-outline --base {ITEM} --kind fn
+  ```

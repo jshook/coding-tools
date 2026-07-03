@@ -78,5 +78,10 @@
     "required": [
       "path"
     ]
-  }
+  },
+  "examples": [
+    {"cmd": "ct view src/steer.rs --range 900:965", "why": "Read only lines 900-965 of a large file, instead of sed -n '900,965p' src/steer.rs."},
+    {"cmd": "ct view src/lib.rs --match 'pub mod' --context 0", "why": "Show every 'pub mod' line with no surrounding context, instead of grep -n 'pub mod' src/lib.rs."},
+    {"cmd": "ct view Cargo.toml --range :20", "why": "Read the first 20 lines, instead of head -n 20 Cargo.toml."}
+  ]
 }

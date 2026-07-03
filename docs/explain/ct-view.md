@@ -12,6 +12,8 @@ This document is the canonical reference for `ct-view`. It is also what the tool
 prints for `ct-view --explain` (`--explain md`); `ct-view --explain json` prints
 the equivalent MCP / tool-use definition.
 
+> **Pair `ct view` reads with `ct edit` writes.** The harness's own `Edit` tool requires that it has *read* a file (via its `Read` tool) before it will modify it. A `ct view` read does not satisfy that precondition, so if you read with `ct view` and then reach for the harness `Edit`, it will refuse. Mutate with `ct edit` instead — it needs no prior harness read.
+
 ## When to use it
 
 - Read a specific span (`--range 40:80`) without paging a whole file.
@@ -118,6 +120,19 @@ ct-view src/bin/ct-test.rs --match Verdict --context 3 --json
 # First 20 lines, no gutter.
 ct-view README.md --range :20 --plain
 ```
+
+- **Read only lines 900-965 of a large file, instead of sed -n '900,965p' src/steer.rs.**
+  ```sh
+  ct view src/steer.rs --range 900:965
+  ```
+- **Show every 'pub mod' line with no surrounding context, instead of grep -n 'pub mod' src/lib.rs.**
+  ```sh
+  ct view src/lib.rs --match 'pub mod' --context 0
+  ```
+- **Read the first 20 lines, instead of head -n 20 Cargo.toml.**
+  ```sh
+  ct view Cargo.toml --range :20
+  ```
 
 ## OKF awareness
 

@@ -127,5 +127,9 @@
       }
     },
     "required": []
-  }
+  },
+  "examples": [
+    {"cmd": "ct patch --base .claude/settings.json --set 'hooks.PreToolUse[0].matcher=\"Bash\"' --dry-run", "why": "Set a nested JSON node while preserving surrounding comments and layout, instead of jq -i or hand-editing."},
+    {"cmd": "ct patch --base package.json --add 'keywords=\"cli\"'", "why": "Append a value to an array node in place, instead of rewriting the file."}
+  ]
 }

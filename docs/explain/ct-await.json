@@ -74,5 +74,9 @@
       "timeout",
       "probe"
     ]
-  }
+  },
+  "examples": [
+    {"cmd": "ct await --timeout 60 --every 2 -- ct-search --base logs --grep 'server ready' --quiet", "why": "Poll until ct-search finds 'server ready' in logs (bounded at 60s), instead of a hand-rolled sleep/retry loop."},
+    {"cmd": "ct await --timeout 30 -- ct-search --base . --name health.txt --grep ok --quiet", "why": "Wait until 'ok' appears in health.txt (probe exit 0), bounded at 30s."}
+  ]
 }

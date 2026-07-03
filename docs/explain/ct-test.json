@@ -118,5 +118,9 @@
     "required": [
       "cmd"
     ]
-  }
+  },
+  "examples": [
+    {"cmd": "ct test --question 'Does the crate build?' --cmd cargo --ok-match Finished -- build", "why": "Run cargo build as a framed experiment with a pass/fail verdict from its output, instead of eyeballing raw output."},
+    {"cmd": "ct test --question 'Do the steer tests pass?' --cmd cargo --err-match FAILED -- test --test steer", "why": "Classify a test run by its output, not just its exit code."}
+  ]
 }

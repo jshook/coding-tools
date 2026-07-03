@@ -182,3 +182,12 @@ ct-patch --base config.yaml --set .server.port=9090
 # Stamp every record in a JSONL file.
 ct-patch --base events.jsonl --set .processed=true --json
 ```
+
+- **Set a nested JSON node while preserving surrounding comments and layout, instead of jq -i or hand-editing.**
+  ```sh
+  ct patch --base .claude/settings.json --set 'hooks.PreToolUse[0].matcher="Bash"' --dry-run
+  ```
+- **Append a value to an array node in place, instead of rewriting the file.**
+  ```sh
+  ct patch --base package.json --add 'keywords="cli"'
+  ```

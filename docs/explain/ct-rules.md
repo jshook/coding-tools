@@ -180,6 +180,17 @@ non-zero exit; a missing `ct` binary fails **loudly** with instructions
 rather than passing silently. `ct-rules` refuses to overwrite a
 `tests/ct_invariants.rs` it did not generate.
 
+## Examples
+
+- **Show the project's recorded invariants and named defs.**
+  ```sh
+  ct rules --list
+  ```
+- **Record an invariant whose read-only ct-search probe is run now and must hold.**
+  ```sh
+  ct rules --add no-todo --question 'Is the tree free of TODO markers?' -- ct-search --grep TODO --expect none
+  ```
+
 ## Exit status
 
 | Code | Meaning |

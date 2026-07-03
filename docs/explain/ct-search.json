@@ -131,5 +131,10 @@
       }
     },
     "required": []
-  }
+  },
+  "examples": [
+    {"cmd": "ct search --grep 'TODO|FIXME' --name '*.rs' --base src", "why": "Find every TODO/FIXME in Rust sources under src/ in one call, instead of grep -rn -E 'TODO|FIXME' --include='*.rs' src."},
+    {"cmd": "ct search --name '*.rs' --type f --base src --list", "why": "List Rust file paths under src/, instead of find src -name '*.rs' -type f."},
+    {"cmd": "ct search --grep 'panic!' --name '*.rs' --quiet --expect none", "why": "Assert there are no panic! calls as a pass/fail gate (exit 1 if any exist), with no piping into wc or grep."}
+  ]
 }

@@ -130,5 +130,9 @@
     "required": [
       "command"
     ]
-  }
+  },
+  "examples": [
+    {"cmd": "ct each --base crates --name 'Cargo.toml' -- ct-survey {ITEM}", "why": "Survey every crate manifest in the workspace in one sweep, instead of a shell for-loop."},
+    {"cmd": "ct each --items src/steer.rs --items src/deps.rs -- ct-outline --base {ITEM} --kind fn", "why": "Outline the functions of several files in a single call."}
+  ]
 }

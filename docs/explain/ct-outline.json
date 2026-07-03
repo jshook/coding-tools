@@ -114,5 +114,9 @@
       }
     },
     "required": []
-  }
+  },
+  "examples": [
+    {"cmd": "ct outline --base src/steer.rs --kind fn", "why": "List the functions in a file, then read one with ct view --range, instead of grepping for 'fn '."},
+    {"cmd": "ct outline --base src --ext rs --match 'test_*' --flat", "why": "Find test functions across the tree as grep-friendly path:line rows."}
+  ]
 }

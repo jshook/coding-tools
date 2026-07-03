@@ -123,6 +123,21 @@ summary: `N/M invariant(s) hold[, n warned, n pending, n broken, n skipped]
 The `--json` result carries `tool`, `verdict`, `store`, the per-lane counts,
 and a `rules` array of `{id, question, lane, code, reason, why}`.
 
+## Examples
+
+- **Verify every recorded invariant; exit 1 if any fails.**
+  ```sh
+  ct check
+  ```
+- **List the invariants that would run, without executing them.**
+  ```sh
+  ct check --list
+  ```
+- **Run one invariant by id and get a structured JSON verdict.**
+  ```sh
+  ct check --id no-cycles --json
+  ```
+
 ## Exit status
 
 | Code | Meaning |
