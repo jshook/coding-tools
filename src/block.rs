@@ -6,7 +6,10 @@
 //!
 //! A multi-line pattern matches as a *block*: a find block of K lines matches
 //! K consecutive source lines exactly, byte-for-byte, leading and trailing
-//! whitespace significant. When a block fails to match, [`nearest_miss`]
+//! whitespace significant. Only the line *ending* is not significant — a
+//! `\n`-split find block matches CRLF source, and [`edit_blocks`] preserves each
+//! file's own endings (and a missing final newline) on write. When a block fails
+//! to match, [`nearest_miss`]
 //! reports the best partial alignment — the candidate with the longest
 //! matching prefix and the first diverging line — so the author sees *why*
 //! the anchor missed (whitespace drift, a comment edit, an already-applied
@@ -325,15 +328,32 @@ pub fn edit_blocks_with(
     replacement: &[String],
     squeeze: bool,
 ) -> (String, usize, Vec<Site>) {
-    // Split into (body, terminator) per line so untouched bytes round-trip.
+    // Split into (body, terminator) per line so untouched bytes round-trip. The
+    // terminator captures the whole line ending (`\r\n`, `\n`, a lone trailing
+    // `\r`, or none at EOF), so bodies are carriage-return-free and match a
+    // `\n`-split find block on a CRLF file without rewriting the file's endings.
     let segments: Vec<(&str, &str)> = content
         .split_inclusive('\n')
-        .map(|seg| match seg.strip_suffix('\n') {
-            Some(b) => (b, "\n"),
-            None => (seg, ""),
+        .map(|seg| {
+            if let Some(b) = seg.strip_suffix("\r\n") {
+                (b, "\r\n")
+            } else if let Some(b) = seg.strip_suffix('\n') {
+                (b, "\n")
+            } else if let Some(b) = seg.strip_suffix('\r') {
+                (b, "\r")
+            } else {
+                (seg, "")
+            }
         })
         .collect();
     let bodies: Vec<&str> = segments.iter().map(|(b, _)| *b).collect();
+    // The file's dominant newline, used for replacement lines when the matched
+    // span itself carries none (a block at EOF with no trailing newline).
+    let default_nl = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     // Each match is a (start, source-line count) span. Exact matching always
     // spans exactly `block.len()` lines; squeezing can span more.
     let spans: Vec<(usize, usize)> = if squeeze {
@@ -355,15 +375,23 @@ pub fn edit_blocks_with(
     while i < segments.len() {
         if next.peek().is_some_and(|(s, _)| *s == i) {
             let (_, span) = *next.next().unwrap();
-            // The terminator after the block: taken from its last line, so a
-            // block ending at EOF-without-newline stays unterminated.
-            let last_nl = segments[i + span - 1].1;
+            // Preserve the matched span's line endings in the replacement: the
+            // last replacement line inherits the block's last terminator (so a
+            // block ending at EOF-without-newline stays unterminated), and
+            // interior lines take the span's newline style (so a CRLF block is
+            // replaced with CRLF, not mixed endings).
+            let last_term = segments[i + span - 1].1;
+            let nl = segments[i..i + span]
+                .iter()
+                .map(|(_, t)| *t)
+                .find(|t| !t.is_empty())
+                .unwrap_or(default_nl);
             for (r, rl) in replacement.iter().enumerate() {
                 out.push_str(rl);
                 out.push_str(if r + 1 == replacement.len() {
-                    last_nl
+                    last_term
                 } else {
-                    "\n"
+                    nl
                 });
             }
             let before = segments[i..i + span]
@@ -462,6 +490,40 @@ mod tests {
         let (out, n, _) = edit_blocks("f", "a\nx", &b, &block(&["y", "z"]));
         assert_eq!(out, "a\ny\nz");
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn block_edit_matches_crlf_and_preserves_endings() {
+        // The reported repro: a 3-line block followed by a blank line, all CRLF.
+        // A `\n`-split find block must match, and the file's CRLF must survive.
+        let content = "struct Foo {\r\n    a: u32,\r\n}\r\n\r\nfn keep() {}\r\n";
+        let find = block(&["struct Foo {", "    a: u32,", "}"]);
+
+        // Delete: block removed, surrounding CRLF (incl. the blank line) intact.
+        let (out, n, sites) = edit_blocks("f", content, &find, &[]);
+        assert_eq!(n, 1);
+        assert_eq!(out, "\r\nfn keep() {}\r\n");
+        // The site's `before` is the clean, carriage-return-free body.
+        assert_eq!(sites[0].before, "struct Foo {\n    a: u32,\n}");
+
+        // Replace: the new lines take CRLF too — no mixed endings.
+        let repl = block(&["struct Bar {", "    b: u64,", "}"]);
+        let (out2, n2, _) = edit_blocks("f", content, &find, &repl);
+        assert_eq!(n2, 1);
+        assert_eq!(
+            out2,
+            "struct Bar {\r\n    b: u64,\r\n}\r\n\r\nfn keep() {}\r\n"
+        );
+    }
+
+    #[test]
+    fn block_edit_preserves_crlf_missing_final_newline() {
+        // A CRLF file whose last line has no trailing newline: the last
+        // replacement line stays unterminated, and the interior line uses the
+        // file's CRLF (not a lone LF).
+        let (out, n, _) = edit_blocks("f", "a\r\nx", &block(&["x"]), &block(&["y", "z"]));
+        assert_eq!(n, 1);
+        assert_eq!(out, "a\r\ny\r\nz");
     }
 
     #[test]
