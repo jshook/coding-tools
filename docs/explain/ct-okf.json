@@ -5,7 +5,7 @@
     { "name": "search", "summary": "Full-text search across content roots (auto-updates the index first).", "args": "QUERY... [--limit N=20] [--type TYPE] [--tag T,...]" },
     { "name": "find", "summary": "List concepts by metadata in the --base bundle.", "args": "[--type TYPE] [--tag T,...]" },
     { "name": "roots", "summary": "Manage content roots.", "args": "list | add DIR [--marker] | rm DIR | scan [--write]" },
-    { "name": "index", "summary": "Maintain the search index.", "args": "status | update | condense | rebuild" },
+    { "name": "index", "summary": "Maintain and inspect the provider-scoped, event-assisted search index.", "args": "status | scopes [--effective] | why PATH | init [--dry-run|--write] | watch status|start|stop | update | condense | rebuild" },
     { "name": "init", "summary": "Discover content roots, record them, and build the index.", "args": "[--marker]" },
     { "name": "validate", "summary": "Judge the --base bundle's OKF conformance (framed verdict).", "args": "[--strict] [--question Q] [--expect SPEC] [--emit T] [--emit-stderr T]" },
     { "name": "links", "summary": "Report broken bundle cross-links (framed verdict).", "args": "[--strict] [--question Q] [--expect SPEC] [--emit T] [--emit-stderr T]" },

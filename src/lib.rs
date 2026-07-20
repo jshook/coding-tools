@@ -52,6 +52,8 @@
 //!   `ct-okf` and the OKF-aware file/structure tools.
 //! * [`okfindex`] — the lazily-maintained fst-segment full-text index over OKF
 //!   concept files behind `ct-okf search` (incremental layering + condense).
+//! * [`indexing`] — conservative provider/scope policy, event-assisted index
+//!   maintenance, daemon state, and observability for persistent indexes.
 //! * [`okfroots`] — OKF content-root discovery (`.okf` markers, `okf_version`
 //!   index files, `.ct/okf.jsonc` config) and the concept-file feed for the index.
 //! * [`okfscript`] — the `ct-okf --script` batch engine: `.ctb` OKF mutations
@@ -68,6 +70,7 @@
 //! * [`testrun`] — `ct-test`'s `--focus` output distiller.
 
 pub mod allowlist;
+pub mod atomicfile;
 pub mod block;
 pub mod blockdoc;
 pub mod cli;
@@ -76,6 +79,8 @@ pub mod deps;
 pub mod edit;
 pub mod editscript;
 pub mod explain;
+pub mod indexing;
+pub mod indexwatch;
 pub mod jsonout;
 pub mod modgraph;
 pub mod okf;

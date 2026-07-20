@@ -158,9 +158,10 @@ is polite and never in your way:
 - It polls the crates.io **sparse index** with a conditional request (sending the
   last `ETag` so an unchanged index answers `304 Not Modified`), the same
   CDN-friendly path cargo's registry uses.
-- The network poll runs in a **detached background process**, so a `ct` command
-  never waits on it. When a newer version is found, the next run prints a one-line
-  notice (to stderr, and only on a terminal — scripts and pipes stay clean).
+- The network poll is scheduled only from an interactive terminal and only after
+  its cache claim was persisted. Captured agent/CI calls never spawn it. The poll
+  runs in a **detached background process**, so a `ct` command never waits on it.
+  When a newer version is found, the next terminal run prints a one-line notice.
 
 Configure it with the `CT_UPDATE_CHECK` environment variable:
 

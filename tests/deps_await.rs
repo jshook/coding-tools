@@ -93,10 +93,26 @@ fn deps_forbid_duplicates_and_defective_assertions() {
     // Duplicates: the repo permits windows-sys at multiple versions — low-level
     // platform crates (e.g. ring, behind the rustls update check) pin an older
     // one — but every other crate must resolve to a single version.
-    assert_eq!(
-        deps_check(&["--duplicates", "--allow-duplicate", "windows-sys"]).0,
-        ProbeOutcome::Holds
-    );
+    // notify and rustls currently span two windows-rs generations; allow the
+    // generated platform family while keeping application crates single-versioned.
+    let platform_dupes = [
+        "windows-sys",
+        "windows-link",
+        "windows-targets",
+        "windows_aarch64_gnullvm",
+        "windows_aarch64_msvc",
+        "windows_i686_gnu",
+        "windows_i686_gnullvm",
+        "windows_i686_msvc",
+        "windows_x86_64_gnu",
+        "windows_x86_64_gnullvm",
+        "windows_x86_64_msvc",
+    ];
+    let mut args = vec!["--duplicates"];
+    for name in platform_dupes {
+        args.extend(["--allow-duplicate", name]);
+    }
+    assert_eq!(deps_check(&args).0, ProbeOutcome::Holds);
     // The allow-list is scoped: a bare --duplicates still reports windows-sys.
     let (o, _, report) = deps_check(&["--duplicates"]);
     assert_eq!(o, ProbeOutcome::Violated);

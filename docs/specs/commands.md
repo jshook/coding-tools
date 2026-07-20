@@ -1,3 +1,9 @@
+---
+type: Specification
+title: coding-tools command suite
+timestamp: 2026-07-19
+---
+
 # Synopsis
 
 This project is a set of command-line tools that streamline project
@@ -43,6 +49,12 @@ The file/structure tools (`ct-search`, `ct-tree`, `ct-view`, `ct-outline`) are
 **OKF-aware**: they auto-detect Markdown frontmatter and enrich their output and
 filters additively, leaving default behaviour unchanged. The dedicated `ct-okf`
 tool authors and queries whole bundles.
+
+Persistent index eligibility, effective include/exclude scopes, event-assisted
+maintenance, daemon fallback, and index observability are specified in
+[`docs/specs/indexing.md`](indexing.md). Filesystem notifications are an
+opportunistic dirty-set optimization; provider whitelists and reconciliation
+remain the authority.
 
 Each tool's page is the **canonical, self-contained reference** for that tool —
 the same text the tool emits from `<tool> --explain` — so it never drifts from

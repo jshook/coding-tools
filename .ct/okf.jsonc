@@ -1,0 +1,6 @@
+// OKF content roots for this project, managed by `ct okf roots`.
+{
+  "roots": [
+    "docs/specs"
+  ]
+}

@@ -1,3 +1,9 @@
+---
+type: Specification
+title: ct rules by example
+timestamp: 2026-07-19
+---
+
 # ct rules by example — a worked rule for each invariant category
 
 > A practical companion to `ct-rules --explain` and `docs/specs/rules.md`:

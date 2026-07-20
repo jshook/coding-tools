@@ -933,8 +933,8 @@
         },
         {
           "name": "index",
-          "summary": "Maintain the search index.",
-          "args": "status | update | condense | rebuild"
+          "summary": "Maintain and inspect the provider-scoped, event-assisted search index.",
+          "args": "status | scopes [--effective] | why PATH | init [--dry-run|--write] | watch status|start|stop | update | condense | rebuild"
         },
         {
           "name": "init",

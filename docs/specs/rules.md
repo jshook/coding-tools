@@ -1,3 +1,9 @@
+---
+type: Specification
+title: The ct rule surface
+timestamp: 2026-07-19
+---
+
 # The ct rule surface — draft spec v2
 
 > `.ct/` holds what a project knows about itself. `ct-rules` is how that

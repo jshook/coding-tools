@@ -32,9 +32,23 @@ The project root is the nearest ancestor of `--base` containing `.ct` (the same
 discovery `ct-rules`/`ct-check` use). A **lazily-maintained full-text index**
 lives under `.ct/okf/` as immutable `fst` segments: each update layers a new
 segment (existing ones are never rewritten), changed/removed docs are
-tombstoned, and `index condense` merges segments and drops tombstones. Every
-`search` reconciles the index against the roots' file mtimes first, so results
-are always current with no explicit reindex.
+tombstoned, and `index condense` merges segments and drops tombstones.
+
+Only files accepted by the compiled-in `okf-markdown` provider enter this
+index. `.ct/index.jsonc` may narrow or override its include and exclude scopes;
+unknown formats, databases, binary state, reserved bundle files, oversized
+files, and the index's own storage are not fed to a generic tokenizer. A native
+filesystem watcher opportunistically maintains the index between queries.
+`search` uses a bounded freshness barrier when the watcher is healthy and falls
+back to complete synchronous reconciliation otherwise, so the daemon is never a
+correctness dependency. The detached daemon exits after its configured idle
+period (one hour by default), handles POSIX termination and Windows console
+control events through a status-marking shutdown path, and logs only start/stop
+lifecycle records to a 32 KiB, two-generation rotating log under
+`.ct/okf/runtime/`. A per-project OS lock enforces one daemon even across crashes.
+Status reports daemon RSS and its effective memory ceiling; absent an explicit
+`max_daemon_memory_bytes`, that ceiling is the smaller of 2 GiB and five percent
+of physical RAM. See `docs/specs/indexing.md`.
 
 ## Global options
 
@@ -72,6 +86,14 @@ These apply across verbs (they may appear before or after the subcommand):
 - `roots scan [--write]` — discover candidate roots by scanning for OKF
   concepts; `--write` records them and drops markers.
 - `index status` — report docs, segments, tombstones, and pending changes.
+- `index scopes [--effective]` — show provider-whitelisted include/exclude
+  scopes and whether each came from detection or `.ct/index.jsonc`.
+- `index why PATH` — explain the effective include/exclude/provider decision
+  for one file.
+- `index init [--dry-run|--write]` — preview the conservative derived policy,
+  or materialize it as `.ct/index.jsonc`.
+- `index watch status|start|stop` — inspect or control the opportunistic
+  per-project watcher. Indexed queries start it automatically when enabled.
 - `index update` — reconcile the index against the roots now.
 - `index condense` — merge segments and drop tombstones.
 - `index rebuild` — discard and rebuild from scratch.
@@ -125,6 +147,10 @@ ct okf search "/.*orders.*/"       # regex/substring over the term dictionary
 # Manage roots and the index explicitly.
 ct okf roots add docs/kb --marker
 ct okf index status
+ct okf index scopes --effective
+ct okf index why docs/kb/state.sqlite
+ct okf index init --dry-run
+ct okf index watch status
 ct okf index condense
 
 # Conformance as a test (exit 0 when every concept conforms).

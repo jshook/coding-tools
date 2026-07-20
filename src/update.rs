@@ -275,9 +275,11 @@ impl State {
     }
 
     /// Write state to `path` (creating the parent dir). Errors are ignored.
-    fn save(&self, path: &Path) {
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+    fn save(&self, path: &Path) -> bool {
+        if let Some(dir) = path.parent()
+            && std::fs::create_dir_all(dir).is_err()
+        {
+            return false;
         }
         let v = json!({
             "last_check": self.last_check,
@@ -286,7 +288,7 @@ impl State {
             "etag": self.etag,
             "notice_shown": self.notice_shown,
         });
-        let _ = std::fs::write(path, format!("{v}\n"));
+        std::fs::write(path, format!("{v}\n")).is_ok()
     }
 }
 
@@ -336,6 +338,16 @@ pub fn on_invocation() {
 
 fn try_on_invocation() -> Option<()> {
     let interval = interval_from_env()?; // None → disabled
+    // Captured agent/CI calls are precisely where a nominally detached child
+    // may remain attached to the harness job and add its network timeout to the
+    // foreground command. Update notices are interactive anyway, so do not
+    // schedule polling from a non-terminal invocation.
+    {
+        use std::io::IsTerminal;
+        if !std::io::stderr().is_terminal() {
+            return Some(());
+        }
+    }
     let dir = state_dir()?;
     let path = dir.join(STATE_FILE);
     let mut state = State::load(&path);
@@ -370,8 +382,8 @@ fn try_on_invocation() -> Option<()> {
     if due {
         state.last_check = now;
     }
-    state.save(&path);
-    if due {
+    let claimed = state.save(&path);
+    if due && claimed {
         spawn_background();
     }
     Some(())
@@ -421,7 +433,7 @@ fn try_poll() -> Option<()> {
         Fetch::NotModified | Fetch::Failed => {}
     }
     state.last_check = unix_now();
-    state.save(&path);
+    let _ = state.save(&path);
     Some(())
 }
 
@@ -553,7 +565,7 @@ not even json\n\
             etag: Some("\"abc\"".to_string()),
             notice_shown: true,
         };
-        s.save(&path);
+        assert!(s.save(&path));
         assert_eq!(State::load(&path), s);
 
         // a corrupt file also reads as default

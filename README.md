@@ -89,7 +89,9 @@ less supervision:
 - **`--explain [md|json]`.** Every tool is self-describing for humans and agents.
 - **Update check.** `ct` checks crates.io for a newer release about once a day, in
   a detached background process (a conditional `GET` of the sparse index, so it is
-  cheap and never blocks a command). Set `CT_UPDATE_CHECK=never` to disable, or
+  cheap and never blocks a command). It schedules only from an interactive terminal
+  after persisting its cache claim; captured agent/CI calls never spawn it. Set
+  `CT_UPDATE_CHECK=never` to disable, or
   `=weekly` / `=hourly` / a number of seconds to retune. You are told this on first
   run.
 

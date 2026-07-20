@@ -91,6 +91,8 @@ yaml-edit = "0.2.1"
 veks-completion = "1.6"
 fst = { version = "0.4.7", features = ["levenshtein"] }
 regex-automata = { version = "0.4.14", features = ["dfa-build", "dfa-search"] }
+notify = "8.1"
+sysinfo = { version = "0.37.2", default-features = false, features = ["system"] }
 # Daily best-effort update check against the crates.io sparse index. rustls with
 # bundled webpki roots (ureq's default features), so no OpenSSL/system-cert reliance.
 ureq = "3"
@@ -98,6 +100,9 @@ ureq = "3"
 # Unix only: process-group kill for `--timeout` on the child-running tools.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_Storage_FileSystem", "Win32_System_Console"] }
 
 # Release artifacts are distributed as standalone binaries; strip symbols to keep
 # them small. Does not affect dev/test builds.

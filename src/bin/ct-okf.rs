@@ -24,13 +24,16 @@ use clap::Parser;
 use coding_tools::cli::ct_okf::{
     AddArgs, CheckArgs, Cli, Command, FindArgs, Framing, GenIndexArgs, IndexArgs, IndexCmd,
     InitArgs, LogArgs, MvArgs, RootsArgs, RootsCmd, ScriptArgs, SearchArgs, SetArgs, ShowArgs,
+    WatchCmd,
 };
 use coding_tools::explain::Format;
 use coding_tools::okf::{self, Frontmatter};
 use coding_tools::pulse::{self, PulseState};
 use coding_tools::verdict::Expect;
 use coding_tools::walk::Selector;
-use coding_tools::{blockdoc, jsonout, okfindex, okfroots, okfscript, pattern, template};
+use coding_tools::{
+    blockdoc, indexing, indexwatch, jsonout, okfindex, okfroots, okfscript, pattern, template,
+};
 use serde_json::{Value, json};
 
 /// Agent documentation, embedded from the canonical `docs/explain` payloads.
@@ -113,32 +116,47 @@ fn project_and_roots(cli: &Cli) -> Result<(PathBuf, Vec<PathBuf>), String> {
     Ok((project, roots))
 }
 
+fn index_plan(project: &Path, roots: &[PathBuf]) -> Result<indexing::Plan, String> {
+    indexing::Plan::load(project, roots)
+}
+
 /// Open the project's index and reconcile it against the content roots,
 /// persisting the manifest only when something changed.
 fn refresh_index(
     project: &Path,
     roots: &[PathBuf],
 ) -> Result<(okfindex::Index, okfindex::UpdateReport), String> {
-    let mut idx = okfindex::Index::open(&okfroots::index_dir(project))?;
-    let files = okfroots::concept_files(project, roots);
-    let report = idx.update(&files, |f| okfroots::load_doc(&f.path))?;
-    if !report.is_empty() {
-        idx.save()?;
-    }
+    let plan = index_plan(project, roots)?;
+    let (idx, report, _) = indexwatch::reconcile(project, &plan)?;
     Ok((idx, report))
+}
+
+/// Prefer a bounded watcher barrier; fall back to the authoritative full
+/// reconciliation and then make one guarded attempt to start the optimization.
+fn fresh_index(project: &Path, roots: &[PathBuf]) -> Result<okfindex::Index, String> {
+    let plan = index_plan(project, roots)?;
+    if plan.watch && indexwatch::barrier(project) {
+        return okfindex::Index::open(&okfroots::index_dir(project));
+    }
+    let (idx, _, _) = indexwatch::reconcile(project, &plan)?;
+    if let Ok(exe) = std::env::current_exe() {
+        // Startup failure cannot make a correct synchronous query fail.
+        let _ = indexwatch::ensure_started(&exe, project, &plan);
+    }
+    Ok(idx)
 }
 
 // ----- query verbs --------------------------------------------------------------------
 
 fn cmd_search(cli: &Cli, args: &SearchArgs) -> Result<ExitCode, String> {
     let (project, roots) = project_and_roots(cli)?;
-    if roots.is_empty() {
+    if index_plan(&project, &roots)?.scopes.is_empty() {
         return Err(
-            "no OKF content roots configured — run `ct okf init` or `ct okf roots add <dir>`"
+            "no OKF content roots or index scopes configured — run `ct okf init`, `ct okf roots add <dir>`, or configure .ct/index.jsonc"
                 .to_string(),
         );
     }
-    let (idx, _) = refresh_index(&project, &roots)?;
+    let idx = fresh_index(&project, &roots)?;
     let query = args.query.join(" ");
     // Over-fetch so type/tag filters still fill the requested limit.
     let raw = idx.search(&query, args.limit.saturating_mul(4).max(args.limit))?;
@@ -333,42 +351,280 @@ fn cmd_roots(cli: &Cli, args: &RootsArgs) -> Result<ExitCode, String> {
 
 fn cmd_index(cli: &Cli, args: &IndexArgs) -> Result<ExitCode, String> {
     let (project, roots) = project_and_roots(cli)?;
+    let plan = index_plan(&project, &roots)?;
     match &args.action {
         IndexCmd::Status => {
             let idx = okfindex::Index::open(&okfroots::index_dir(&project))?;
-            let files = okfroots::concept_files(&project, &roots);
-            let (added, changed, removed) = idx.pending(&files);
+            let watcher = indexwatch::read_status(&project);
+            let watcher_start_failure = indexwatch::start_failure(&project);
+            let watcher_clean = watcher
+                .as_ref()
+                .is_some_and(|status| status.healthy() && status.lane == "clean");
+            let (added, changed, removed, scan) = if watcher_clean {
+                (0, 0, 0, None)
+            } else {
+                let (files, scan) = indexing::scan(&plan);
+                let pending = idx.pending(&files);
+                (pending.0, pending.1, pending.2, Some(scan))
+            };
+            let storage_bytes = indexing::directory_bytes(&okfroots::index_dir(&project));
+            let (provider, provider_version) = idx.provider();
             if cli.json {
                 let obj = json!({
                     "tool":"ct-okf","verb":"index","action":"status",
+                    "generation": idx.generation(),
+                    "provider": {"id": provider, "version": provider_version},
                     "roots": roots.len(), "documents": idx.doc_count(),
                     "segments": idx.segment_count(), "tombstones": idx.tombstone_count(),
+                    "source_bytes": idx.source_bytes(), "storage_bytes": storage_bytes,
                     "pending": {"added": added, "changed": changed, "removed": removed},
+                    "watcher": watcher.as_ref().map(indexwatch::Status::to_json),
+                    "daemon_memory": {
+                        "rss_bytes": watcher.as_ref().map(|status| status.memory_rss_bytes),
+                        "limit_bytes": plan.daemon_memory_limit_bytes,
+                        "limit_origin": if plan.daemon_memory_limit_automatic { "automatic" } else { "project" },
+                        "system_memory_bytes": plan.system_memory_bytes,
+                    },
+                    "watcher_start_failure": watcher_start_failure,
+                    "scan": scan.as_ref().map(indexing::ScanMetrics::to_json),
                 });
                 jsonout::print(&obj, cli.json_pretty);
             } else if !cli.quiet {
                 println!(
-                    "{} root(s), {} document(s), {} segment(s), {} tombstone(s)",
+                    "generation {}, {} v{}, {} root(s), {} document(s), {} segment(s), {} tombstone(s)",
+                    idx.generation(),
+                    provider,
+                    provider_version,
                     roots.len(),
                     idx.doc_count(),
                     idx.segment_count(),
                     idx.tombstone_count()
                 );
+                println!(
+                    "source {} bytes, index/runtime {} bytes",
+                    idx.source_bytes(),
+                    storage_bytes
+                );
                 println!("pending: +{added} ~{changed} -{removed}");
+                if let Some(w) = watcher {
+                    println!(
+                        "watcher: {} ({}, heartbeat age {} ms, dirty {}, last reconcile {} ms / {} entries)",
+                        if w.healthy() {
+                            w.lane.as_str()
+                        } else {
+                            "unavailable"
+                        },
+                        w.backend,
+                        indexing::unix_millis().saturating_sub(w.heartbeat_ms),
+                        w.dirty_paths,
+                        w.last_reconcile_ms,
+                        w.entries_visited
+                    );
+                    println!(
+                        "last event batch: {} ms / {} path(s), event latency {} ms",
+                        w.last_batch_ms, w.last_batch_paths, w.last_event_latency_ms
+                    );
+                    println!(
+                        "daemon memory: {} / {} bytes (system {} bytes)",
+                        w.memory_rss_bytes, w.memory_limit_bytes, w.system_memory_bytes
+                    );
+                } else {
+                    println!("watcher: unavailable");
+                    println!(
+                        "daemon memory: unavailable / {} bytes (system {} bytes)",
+                        plan.daemon_memory_limit_bytes, plan.system_memory_bytes
+                    );
+                    if let Some(failure) = watcher_start_failure {
+                        println!("watcher start failure: {failure}");
+                    }
+                }
             }
             Ok(ExitCode::SUCCESS)
         }
+        IndexCmd::Scopes { effective: _ } => {
+            if cli.json {
+                jsonout::print(
+                    &json!({"tool":"ct-okf","verb":"index","action":"scopes","plan":plan.to_json()}),
+                    cli.json_pretty,
+                );
+            } else if !cli.quiet {
+                println!("config: {}", plan.config_path.display());
+                println!(
+                    "watch={}, debounce={}ms, audit={}s, idle={}s, max-file={} bytes",
+                    plan.watch,
+                    plan.debounce_ms,
+                    plan.audit_seconds,
+                    plan.idle_seconds,
+                    plan.max_file_bytes
+                );
+                println!(
+                    "daemon memory limit: {} bytes ({}, system {} bytes)",
+                    plan.daemon_memory_limit_bytes,
+                    if plan.daemon_memory_limit_automatic {
+                        "automatic"
+                    } else {
+                        "project"
+                    },
+                    plan.system_memory_bytes
+                );
+                for scope in &plan.scopes {
+                    println!(
+                        "{} [{} v{}; {}]",
+                        scope.root.display(),
+                        scope.provider,
+                        indexing::PROVIDER_OKF_VERSION,
+                        scope.origin.label()
+                    );
+                    println!("  include: {}", scope.include.join(", "));
+                    if !scope.exclude.is_empty() {
+                        println!("  exclude: {}", scope.exclude.join(", "));
+                    }
+                }
+                println!("global exclude: {}", plan.exclude.join(", "));
+                println!("hard exclude: {}", okfroots::index_dir(&project).display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        IndexCmd::Why { path } => {
+            let path = if path.is_absolute() {
+                path.clone()
+            } else {
+                project.join(path)
+            };
+            let metadata = std::fs::metadata(&path).ok();
+            let decision = plan.decide(&path, metadata.as_ref());
+            if cli.json {
+                jsonout::print(
+                    &json!({"tool":"ct-okf","verb":"index","action":"why","result":decision.to_json(&path)}),
+                    cli.json_pretty,
+                );
+            } else if !cli.quiet {
+                println!("{}", path.display());
+                println!(
+                    "  decision: {}",
+                    if decision.included {
+                        "INCLUDED"
+                    } else {
+                        "EXCLUDED"
+                    }
+                );
+                println!("  reason: {}", decision.reason);
+                if let Some(provider) = decision.provider {
+                    println!("  provider: {provider}");
+                }
+                if let Some(root) = decision.scope_root {
+                    println!("  scope: {}", root.display());
+                }
+                if let Some(pattern) = decision.matched {
+                    println!("  matched: {pattern}");
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        IndexCmd::Init { dry_run: _, write } => {
+            let config =
+                serde_json::to_string_pretty(&plan.config_json()).map_err(|e| e.to_string())?;
+            if *write {
+                if plan.config_path.exists() {
+                    return Err(format!(
+                        "{} already exists; edit it explicitly instead of replacing it",
+                        plan.config_path.display()
+                    ));
+                }
+                if let Some(parent) = plan.config_path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| format!("{}: {e}", parent.display()))?;
+                }
+                std::fs::write(
+                    &plan.config_path,
+                    format!("// ct event-assisted index policy\n{config}\n"),
+                )
+                .map_err(|e| format!("{}: {e}", plan.config_path.display()))?;
+                if !cli.quiet {
+                    println!("wrote {}", plan.config_path.display());
+                }
+            } else {
+                println!("{config}");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        IndexCmd::Watch { action } => match action {
+            WatchCmd::Status => {
+                let status = indexwatch::read_status(&project);
+                let failure = indexwatch::start_failure(&project);
+                if cli.json {
+                    jsonout::print(
+                        &json!({"tool":"ct-okf","verb":"index","action":"watch-status","watcher":status.as_ref().map(indexwatch::Status::to_json),"start_failure":failure}),
+                        cli.json_pretty,
+                    );
+                } else if !cli.quiet {
+                    match status {
+                        Some(s) if s.healthy() => {
+                            println!(
+                                "{} watcher pid {}: {}, generation {}, dirty {}",
+                                s.backend, s.pid, s.lane, s.generation, s.dirty_paths
+                            );
+                            println!(
+                                "memory: {} / {} bytes (system {} bytes)",
+                                s.memory_rss_bytes, s.memory_limit_bytes, s.system_memory_bytes
+                            );
+                        }
+                        _ => {
+                            println!("watcher unavailable");
+                            println!(
+                                "memory: unavailable / {} bytes (system {} bytes)",
+                                plan.daemon_memory_limit_bytes, plan.system_memory_bytes
+                            );
+                            if let Some(failure) = failure {
+                                println!("last start failure: {failure}");
+                            }
+                        }
+                    }
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            WatchCmd::Start => {
+                let exe =
+                    std::env::current_exe().map_err(|e| format!("current executable: {e}"))?;
+                let started = indexwatch::ensure_started(&exe, &project, &plan)?;
+                if !cli.quiet {
+                    println!(
+                        "{}",
+                        if started {
+                            "watcher starting"
+                        } else {
+                            "watcher already running or disabled"
+                        }
+                    );
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            WatchCmd::Stop => {
+                let requested = indexwatch::request_stop(&project)?;
+                if !cli.quiet {
+                    println!(
+                        "{}",
+                        if requested {
+                            "watcher stop requested"
+                        } else {
+                            "watcher unavailable"
+                        }
+                    );
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            WatchCmd::Run => {
+                indexwatch::run_daemon(&project, plan)?;
+                Ok(ExitCode::SUCCESS)
+            }
+        },
         IndexCmd::Update => {
-            let (_, report) = refresh_index(&project, &roots)?;
+            let (_, report, _) = indexwatch::reconcile(&project, &plan)?;
             report_index(cli, "update", &report);
             Ok(ExitCode::SUCCESS)
         }
         IndexCmd::Condense => {
-            let mut idx = okfindex::Index::open(&okfroots::index_dir(&project))?;
-            let did = idx.condense()?;
-            if did {
-                idx.save()?;
-            }
+            let (idx, did) = indexwatch::condense(&project)?;
             if !cli.quiet {
                 println!(
                     "{}; {} segment(s), {} tombstone(s)",
@@ -384,11 +640,7 @@ fn cmd_index(cli: &Cli, args: &IndexArgs) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         IndexCmd::Rebuild => {
-            let mut idx = okfindex::Index::open(&okfroots::index_dir(&project))?;
-            idx.reset();
-            let files = okfroots::concept_files(&project, &roots);
-            let report = idx.update(&files, |f| okfroots::load_doc(&f.path))?;
-            idx.save()?;
+            let (_, report, _) = indexwatch::rebuild(&project, &plan)?;
             report_index(cli, "rebuild", &report);
             Ok(ExitCode::SUCCESS)
         }

@@ -208,6 +208,9 @@ struct FileRec {
 /// The index's global state, persisted as `manifest.json`.
 #[derive(Debug, Clone, Default)]
 struct Manifest {
+    generation: u64,
+    provider: String,
+    provider_version: u64,
     next_doc: u64,
     segments: Vec<u32>,
     files: BTreeMap<String, FileRec>,
@@ -245,6 +248,9 @@ impl Manifest {
             .collect();
         serde_json::json!({
             "version": MANIFEST_VERSION,
+            "generation": self.generation,
+            "provider": self.provider,
+            "provider_version": self.provider_version,
             "next_doc": self.next_doc,
             "segments": self.segments,
             "files": files,
@@ -256,6 +262,16 @@ impl Manifest {
     fn from_json(v: &serde_json::Value) -> Result<Manifest, String> {
         let obj = v.as_object().ok_or("manifest is not an object")?;
         let mut m = Manifest {
+            generation: obj.get("generation").and_then(|x| x.as_u64()).unwrap_or(0),
+            provider: obj
+                .get("provider")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            provider_version: obj
+                .get("provider_version")
+                .and_then(|x| x.as_u64())
+                .unwrap_or(0),
             next_doc: obj.get("next_doc").and_then(|x| x.as_u64()).unwrap_or(0),
             ..Manifest::default()
         };
@@ -520,6 +536,21 @@ impl Index {
         self.manifest.deleted.len()
     }
 
+    /// Atomically-published manifest generation. It advances on every
+    /// successful content delta, rebuild, or compaction.
+    pub fn generation(&self) -> u64 {
+        self.manifest.generation
+    }
+
+    /// Bytes of live source documents represented by the manifest.
+    pub fn source_bytes(&self) -> u64 {
+        self.manifest.files.values().map(|f| f.size).sum()
+    }
+
+    pub fn provider(&self) -> (&str, u64) {
+        (&self.manifest.provider, self.manifest.provider_version)
+    }
+
     /// How many of `current` are new / changed / removed relative to the
     /// manifest — a read-only staleness probe for `index status` that mutates
     /// nothing (the same diff [`update`](Index::update) would act on).
@@ -567,6 +598,19 @@ impl Index {
     where
         F: Fn(&FileStat) -> Result<DocSource, String>,
     {
+        const PROVIDER: &str = "okf-markdown";
+        const PROVIDER_VERSION: u64 = 1;
+        if self.manifest.provider.is_empty() {
+            self.manifest.provider = PROVIDER.to_string();
+            self.manifest.provider_version = PROVIDER_VERSION;
+        } else if self.manifest.provider != PROVIDER
+            || self.manifest.provider_version != PROVIDER_VERSION
+        {
+            return Err(format!(
+                "index provider {} v{} is incompatible with {PROVIDER} v{PROVIDER_VERSION}; run `ct okf index rebuild`",
+                self.manifest.provider, self.manifest.provider_version
+            ));
+        }
         let mut report = UpdateReport::default();
         let present: BTreeSet<&str> = current.iter().map(|f| f.key.as_str()).collect();
 
@@ -656,7 +700,56 @@ impl Index {
             self.manifest.segments.push(num);
             report.wrote_segment = true;
         }
+        if !report.is_empty() {
+            self.manifest.generation = self.manifest.generation.saturating_add(1);
+        }
         Ok(report)
+    }
+
+    /// Apply a watcher-derived partial change set without walking unchanged
+    /// scopes. `removed` entries are keys or directory-key prefixes; every
+    /// matching live document is removed before `upserts` replace/add paths.
+    /// Periodic full [`update`](Self::update) calls remain the correctness audit.
+    pub fn update_delta<F>(
+        &mut self,
+        upserts: &[FileStat],
+        removed: &[String],
+        load: F,
+    ) -> Result<UpdateReport, String>
+    where
+        F: Fn(&FileStat) -> Result<DocSource, String>,
+    {
+        let removed_matches = |key: &str| {
+            removed.iter().any(|prefix| {
+                key == prefix
+                    || key
+                        .strip_prefix(prefix)
+                        .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+        };
+        let mut current: BTreeMap<String, FileStat> = self
+            .manifest
+            .files
+            .iter()
+            .filter(|(key, _)| !removed_matches(key))
+            .map(|(key, rec)| {
+                (
+                    key.clone(),
+                    FileStat {
+                        key: key.clone(),
+                        // Unchanged records are never loaded, so no source path
+                        // is needed for them.
+                        path: PathBuf::new(),
+                        mtime_ns: rec.mtime_ns,
+                        size: rec.size,
+                    },
+                )
+            })
+            .collect();
+        for file in upserts {
+            current.insert(file.key.clone(), file.clone());
+        }
+        self.update(&current.into_values().collect::<Vec<_>>(), load)
     }
 
     /// Write a segment from a sorted `term -> (doc -> tf)` map.
@@ -805,18 +898,21 @@ impl Index {
             let _ = std::fs::remove_file(fst_path);
             let _ = std::fs::remove_file(pos_path);
         }
+        self.manifest.generation = self.manifest.generation.saturating_add(1);
         Ok(true)
     }
 
     /// Discard the whole index (segments + manifest state), so the next
     /// [`update`](Index::update) re-indexes every file from scratch.
     pub fn reset(&mut self) {
+        let next_generation = self.manifest.generation.saturating_add(1);
         for num in std::mem::take(&mut self.manifest.segments) {
             let (fst_path, pos_path) = self.seg_paths(num);
             let _ = std::fs::remove_file(fst_path);
             let _ = std::fs::remove_file(pos_path);
         }
         self.manifest = Manifest::default();
+        self.manifest.generation = next_generation;
     }
 
     /// Persist `manifest.json` (creating the index directory if needed).
@@ -825,7 +921,7 @@ impl Index {
         let path = self.dir.join("manifest.json");
         let text =
             serde_json::to_string_pretty(&self.manifest.to_json()).map_err(|e| e.to_string())?;
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+        crate::atomicfile::write(&path, text)
     }
 }
 

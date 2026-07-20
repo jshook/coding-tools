@@ -65,6 +65,9 @@ fn bundle(tag: &str) -> PathBuf {
 
 fn ct_okf(dir: &Path) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_ct-okf"));
+    // Most integration tests exercise the synchronous correctness path. The
+    // dedicated watcher test owns and stops its daemon explicitly.
+    c.env("CT_INDEX_WATCH", "never");
     c.arg("--base").arg(dir);
     c
 }
@@ -428,6 +431,67 @@ fn init_then_search_roots_and_index() {
     let v: serde_json::Value = serde_json::from_str(&stdout(&status)).unwrap();
     assert_eq!(v["roots"], 1);
     assert_eq!(v["documents"], 2);
+    assert!(v["generation"].as_u64().unwrap() >= 1);
+    assert!(v["storage_bytes"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn index_scopes_and_why_expose_the_provider_boundary() {
+    let dir = project("index-policy");
+    assert_eq!(code(&ct_okf(&dir).arg("init").output().unwrap()), 0);
+
+    let scopes = ct_okf(&dir)
+        .args(["index", "scopes", "--effective", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&scopes), 0, "stderr: {}", stderr(&scopes));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&scopes)).unwrap();
+    assert_eq!(v["plan"]["providers"][0]["id"], "okf-markdown");
+    assert_eq!(v["plan"]["scopes"][0]["include"][0], "**/*.md");
+
+    write(&dir.join("kb/state.sqlite"), "not really sqlite");
+    let why = ct_okf(&dir)
+        .args(["index", "why", "kb/state.sqlite", "--json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout(&why)).unwrap();
+    assert_eq!(v["result"]["decision"], "EXCLUDED");
+    assert_eq!(v["result"]["reason"], "excluded");
+
+    let preview = ct_okf(&dir)
+        .args(["index", "init", "--dry-run"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&preview), 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&preview)).unwrap();
+    assert_eq!(v["scopes"][0]["provider"], "okf-markdown");
+}
+
+#[test]
+fn explicit_index_exclusion_removes_a_document() {
+    let dir = project("index-exclusion");
+    assert_eq!(code(&ct_okf(&dir).arg("init").output().unwrap()), 0);
+    write(
+        &dir.join(".ct/index.jsonc"),
+        r#"{
+  "version": 1,
+  "watch": false,
+  "scopes": [{
+    "root": "kb",
+    "provider": "okf-markdown",
+    "include": ["**/*.md"],
+    "exclude": ["orders.md"]
+  }]
+}"#,
+    );
+    let rebuild = ct_okf(&dir).args(["index", "rebuild"]).output().unwrap();
+    assert_eq!(code(&rebuild), 0, "stderr: {}", stderr(&rebuild));
+    let search = ct_okf(&dir)
+        .args(["search", "orders", "--json"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout(&search)).unwrap();
+    assert_eq!(v["count"], 0);
 }
 
 #[test]

@@ -1,3 +1,9 @@
+---
+type: Specification
+title: Prior art for ct-rules / ct-check
+timestamp: 2026-07-19
+---
+
 # Prior art for ct-rules / ct-check (Rust targeting)
 
 Research notes, 2026-06-10. Capability pictures of the tools ct-rules is a

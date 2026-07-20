@@ -198,12 +198,50 @@ pub struct IndexArgs {
 pub enum IndexCmd {
     /// Report index freshness (docs, segments, tombstones, pending changes).
     Status,
+    /// Show the effective provider/include/exclude indexing plan.
+    Scopes {
+        /// Include derived defaults and hard exclusions in the report (the default plan is always effective).
+        #[arg(long)]
+        effective: bool,
+    },
+    /// Explain why one path is included in or excluded from the index.
+    Why {
+        /// File whose effective indexing decision should be explained.
+        path: PathBuf,
+    },
+    /// Preview or materialize the conservative derived indexing configuration.
+    Init {
+        /// Print the derived configuration without writing it (the default).
+        #[arg(long)]
+        dry_run: bool,
+        /// Write the derived configuration to .ct/index.jsonc.
+        #[arg(long, conflicts_with = "dry_run")]
+        write: bool,
+    },
+    /// Inspect or control the opportunistic filesystem watcher.
+    Watch {
+        #[command(subcommand)]
+        action: WatchCmd,
+    },
     /// Reconcile the index against the content roots now.
     Update,
     /// Merge segments and drop tombstones, reclaiming space.
     Condense,
     /// Discard and rebuild the index from scratch.
     Rebuild,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WatchCmd {
+    /// Report watcher health and its last update metrics.
+    Status,
+    /// Start the per-project watcher if one is not already healthy.
+    Start,
+    /// Ask the per-project watcher to exit.
+    Stop,
+    /// Internal foreground daemon body (normally started automatically).
+    #[command(hide = true)]
+    Run,
 }
 
 #[derive(Args, Debug)]

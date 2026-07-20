@@ -1,3 +1,9 @@
+---
+type: Specification
+title: Block payloads and scripts
+timestamp: 2026-07-19
+---
+
 # Block payloads and scripts — draft spec
 
 > ct tools today assume every input is a short, single-line argv string. That
