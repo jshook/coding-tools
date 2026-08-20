@@ -26,6 +26,10 @@ fn code(out: &Output) -> i32 {
     out.status.code().expect("child exited via a signal")
 }
 
+fn stdout(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
 fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
@@ -123,4 +127,207 @@ fn the_stdin_scheme_refuses_an_argument_and_names_the_escape_hatch() {
     let err = stderr(&out);
     assert!(err.contains("takes no argument"), "{err}");
     assert!(err.contains("text:stdin:oops"), "{err}");
+}
+
+// ----- ct-edit: a single-line find that matched nothing -------------------------
+
+#[test]
+fn single_line_find_promoted_past_its_own_text_is_diagnosed() {
+    let dir = scratch("promoted");
+    // `[T]` makes this a *valid* regex whose character class matches `T`, so the
+    // promoted pattern does not match the text it was copied from. This is the
+    // reported failure, and it used to produce a bare ERROR with no hint.
+    std::fs::write(dir.join("a.rs"), "fn main() {\n    reg::<Foo[T]>();\n}\n").unwrap();
+
+    let out = run(
+        CT_EDIT,
+        &dir,
+        &[
+            "--base",
+            ".",
+            "--name",
+            "*.rs",
+            "--find",
+            "reg::<Foo[T]>();",
+            "--replace",
+            "",
+            "--expect",
+            "1",
+        ],
+    );
+    assert_eq!(code(&out), 1, "a zero-match edit is a verdict ERROR");
+    let err = stderr(&out);
+    assert!(err.contains("nearest miss: "), "positioned: {err}");
+    assert!(err.contains("a.rs:2"), "names the line: {err}");
+    assert!(err.contains("--mode literal"), "names the fix: {err}");
+    assert!(err.contains("stdin:"), "names the scoped fix too: {err}");
+    // And nothing was written.
+    let after = std::fs::read_to_string(dir.join("a.rs")).unwrap();
+    assert!(after.contains("reg::<Foo[T]>();"));
+
+    // Taking the *scoped* fix the note names first makes the same edit succeed.
+    // (`--mode literal` would also pin `--name '*.rs'`, which is exactly why the
+    // note offers `file:`/`stdin:` ahead of it.)
+    let anchor = dir.join("anchor.txt");
+    std::fs::write(&anchor, "reg::<Foo[T]>();").unwrap();
+    let fixed = run(
+        CT_EDIT,
+        &dir,
+        &[
+            "--base",
+            ".",
+            "--name",
+            "*.rs",
+            "--find",
+            &format!("file:{}", anchor.display()),
+            "--replace",
+            "text:",
+            "--expect",
+            "1",
+        ],
+    );
+    assert_eq!(code(&fixed), 0, "{}", stderr(&fixed));
+}
+
+#[test]
+fn mode_literal_silently_narrowing_the_selection_is_called_out() {
+    let dir = scratch("mode-name");
+    std::fs::write(dir.join("a.rs"), "let x = 1;\n").unwrap();
+    // `--mode` pins EVERY pattern in the call, so `--name '*.rs'` stops being a
+    // glob and matches nothing. That reads as "the anchor is wrong" unless the
+    // empty-selection note says what actually happened.
+    let out = run(
+        CT_EDIT,
+        &dir,
+        &[
+            "--base",
+            ".",
+            "--name",
+            "*.rs",
+            "--mode",
+            "literal",
+            "--find",
+            "let x = 1;",
+            "--replace",
+            "y",
+            "--expect",
+            "1",
+        ],
+    );
+    assert_eq!(code(&out), 1);
+    let err = stderr(&out);
+    assert!(err.contains("read 0 file(s)"), "{err}");
+    assert!(err.contains("--mode pins every pattern"), "{err}");
+    assert!(
+        err.contains("matched as literal rather than as a glob"),
+        "{err}"
+    );
+}
+
+#[test]
+fn single_line_find_reports_whitespace_drift_and_an_empty_selection() {
+    let dir = scratch("drift");
+    std::fs::write(dir.join("b.rs"), "let y = 2;\n").unwrap();
+
+    // Leading/trailing whitespace on the anchor: both rows are quoted, because
+    // the difference is invisible otherwise.
+    let drift = run(
+        CT_EDIT,
+        &dir,
+        &[
+            "--base",
+            ".",
+            "--name",
+            "b.rs",
+            "--find",
+            "  let y = 2;  ",
+            "--replace",
+            "z",
+            "--expect",
+            "1",
+        ],
+    );
+    let err = stderr(&drift);
+    assert!(err.contains("surrounding whitespace"), "{err}");
+    assert!(
+        err.contains("'  let y = 2;  '"),
+        "quotes the pattern: {err}"
+    );
+    assert!(err.contains("'let y = 2;'"), "quotes the line: {err}");
+
+    // Nothing close at all: report the scan's shape, not a made-up cause.
+    let cold = run(
+        CT_EDIT,
+        &dir,
+        &[
+            "--base",
+            ".",
+            "--name",
+            "*.rs",
+            "--find",
+            "zzz_absent_marker",
+            "--replace",
+            "x",
+            "--expect",
+            "1",
+        ],
+    );
+    let err = stderr(&cold);
+    assert!(err.contains("scanned file(s)"), "{err}");
+    assert!(!err.contains("nearest miss"), "no invented miss: {err}");
+
+    // Nothing read at all: the fault is the selection, and saying so stops the
+    // caller re-checking an anchor that was never compared to anything.
+    let empty = run(
+        CT_EDIT,
+        &dir,
+        &[
+            "--base",
+            ".",
+            "--name",
+            "*.zzz",
+            "--find",
+            "x",
+            "--replace",
+            "y",
+            "--expect",
+            "1",
+        ],
+    );
+    let err = stderr(&empty);
+    assert!(err.contains("read 0 file(s)"), "{err}");
+    assert!(err.contains("--name '*.zzz'"), "names the filter: {err}");
+}
+
+#[test]
+fn the_zero_match_diagnosis_is_also_structured_json() {
+    let dir = scratch("miss-json");
+    std::fs::write(dir.join("a.rs"), "  reg::<Foo[T]>();\n").unwrap();
+    let out = run(
+        CT_EDIT,
+        &dir,
+        &[
+            "--base",
+            ".",
+            "--name",
+            "*.rs",
+            "--find",
+            "reg::<Foo[T]>();",
+            "--replace",
+            "",
+            "--expect",
+            "1",
+            "--json",
+        ],
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("json");
+    assert_eq!(v["verdict"], "ERROR");
+    assert_eq!(v["files_scanned"], 1);
+    assert_eq!(v["nearest_miss"]["kind"], "line");
+    assert_eq!(v["nearest_miss"]["cause"], "promoted");
+    assert_eq!(v["nearest_miss"]["promoted_as"], "regex");
+    assert_eq!(v["nearest_miss"]["literal_hits"], 1);
+    assert_eq!(v["nearest_miss"]["line"], 1);
+    // The text path stays silent under --json: one machine-readable answer.
+    assert!(!stderr(&out).contains("nearest miss"));
 }

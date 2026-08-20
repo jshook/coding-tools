@@ -54,7 +54,7 @@ pub struct Cli {
     #[arg(long, conflicts_with = "script")]
     pub replace: Option<String>,
 
-    /// Pin how --find is interpreted (promotion off): literal, glob, or regex.
+    /// Pin how patterns are interpreted (promotion off): literal, glob, or regex. Applies to EVERY pattern in the call, --name included -- to pin only the anchor, pass --find as file:PATH or stdin: instead.
     #[arg(long, value_enum, conflicts_with = "script")]
     pub mode: Option<pattern::Mode>,
 

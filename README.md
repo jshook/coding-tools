@@ -77,7 +77,9 @@ less supervision:
 - **Pattern promotion.** Any *pattern* argument is promoted with one rule: no
   metacharacters → literal substring; glob metacharacters (`*` `?` `[ ]`) that are
   not a valid regex → glob; otherwise → regex. `--mode literal|glob|regex` pins
-  the interpretation (promotion off) for verbatim code anchors.
+  the interpretation (promotion off) for verbatim code anchors — for *every*
+  pattern in the call, `--name` included, so an anchor is usually better pinned
+  by sourcing it out of band with `file:`/`stdin:`.
 - **Payload schemes.** Payload-typed values accept `file:PATH` (the file's
   contents), `stdin:` (all of standard input) — both verbatim, never promoted —
   and `text:VALUE` (the escape for literal values starting with a scheme

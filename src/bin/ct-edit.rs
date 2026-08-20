@@ -148,10 +148,92 @@ fn render_miss(path: &str, m: &coding_tools::block::NearestMiss) -> Vec<String> 
     lines
 }
 
+/// A single-line `--find`, remembered as written so a zero-match run can be
+/// diagnosed: the raw needle text and the non-literal kind promotion read it as
+/// (`None` when it was already literal). A block find carries its own
+/// nearest-miss machinery and needs neither.
+struct LineFind {
+    needle: String,
+    promoted_as: Option<&'static str>,
+}
+
+/// Render a single-line nearest-miss as diagnostic lines, in the same shape as
+/// [`render_miss`]: a positioned header, the pattern as written against the
+/// line as found, and a `note:` naming the fix. This is the diagnosis a
+/// single-line `--find` used to lack entirely — it failed with a bare
+/// `0 replacement(s) -> ERROR`, which reads as "not there" even when the text is
+/// sitting in the file and only the *promotion* missed it.
+fn render_line_miss(m: &coding_tools::edit::LineMiss) -> Vec<String> {
+    // Both rows are quoted: whitespace drift is one of the diagnosed causes, and
+    // it is invisible without delimiters.
+    vec![
+        format!("nearest miss: {}:{}: {}", m.path, m.line, m.headline()),
+        format!("  pattern:  '{}'", m.pattern),
+        format!("  found:    '{}'", m.found),
+        format!("  note:     {}", m.note()),
+    ]
+}
+
+/// The note for a `--find` whose selection read no files at all: the failure is
+/// in `--base`/`--name`, not in the pattern, and saying so stops the caller
+/// re-checking an anchor that was never compared to anything.
+fn empty_selection_note(cli: &Cli) -> String {
+    let name = match &cli.name {
+        Some(n) => format!(" --name '{n}'"),
+        None => String::new(),
+    };
+    let mut note = format!(
+        "the selection read 0 file(s): --base '{}'{name} — nothing was compared, so the \
+         verdict says nothing about the pattern",
+        cli.base.display()
+    );
+    // `--mode` pins *every* pattern in the invocation, `--name` included, so
+    // `--mode literal --name '*.rs'` looks for a file literally called `*.rs`.
+    // That is the suite's stated rule, and also the likeliest reason a selection
+    // that worked a moment ago suddenly reads nothing — name it here rather than
+    // leaving the caller to rediscover it.
+    if let (Some(mode), Some(n)) = (cli.mode, cli.name.as_deref())
+        && mode != pattern::Mode::Glob
+        && n.contains(['*', '?', '['])
+    {
+        note.push_str(&format!(
+            "; note that --mode pins every pattern in the call, so --name '{n}' was matched \
+             as {} rather than as a glob — drop --mode and pass --find via file:/stdin: to \
+             pin only the anchor",
+            mode_label(mode)
+        ));
+    }
+    note
+}
+
+/// A `--mode` value spelled the way the caller typed it on the command line.
+fn mode_label(mode: pattern::Mode) -> &'static str {
+    match mode {
+        pattern::Mode::Literal => "literal",
+        pattern::Mode::Glob => "glob",
+        pattern::Mode::Regex => "regex",
+    }
+}
+
+/// The note for a single-line `--find` that no file came close to: report the
+/// scan's shape so the caller can tell "wrong pattern" from "wrong files".
+fn no_candidate_note(lf: &LineFind, scanned: usize) -> String {
+    let read_as = match lf.promoted_as {
+        Some(kind) => format!("a {kind}"),
+        None => "a literal".to_string(),
+    };
+    format!(
+        "no line in {scanned} scanned file(s) matched, and none contains the text \
+         even ignoring whitespace; the pattern was read as {read_as} \
+         (pin it with --mode, or widen/narrow --base/--name)"
+    )
+}
+
 /// Compile the argv `--find`/`--replace` pair into an [`Op`], resolving the
-/// payload schemes. A `file:`-sourced find defaults to literal; a multi-line
-/// find is a literal block.
-fn compile_argv_op(cli: &Cli) -> Result<Op, String> {
+/// payload schemes. A `file:`/`stdin:`-sourced find defaults to literal; a
+/// multi-line find is a literal block. The second half of the pair is the
+/// single-line diagnosis context (see [`LineFind`]).
+fn compile_argv_op(cli: &Cli) -> Result<(Op, Option<LineFind>), String> {
     let (Some(find_raw), Some(replace_raw)) = (cli.find.as_deref(), cli.replace.as_deref()) else {
         return Err("missing --find/--replace (or run a batch with --script)".to_string());
     };
@@ -169,16 +251,25 @@ fn compile_argv_op(cli: &Cli) -> Result<Op, String> {
             let single = find_lines.into_iter().next().unwrap();
             let re = pattern::compile_with(&single, effective)
                 .map_err(|e| format!("invalid --find pattern: {e}"))?;
-            let literal = !matches!(
-                pattern::classify_with(&single, effective),
-                pattern::PatternKind::Regex
-            );
+            let kind = pattern::classify_with(&single, effective);
+            let literal = !matches!(kind, pattern::PatternKind::Regex);
             let text = replace.text.as_str();
-            Ok(Op::Line {
-                re,
-                literal,
-                replace: text.strip_suffix('\n').unwrap_or(text).to_string(),
-            })
+            let diag = LineFind {
+                promoted_as: match kind {
+                    pattern::PatternKind::Literal => None,
+                    pattern::PatternKind::Glob => Some("glob"),
+                    pattern::PatternKind::Regex => Some("regex"),
+                },
+                needle: single,
+            };
+            Ok((
+                Op::Line {
+                    re,
+                    literal,
+                    replace: text.strip_suffix('\n').unwrap_or(text).to_string(),
+                },
+                Some(diag),
+            ))
         }
         _ => {
             if matches!(
@@ -190,11 +281,14 @@ fn compile_argv_op(cli: &Cli) -> Result<Op, String> {
                         .to_string(),
                 );
             }
-            Ok(Op::Block {
-                find: find_lines,
-                replace: payload::to_lines(&replace.text),
-                squeeze: cli.squeeze_blank,
-            })
+            Ok((
+                Op::Block {
+                    find: find_lines,
+                    replace: payload::to_lines(&replace.text),
+                    squeeze: cli.squeeze_blank,
+                },
+                None,
+            ))
         }
     }
 }
@@ -202,13 +296,14 @@ fn compile_argv_op(cli: &Cli) -> Result<Op, String> {
 /// The single-edit argv form: one op over the selection, verdict over the
 /// total count, write only on SUCCESS.
 fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String> {
-    let op = compile_argv_op(cli)?;
+    let (op, line_find) = compile_argv_op(cli)?;
     let expect = match &cli.expect {
         Some(s) => Expect::parse(s).map_err(|e| format!("invalid --expect: {e}"))?,
         None => Expect::default(),
     };
 
     let mut files = load_files(&selector(cli)?)?;
+    let scanned = files.len();
     let mut replacements = 0usize;
     let mut sites: Vec<Site> = Vec::new();
     let mut changed = vec![false; files.len()];
@@ -235,12 +330,37 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
         }
     }
 
-    if replacements == 0
-        && !cli.json
-        && let Some((path, m)) = &miss
-    {
-        for line in render_miss(path, m) {
-            eprintln!("ct-edit: {line}");
+    // A single-line --find that matched nothing gets the same positioned
+    // diagnosis a block find has always had (see `render_line_miss`).
+    let line_miss = (replacements == 0)
+        .then_some(line_find.as_ref())
+        .flatten()
+        .and_then(|lf| {
+            coding_tools::edit::diagnose_line_miss(
+                files.iter().map(|f| (f.path.as_str(), f.content.as_str())),
+                &lf.needle,
+                lf.promoted_as,
+            )
+        });
+
+    if replacements == 0 && !cli.json {
+        // Nothing matched because nothing was *read* is a distinct failure from
+        // nothing matched in the files that were: say which one happened.
+        if scanned == 0 {
+            eprintln!("ct-edit: {}", empty_selection_note(cli));
+        }
+        if let Some((path, m)) = &miss {
+            for line in render_miss(path, m) {
+                eprintln!("ct-edit: {line}");
+            }
+        } else if let Some(m) = &line_miss {
+            for line in render_line_miss(m) {
+                eprintln!("ct-edit: {line}");
+            }
+        } else if scanned > 0
+            && let Some(lf) = &line_find
+        {
+            eprintln!("ct-edit: {}", no_candidate_note(lf, scanned));
         }
     }
 
@@ -268,10 +388,13 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
             "files_changed": files_changed,
             "sites": sites.iter().map(site_json).collect::<Vec<_>>(),
         });
-        if let Some((path, m)) = &miss
-            && replacements == 0
-        {
-            obj["nearest_miss"] = miss_json(path, m);
+        if replacements == 0 {
+            obj["files_scanned"] = json!(scanned);
+            if let Some((path, m)) = &miss {
+                obj["nearest_miss"] = miss_json(path, m);
+            } else if let Some(m) = &line_miss {
+                obj["nearest_miss"] = line_miss_json(m);
+            }
         }
         coding_tools::jsonout::print(&obj, cli.json_pretty);
     } else {
@@ -300,8 +423,33 @@ fn status_label(applied: bool, dry_run: bool) -> &'static str {
     }
 }
 
+/// The single-line nearest-miss, in the same `nearest_miss` slot a block miss
+/// uses. `kind` distinguishes them: `"block"` carries the divergence indices,
+/// `"line"` carries the diagnosed `cause`.
+fn line_miss_json(m: &coding_tools::edit::LineMiss) -> serde_json::Value {
+    use coding_tools::edit::LineMissCause;
+    let mut obj = json!({
+        "kind": "line",
+        "path": m.path,
+        "line": m.line,
+        "pattern": m.pattern,
+        "found": m.found,
+        "hint": m.note(),
+    });
+    match &m.cause {
+        LineMissCause::Promoted { kind, literal_hits } => {
+            obj["cause"] = json!("promoted");
+            obj["promoted_as"] = json!(kind);
+            obj["literal_hits"] = json!(literal_hits);
+        }
+        LineMissCause::Whitespace => obj["cause"] = json!("whitespace"),
+    }
+    obj
+}
+
 fn miss_json(path: &str, m: &coding_tools::block::NearestMiss) -> serde_json::Value {
     json!({
+        "kind": "block",
         "path": path,
         "line": m.line,
         "first_diverging_line": m.first_diverging_line,

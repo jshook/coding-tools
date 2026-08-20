@@ -128,6 +128,47 @@ When a block still fails to match, the nearest miss names the parsed block's
 line count (`diverges at its line 3 of 3`) and, when the expected line is empty,
 adds a `note:` flagging the likely stray blank line.
 
+### When nothing matched: the diagnosis
+
+A `0 replacement(s) -> ERROR` never stands on its own. Every zero-match run
+says *why*, positioned in the source, so the next call is a correction rather
+than an investigation.
+
+A **block** `--find` reports the nearest miss described above. A **single-line**
+`--find` gets the equivalent, in one of four shapes:
+
+- **The text is there, but the pattern was promoted past it.** A find that
+  carries metacharacters is read as a glob or a regex (the suite's
+  substring→glob→regex promotion), and a line like
+  `reg::<Foo[T]>();` is a *valid* regex whose `[T]` is a character class — so
+  it does not match its own text. ct-edit finds the text verbatim, points at
+  it, and names the fix:
+
+  ```
+  nearest miss: src/app.rs:3243: the --find text is here, but the pattern was promoted
+    pattern:  'reg::<Foo[T]>();'
+    found:    '    reg::<Foo[T]>();'
+    note:     the --find text carries regex metacharacters, so it was read as a
+              regex and did not match; the text is present verbatim on 1 line(s)
+              — re-run with --mode literal
+  ```
+
+  This is the single most common single-line failure. Pinning `--mode literal`
+  — or sourcing the anchor with `file:`/`stdin:`, which pins it for you —
+  prevents it outright.
+- **Whitespace drift.** A line matches once leading/trailing whitespace is
+  ignored. Both rows are printed quoted, because the difference is invisible
+  otherwise.
+- **Nothing close.** No line matched and none contains the text even ignoring
+  whitespace; the note reports how many files were scanned and how the pattern
+  was read, which separates "wrong pattern" from "wrong files".
+- **Nothing was read at all.** The selection matched **0 files**, so the
+  verdict says nothing about the pattern — the fault is in `--base`/`--name`.
+  This one is reported for block finds too.
+
+Under `--json`, the same diagnosis is the `nearest_miss` object (with
+`"kind": "line"` or `"kind": "block"`), alongside a `files_scanned` count.
+
 #### Blank-line tolerant matching: `--squeeze-blank`
 
 By default a block match is exact, line for line — including how many blank

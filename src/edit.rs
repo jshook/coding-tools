@@ -81,6 +81,154 @@ pub fn edit_content(
     (out, count, sites)
 }
 
+/// Why a **single-line** `--find` matched nothing, located in the source.
+///
+/// A multi-line find already reports a positioned [`crate::block::NearestMiss`];
+/// a single-line find used to fail with a bare `0 replacement(s) -> ERROR` and
+/// no hint at all, which is the one place the suite went quiet exactly when the
+/// caller needed a diagnosis. [`diagnose_line_miss`] fills that gap.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineMiss {
+    /// File holding the best candidate line.
+    pub path: String,
+    /// 1-based line number of that candidate.
+    pub line: usize,
+    /// The `--find` text as written, for the side-by-side row.
+    pub pattern: String,
+    /// The candidate line's text.
+    pub found: String,
+    /// What went wrong.
+    pub cause: LineMissCause,
+}
+
+/// The diagnosed cause behind a [`LineMiss`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LineMissCause {
+    /// The find text is present verbatim, but was compiled as a promoted
+    /// glob/regex (it carries metacharacters) that did not match it. The
+    /// payload names the kind it was promoted to and how many lines hold the
+    /// literal text — `--mode literal` is the fix.
+    Promoted {
+        kind: &'static str,
+        literal_hits: usize,
+    },
+    /// A line matches once leading/trailing whitespace is ignored: indentation
+    /// drift, the most common single-line anchor failure.
+    Whitespace,
+}
+
+impl LineMiss {
+    /// The one-line explanation of the cause, for the `note:` row.
+    pub fn note(&self) -> String {
+        match &self.cause {
+            LineMissCause::Promoted { kind, literal_hits } => format!(
+                "the --find text carries {kind} metacharacters, so it was read as a {kind} and \
+                 did not match; the text is present verbatim on {literal_hits} line(s) — \
+                 pass the anchor as file:PATH or stdin: (verbatim, and it pins only --find), \
+                 or add --mode literal (which pins every pattern in the call, --name included)"
+            ),
+            LineMissCause::Whitespace => "the line differs only in leading/trailing whitespace; \
+                 a single-line --find is matched against the line as written, so copy its exact \
+                 text (or pass it via file:/stdin:)"
+                .to_string(),
+        }
+    }
+
+    /// The headline describing what was found, for the `nearest miss:` row.
+    pub fn headline(&self) -> &'static str {
+        match self.cause {
+            LineMissCause::Promoted { .. } => {
+                "the --find text is here, but the pattern was promoted"
+            }
+            LineMissCause::Whitespace => "line differs only in surrounding whitespace",
+        }
+    }
+}
+
+/// Diagnose a single-line `--find` that matched nothing, over the same files
+/// the edit scanned. `promoted_as` is the non-literal kind the pattern was
+/// compiled as (`"glob"`/`"regex"`), or `None` when it was already literal.
+///
+/// Two causes are recognised, in order of confidence: the text is present
+/// **verbatim** but the pattern was promoted past it (the reported failure —
+/// a registration line full of `(`/`.`/`[` read as a regex), or a line matches
+/// once **whitespace** is trimmed. Anything else returns `None`: the caller
+/// reports the scan's shape rather than inventing a cause.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::edit::{diagnose_line_miss, LineMissCause};
+///
+/// // A `[..]` in the text makes it a glob, which then fails to match itself.
+/// let src = concat!("ok\n", "    reg::<Foo[T]>();\n");
+/// let files = [("a.rs", src)];
+/// let m = diagnose_line_miss(files.iter().copied(), "reg::<Foo[T]>();", Some("glob")).unwrap();
+/// assert_eq!((m.line, m.path.as_str()), (2, "a.rs"));
+/// assert!(matches!(m.cause, LineMissCause::Promoted { literal_hits: 1, .. }));
+///
+/// // Indentation drift on an otherwise literal find.
+/// let files = [("a.rs", "let x = 1;\n")];
+/// let m = diagnose_line_miss(files.iter().copied(), "  let x = 1;  ", None).unwrap();
+/// assert_eq!(m.cause, LineMissCause::Whitespace);
+/// ```
+pub fn diagnose_line_miss<'a, I>(
+    files: I,
+    needle: &str,
+    promoted_as: Option<&'static str>,
+) -> Option<LineMiss>
+where
+    I: IntoIterator<Item = (&'a str, &'a str)> + Clone,
+{
+    // 1. The find text present verbatim, but the pattern was promoted past it.
+    if let Some(kind) = promoted_as {
+        let mut first: Option<(String, usize, String)> = None;
+        let mut hits = 0usize;
+        for (path, content) in files.clone() {
+            for (i, line) in content.lines().enumerate() {
+                if line.contains(needle) {
+                    hits += 1;
+                    if first.is_none() {
+                        first = Some((path.to_string(), i + 1, line.to_string()));
+                    }
+                }
+            }
+        }
+        if let Some((path, line, found)) = first {
+            return Some(LineMiss {
+                path,
+                line,
+                pattern: needle.to_string(),
+                found,
+                cause: LineMissCause::Promoted {
+                    kind,
+                    literal_hits: hits,
+                },
+            });
+        }
+    }
+
+    // 2. Whitespace drift: a line equal to the find text once both are trimmed.
+    let want = needle.trim();
+    if want.is_empty() {
+        return None;
+    }
+    for (path, content) in files {
+        for (i, line) in content.lines().enumerate() {
+            if line.trim() == want {
+                return Some(LineMiss {
+                    path: path.to_string(),
+                    line: i + 1,
+                    pattern: needle.to_string(),
+                    found: line.to_string(),
+                    cause: LineMissCause::Whitespace,
+                });
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
