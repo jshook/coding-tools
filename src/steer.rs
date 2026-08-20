@@ -612,17 +612,30 @@ fn analyze_one(command: &str) -> Option<Steer> {
         .and_then(|s| cmd_of(s))
         && matches!(first, "for" | "while" | "until")
     {
-        let waits = seg_stages
+        let words: Vec<&String> = seg_stages.iter().flatten().flatten().collect();
+        let waits = words
             .iter()
-            .flatten()
-            .flatten()
             .any(|w| matches!(base_name(w), "sleep" | "usleep" | "Start-Sleep"));
+        // A wait loop that probes a *socket* is the one case the command
+        // allowlist cannot express, and it has its own built-in probe — point
+        // at that rather than at a `--` argv the caller cannot fill in.
+        let on_endpoint = words
+            .iter()
+            .any(|w| matches!(base_name(w), "nc" | "ncat" | "netcat" | "curl" | "wget"));
         return Some(if waits {
             Steer {
                 rule_id: "wait-loop",
                 tool: "ct await",
-                suggestion: "ct await --timeout <SECS> --every <N> -- <probe-argv>".to_string(),
-                note: "ct await polls a read-only probe until it passes (or a timeout/abort fires) with no shell loop — and being the wait itself, it should be launched in the background, never wrapped in `for/while … sleep`",
+                suggestion: if on_endpoint {
+                    "ct await --timeout <SECS> --every <N> --tcp-port <PORT>   # or --http http://127.0.0.1:<PORT>/<path>".to_string()
+                } else {
+                    "ct await --timeout <SECS> --every <N> -- <probe-argv>".to_string()
+                },
+                note: if on_endpoint {
+                    "ct await has built-in loopback probes for exactly this wait: --tcp-port polls until a local port accepts connections and --http until a local health URL answers, both bounded, with no shell loop and no curl"
+                } else {
+                    "ct await polls a read-only probe until it passes (or a timeout/abort fires) with no shell loop — and being the wait itself, it should be launched in the background, never wrapped in `for/while … sleep`"
+                },
             }
         } else {
             Steer {

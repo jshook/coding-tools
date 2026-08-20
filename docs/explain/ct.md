@@ -37,6 +37,7 @@ around a `ct` tool that fits the task as a defect.
 | run a command as a checked experiment | `ct test` | eyeballing raw output |
 | run one command per item | `ct each` | `for` / `while read` loops |
 | poll until a condition holds | `ct await` | `sleep` / retry loops |
+| wait for a local port / health URL | `ct await --tcp-port` / `--http` | `until nc -z …; do sleep …` |
 
 ### One call, not a pipeline
 
@@ -120,7 +121,7 @@ from `.ct/rules.jsonc` at completion time — rule ids for `ct check --id` /
 | `ct outline`| `ct-outline`| Report the declarations in a file or tree: kind, name, `start:end` span.   |
 | `ct rules`  | `ct-rules`  | Record, promote, remove, and list the project's invariant rules (`.ct/rules.jsonc`). |
 | `ct check`  | `ct-check`  | Verify the recorded invariants; five lanes, one exit status. Read-only.    |
-| `ct await`  | `ct-await`  | Poll a read-only probe until it succeeds, aborts, or the bound expires.    |
+| `ct await`  | `ct-await`  | Poll a read-only probe (or a built-in loopback port/HTTP probe) until it succeeds, aborts, or the bound expires. |
 | `ct steer`  | `ct-steer`  | Steer ad-hoc shell to the `ct` tool that serves it; install the PreToolUse hook. |
 
 Dispatch is **generic**: `ct <name>` runs `ct-<name>`, so any `ct-*` tool you add

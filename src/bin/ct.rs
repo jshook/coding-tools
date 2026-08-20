@@ -105,7 +105,7 @@ those — reaching for it \"because it is quick\" is the exact mistake this suit
   patch    set/delete JSON/JSONC nodes     not  jq -i, hand-editing JSON
   test     run a command as an experiment  not  eyeballing raw output
   each     one command template per item   not  for / while read loops
-  await    poll until a probe passes       not  sleep / retry loops
+  await    poll until a probe passes       not  sleep / retry loops, nc -z, curl polling
 
 One call, not a pipeline. Do NOT cobble commands together with pipes, xargs, and
 command substitution. Use ct's native compound and aggregate forms so the task is

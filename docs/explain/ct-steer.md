@@ -32,7 +32,12 @@ allowed silently. It runs ahead of *every* shell call, so a miss costs nothing.
 | `A && B`, `A \|\| B` (every segment ct-serviceable) | `ct and` / `ct or` |
 
 A `for`/`while`/`until` loop whose body `sleep`s and re-probes is a bounded
-**wait**, steered to `ct await` (not `ct each`). An interpreter one-liner is
+**wait**, steered to `ct await` (not `ct each`). When such a loop probes an
+*endpoint* (`nc`/`ncat`/`netcat`/`curl`/`wget`), the suggestion names
+`ct await`'s built-in loopback probes — `--tcp-port PORT` or
+`--http http://127.0.0.1:PORT/path` — rather than a `--` argv, because the
+allow-listed commands cannot open a socket and that is the whole point of the
+loop. An interpreter one-liner is
 steered only when it **reads** a file with no write signal — pure-compute
 one-liners (and ones that open a file for writing) are left alone.
 
