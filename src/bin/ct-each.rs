@@ -156,9 +156,17 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
     if cli.json_pretty {
         cli.json = true;
     }
+    // The allowlist has always been printed *on refusal*, which is one failed
+    // sweep too late for a caller trying to plan a dispatch that will be
+    // accepted; `--list-allowed` shows both tiers before anything runs.
+    if cli.list_allowed {
+        print!("{}", allowlist::listing(allowlist::Scope::Each));
+        return Ok(ExitCode::SUCCESS);
+    }
     if cli.command.is_empty() {
         return Err(
-            "missing command: supply one after `--`, e.g. `ct-each --items a b -- ct-view {ITEM}`"
+            "missing command: supply one after `--`, e.g. `ct-each --items a b -- ct-view {ITEM}` \
+             (--list-allowed prints every permitted dispatch target)"
                 .to_string(),
         );
     }

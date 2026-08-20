@@ -77,6 +77,82 @@ pub fn builtin() -> Vec<&'static str> {
 /// dispatched edit still has to assert its own effect before writing.
 pub const MUTATING_SUITE: &[&str] = &["ct-edit", "ct-patch"];
 
+/// Which tool's gate a [`listing`] describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// `ct-test --cmd`: [`builtin`] only.
+    Test,
+    /// `ct-each --`: [`builtin`] plus `ct-test`, and [`MUTATING_SUITE`] behind
+    /// `--mutating`.
+    Each,
+    /// `ct-await --`: [`builtin`] plus `ct-test`/`ct-each`, minus self-nesting,
+    /// plus the built-in loopback endpoint probes.
+    Await,
+}
+
+/// The gate's contents as printable lines — what `--list-allowed` emits.
+///
+/// The gates already print their list *on refusal*, which is one failed call
+/// too late for an agent trying to plan a command it knows will be accepted.
+/// This is the same list, on demand, before anything runs.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::allowlist::{listing, Scope};
+///
+/// // Every scope names the read-only core, and none of them ever grows a shell.
+/// let text = listing(Scope::Test);
+/// assert!(text.contains("ct-search"));
+/// assert!(!text.contains(" sh "));
+/// // Only ct-each has a --mutating tier.
+/// assert!(listing(Scope::Each).contains("--mutating"));
+/// assert!(!listing(Scope::Test).contains("--mutating"));
+/// ```
+pub fn listing(scope: Scope) -> String {
+    // `ct-await` is on the read-only list so *other* tools can poll it, but it
+    // never polls itself — leaving it in its own listing would advertise a probe
+    // the gate refuses.
+    let base: Vec<&str> = builtin()
+        .into_iter()
+        .filter(|n| !(scope == Scope::Await && *n == "ct-await"))
+        .collect();
+    let base = base.join(" ");
+    let head = match scope {
+        Scope::Test => "ct-test --cmd runs only these read-only commands",
+        Scope::Each => "ct-each dispatches only to these commands",
+        Scope::Await => "ct-await polls only these read-only probes",
+    };
+    let mut out = format!("{head}:\n  {base}\n");
+    match scope {
+        Scope::Test => {}
+        Scope::Each => {
+            out.push_str(
+                "  ct-test  (itself gated read-only, so dispatching it stays read-only)\n",
+            );
+            out.push_str(&format!(
+                "\nBehind --mutating, and only behind it, the suite's own gated writers:\n  {}\n",
+                MUTATING_SUITE.join(" ")
+            ));
+        }
+        Scope::Await => {
+            out.push_str(
+                "  ct-test ct-each  (each gated in turn; ct-await is excluded — no self-nesting)\n",
+            );
+            out.push_str(
+                "\nBuilt-in probes, which need no `--` argv and observe only this machine:\n  \
+                 --tcp-port PORT        connect once to a loopback port\n  \
+                 --http URL [--ok-status CODE]  one GET to a loopback http:// URL\n",
+            );
+        }
+    }
+    out.push_str(
+        "\nThe list is compiled in and immutable: no flag, environment variable, or config \
+         extends it, and there is no shell mode anywhere in the suite.\n",
+    );
+    out
+}
+
 /// The program name the gates check for a command: its file-name component,
 /// so `ls`, `/bin/ls`, and `./ls` all gate on `ls`. On Windows a trailing
 /// executable suffix (`.exe`/`.com`/`.bat`/`.cmd`, case-insensitive) is

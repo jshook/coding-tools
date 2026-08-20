@@ -54,6 +54,8 @@ fn run(exe: &str, dir: &Path, args: &[&str]) -> Output {
 
 const CT_EDIT: &str = env!("CARGO_BIN_EXE_ct-edit");
 const CT_VIEW: &str = env!("CARGO_BIN_EXE_ct-view");
+const CT_TEST: &str = env!("CARGO_BIN_EXE_ct-test");
+const CT_EACH: &str = env!("CARGO_BIN_EXE_ct-each");
 const CT_AWAIT: &str = env!("CARGO_BIN_EXE_ct-await");
 const CT_SEARCH: &str = env!("CARGO_BIN_EXE_ct-search");
 
@@ -284,6 +286,37 @@ fn a_guessable_wrong_flag_names_the_right_one() {
     let out = run(CT_SEARCH, &dir, &["--frobnicate"]);
     assert_eq!(code(&out), 2);
     assert!(!stderr(&out).contains("did you mean"), "{}", stderr(&out));
+}
+
+// ----- gate discovery -----------------------------------------------------------
+
+#[test]
+fn every_gated_tool_prints_its_allowlist_on_request() {
+    let dir = scratch("list-allowed");
+    for (exe, tool) in [
+        (CT_TEST, "ct-test"),
+        (CT_EACH, "ct-each"),
+        (CT_AWAIT, "ct-await"),
+    ] {
+        let out = run(exe, &dir, &["--list-allowed"]);
+        assert_eq!(code(&out), 0, "{tool} --list-allowed should exit 0");
+        let text = stdout(&out);
+        assert!(text.contains("ct-search"), "{tool}: {text}");
+        assert!(text.contains("immutable"), "{tool}: {text}");
+    }
+    // ct-each is the only one with a second tier; ct-await advertises the
+    // built-in probes and never lists itself.
+    assert!(stdout(&run(CT_EACH, &dir, &["--list-allowed"])).contains("--mutating"));
+    let awaited = stdout(&run(CT_AWAIT, &dir, &["--list-allowed"]));
+    assert!(awaited.contains("--tcp-port"), "{awaited}");
+    assert!(
+        !awaited
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .contains("ct-await ct-check"),
+        "ct-await must not list itself as a probe: {awaited}"
+    );
 }
 
 // ----- ct-view: repeatable --match ----------------------------------------------

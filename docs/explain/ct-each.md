@@ -99,6 +99,10 @@ Nothing else is ever runnable: the set is **static and immutable**, there is
 no flag or file to extend it, and there is no shell mode. The whole sweep is
 gated **up front**: every item's expanded command is checked before the first
 one runs, so a refusal (exit `2`, nothing run) can never strike mid-sweep.
+
+**`--list-allowed` prints both tiers and exits `0`**, running nothing and
+requiring no items or command. Plan a dispatch target that will be accepted,
+instead of discovering the gate by being refused by it.
 Like the rest of the suite, this is a guard against unintended side effects,
 not a sandbox.
 

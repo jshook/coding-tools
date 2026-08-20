@@ -67,8 +67,12 @@ are in the core — so `ct-test` is a ready **conditional wrapper** around them 
 dispatching/mutating `ct-each`/`ct-edit`/`ct-patch`/`ct-rules` are not, since they
 can change state. **The list is static and immutable** — there is deliberately no
 flag or file to extend it, so an agent driving `ct-test` cannot grant itself new
-commands. (`ct-test --explain` / a refusal message prints the list for the
-current platform.)
+commands.
+
+**`--list-allowed` prints the list for the current platform and exits `0`**,
+running nothing and requiring no other flag. Use it to plan a `--cmd` that
+will be accepted, rather than discovering the gate by being refused by it —
+the refusal message prints the same list, but one failed call later.
 
 Gating is by **program name** — the file-name component of `--cmd` (so `ls`,
 `/bin/ls`, and `./ls` all gate on `ls`; on Windows a trailing `.exe` is stripped,
@@ -110,7 +114,7 @@ own options **before** the `--`; everything after `--` goes to the wrapped tool.
 | ------------ | -------- | ----------------------------------------------------------------------- |
 | `--question` | `TEXT`   | The question this experiment answers; printed as a `== … ==` banner.    |
 | `--cmd`      | `PROG`   | Program to run (must be on the allowlist). Trailing `-- ARGS…` are passed through to it. Always launched directly — there is no shell mode. |
-| `--stdin`    | `TEXT`   | Text written to the child's standard input. Accepts `file:PATH` / `text:VALUE` payloads — multi-line input with zero quoting. |
+| `--stdin`    | `TEXT`   | Text written to the child's standard input. Accepts `file:PATH` / `stdin:` / `text:VALUE` payloads — multi-line input with zero quoting. |
 | `--mode`     | `literal\|glob\|regex` | Pin how matcher patterns (and `--focus`) are interpreted — promotion **off**. State `literal` when a matcher is verbatim code. |
 
 ## Run bounds and liveness

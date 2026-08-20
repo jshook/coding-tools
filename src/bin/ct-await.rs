@@ -10,6 +10,7 @@
 //! the suite's read-only set (plus `ct-test`; `ct-check` included, so "wait
 //! until the invariants hold" is one command) — execution authority stays
 //! with whoever runs the real work; `ct-await` only observes its effects.
+//! `--list-allowed` prints that set without running anything.
 //!
 //! Two **built-in** probes cover the one wait the allowlist could not express,
 //! "a local service is listening now": `--tcp-port` and `--http`, both
@@ -183,6 +184,10 @@ fn limit_reached(started: Instant, limit: std::time::Duration) -> bool {
 }
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
+    if cli.list_allowed {
+        print!("{}", allowlist::listing(allowlist::Scope::Await));
+        return Ok(ExitCode::SUCCESS);
+    }
     let probe = match select_probe(&cli)? {
         Ok(p) => p,
         Err(code) => return Ok(code),

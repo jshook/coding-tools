@@ -87,6 +87,13 @@ less supervision:
   containing backticks, `$`, or quotes: the bytes never pass through word
   expansion, and `stdin:` needs no temp file. A multi-line pattern matches as a
   line-anchored literal **block** in `ct-search`/`ct-view`/`ct-edit`.
+- **Self-diagnosing refusals.** A refusal explains itself, positioned in the
+  source: a `ct-edit --find` that matched nothing reports the nearest miss for a
+  block anchor *and* for a single line (naming the cause — a pattern promoted
+  past its own text, whitespace drift, or a selection that read no files), and a
+  mistyped-but-guessable flag names the real one (`--content` → `did you mean
+  --grep?`). `ct-test`/`ct-each`/`ct-await` print their command gate on demand
+  with `--list-allowed`, instead of only on refusal.
 - **Exit status.** `0` = success / verdict `SUCCESS`; `1` = clean negative /
   verdict `ERROR`; `2` = usage or runtime error. The `0`/`1` split composes in
   `&&`/`||` pipelines.

@@ -32,7 +32,7 @@ pub struct Cli {
     #[arg(long, value_name = "SECS", default_value_t = 5.0)]
     pub every: f64,
 
-    /// Hard bound on the whole wait (fractional allowed). Required for any wait: a wait is bounded by design. (Omittable only for `--explain`, which runs no wait at all.)
+    /// Hard bound on the whole wait (fractional allowed). Required for any wait: a wait is bounded by design. (Omittable only for the flags that run no wait at all — `--list-allowed`, `--explain`.)
     #[arg(long, value_name = "SECS")]
     pub timeout: Option<f64>,
 
@@ -51,6 +51,10 @@ pub struct Cli {
     /// The HTTP status that establishes the condition for --http.
     #[arg(long, value_name = "CODE", default_value_t = 200, requires = "http")]
     pub ok_status: u16,
+
+    /// Print the probe allowlist (and the built-in probes) and exit, without running anything.
+    #[arg(long)]
+    pub list_allowed: bool,
 
     /// SUCCESS when this pattern (substring->glob->regex promoted) appears in the probe's output. When supplied it is the REQUIRED proof: a clean exit without it means "not yet".
     #[arg(long, value_name = "PATTERN")]

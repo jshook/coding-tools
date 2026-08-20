@@ -28,6 +28,10 @@ pub struct Cli {
     #[arg(long, num_args = 1.., value_name = "ITEM")]
     pub items: Vec<String>,
 
+    /// Print the fixed dispatch allowlist (both tiers) and exit, without running anything.
+    #[arg(long)]
+    pub list_allowed: bool,
+
     /// Pin how --name/--ext walker patterns are interpreted (promotion off): literal, glob, or regex.
     #[arg(long, value_enum)]
     pub mode: Option<pattern::Mode>,

@@ -224,10 +224,16 @@ fn tail_lines(text: &str, n: usize) -> String {
 }
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
+    // The allowlist has always been printed *on refusal*, which is one failed
+    // call too late for a caller trying to plan a command it knows will run.
+    if cli.list_allowed {
+        print!("{}", allowlist::listing(allowlist::Scope::Test));
+        return Ok(ExitCode::SUCCESS);
+    }
     let cmd_str = cli
         .cmd
         .as_deref()
-        .ok_or("missing required option --cmd")?
+        .ok_or("missing required option --cmd (or --list-allowed to see what it accepts)")?
         .to_string();
 
     let name = allowlist::gated_name(&cmd_str);

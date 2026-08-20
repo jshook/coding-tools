@@ -58,9 +58,9 @@ a self-classifying probe (`ct-search --quiet`, `ct-check --quiet`) needs none.
 `--mode literal|glob|regex` pins how both matchers are interpreted
 (promotion off) — state `literal` when a matcher is verbatim output text.
 
-`--timeout SECS` is **required** — a wait is bounded by design. (`--explain`,
-which runs no wait at all, needs no bound; it used to demand one, and so was
-unreachable.) The bound covers everything: a single probe run can never outlive it
+`--timeout SECS` is **required** — a wait is bounded by design. (The two
+flags that run no wait at all, `--list-allowed` and `--explain`, need no
+bound.) The bound covers everything: a single probe run can never outlive it
 (process-group kill), and expiry is `ERROR` with a reason naming the bound
 and the number of probe runs. `--heartbeat SECS` pulses while waiting (tokens: `{ELAPSED}`
 `{TOOL}` `{QUESTION}` `{CMD}` `{TICKS}`); `--heartbeat-emit` sets the pulse
@@ -115,6 +115,11 @@ where whoami` on native Windows), plus `ct-test` and `ct-each` (without
 invariants hold"* is one command. `ct-await` will dispatch the read-only `ct-*`
 tools — including `ct-await` itself as a bounded poll — but it never polls
 **itself** (no self-nesting), the same guard `ct-each` has.
+
+`--list-allowed` prints that whole gate — and the built-in probes below —
+then exits `0` without running anything and without needing a `--timeout`.
+Plan a probe that will be accepted, instead of discovering the gate by being
+refused by it.
 
 ### Built-in probes: `--tcp-port` and `--http`
 

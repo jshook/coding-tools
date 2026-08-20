@@ -29,6 +29,10 @@ pub struct Cli {
     #[arg(long)]
     pub cmd: Option<String>,
 
+    /// Print the fixed read-only allowlist and exit, without running anything.
+    #[arg(long)]
+    pub list_allowed: bool,
+
     /// Text written to the child's standard input. Accepts file:PATH / text:VALUE payloads.
     #[arg(long)]
     pub stdin: Option<String>,
