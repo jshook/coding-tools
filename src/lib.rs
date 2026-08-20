@@ -79,6 +79,7 @@ pub mod deps;
 pub mod edit;
 pub mod editscript;
 pub mod explain;
+pub mod flaghint;
 pub mod indexing;
 pub mod indexwatch;
 pub mod jsonout;

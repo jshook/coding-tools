@@ -24,7 +24,6 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::Parser;
 use coding_tools::cli::ct_steer::{CheckArgs, Cli, Command, HookArgs, InstallArgs, PostArgs};
 use coding_tools::explain::Format;
 use coding_tools::pulse::{self, PulseState};
@@ -419,7 +418,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli: Cli = coding_tools::cli::parse();
 
     if let Some(fmt) = cli.explain {
         let body = match fmt {

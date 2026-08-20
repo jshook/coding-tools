@@ -18,7 +18,6 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::Parser;
 use coding_tools::cli::ct_patch::{Cli, DocFormat};
 use coding_tools::explain::Format;
 use coding_tools::patch::{
@@ -206,7 +205,7 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli: Cli = coding_tools::cli::parse();
 
     if let Some(fmt) = cli.explain {
         let body = match fmt {

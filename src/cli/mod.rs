@@ -9,6 +9,35 @@
 
 use clap::CommandFactory;
 
+/// Parse a tool's `Cli` from `std::env::args_os`, adding the suite's
+/// synonym hint when clap rejects an unknown long flag.
+///
+/// Every `src/bin/<tool>.rs` uses this instead of `Cli::parse()`, so a
+/// wrong-but-guessable flag (`--content` for `--grep`, `--base` on a tool whose
+/// target is positional) teaches the right one in the same breath as the
+/// refusal. Everything else — help, version, value errors, exit codes — is
+/// clap's own rendering, unchanged.
+pub fn parse<C: clap::Parser>() -> C {
+    match C::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            let _ = e.print();
+            if matches!(
+                e.kind(),
+                clap::error::ErrorKind::UnknownArgument
+                    | clap::error::ErrorKind::InvalidSubcommand
+                    | clap::error::ErrorKind::NoEquals
+            ) && let Some(clap::error::ContextValue::String(bad)) =
+                e.get(clap::error::ContextKind::InvalidArg)
+                && let Some(h) = crate::flaghint::hint(&C::command(), bad)
+            {
+                eprintln!("  hint: {h}");
+            }
+            std::process::exit(e.exit_code());
+        }
+    }
+}
+
 pub mod ct_await;
 pub mod ct_check;
 pub mod ct_each;

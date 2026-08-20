@@ -20,7 +20,6 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::Parser;
 use coding_tools::cli::ct_okf::{
     AddArgs, CheckArgs, Cli, Command, FindArgs, Framing, GenIndexArgs, IndexArgs, IndexCmd,
     InitArgs, LogArgs, MvArgs, RootsArgs, RootsCmd, ScriptArgs, SearchArgs, SetArgs, ShowArgs,
@@ -1195,7 +1194,7 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli: Cli = coding_tools::cli::parse();
 
     if let Some(fmt) = cli.explain {
         let body = match fmt {

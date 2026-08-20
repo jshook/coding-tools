@@ -14,7 +14,6 @@
 
 use std::process::ExitCode;
 
-use clap::Parser;
 use coding_tools::cli::ct_outline::Cli;
 use coding_tools::explain::Format;
 use coding_tools::outline::{Entry, Lang, language_for, outline};
@@ -322,7 +321,7 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli: Cli = coding_tools::cli::parse();
 
     if let Some(fmt) = cli.explain {
         let body = match fmt {

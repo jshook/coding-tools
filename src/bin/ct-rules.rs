@@ -18,7 +18,6 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::Parser;
 use coding_tools::cli::ct_rules::Cli;
 use coding_tools::explain::Format;
 use coding_tools::patch::{Op, normalize_value, parse_path};
@@ -673,7 +672,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli: Cli = coding_tools::cli::parse();
 
     if let Some(fmt) = cli.explain {
         let body = match fmt {
