@@ -30,9 +30,9 @@ pub struct Cli {
     #[arg(long)]
     pub range: Option<String>,
 
-    /// Show only lines matching this pattern (substring->glob->regex promoted), with --context around each. Accepts file:PATH / text:VALUE; a multi-line pattern matches as a line-anchored literal block.
+    /// Show only lines matching this pattern (substring->glob->regex promoted), with --context around each. Repeatable: several --match patterns are shown as one merged, de-duplicated set of windows. Accepts file:PATH / stdin: / text:VALUE; a multi-line pattern matches as a line-anchored literal block.
     #[arg(long = "match")]
-    pub pattern: Option<String>,
+    pub pattern: Vec<String>,
 
     /// Pin how the pattern is interpreted (promotion off): literal, glob, or regex.
     #[arg(long, value_enum)]

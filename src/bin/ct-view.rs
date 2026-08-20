@@ -23,6 +23,61 @@ use serde_json::json;
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-view.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-view.json");
 
+/// The 0-based line indices one `--match` pattern hits, before context is
+/// expanded around them. A multi-line pattern is a line-anchored literal block
+/// (and reports its own nearest miss); a single-line one is promoted per the
+/// suite's substring->glob->regex rule.
+fn match_hits(cli: &Cli, lines: &[&str], raw: &str) -> Result<Vec<usize>, String> {
+    let resolved = payload::resolve(raw)?;
+    let pat_lines = payload::to_find_lines(&resolved.text);
+    if pat_lines.len() > 1 {
+        // A multi-line pattern is a line-anchored literal block; the context
+        // window expands around the whole matched region.
+        if matches!(
+            cli.mode,
+            Some(pattern::Mode::Glob) | Some(pattern::Mode::Regex)
+        ) {
+            return Err(
+                "a multi-line pattern matches as a literal block; --mode glob/regex is reserved"
+                    .to_string(),
+            );
+        }
+        let starts = block::find_starts(lines, &pat_lines);
+        if starts.is_empty()
+            && let Some(m) = block::nearest_miss(lines, &pat_lines)
+        {
+            eprintln!(
+                "ct-view: nearest miss: {}:{}: block diverges at its line {} of {}",
+                cli.path.display(),
+                m.line,
+                m.first_diverging_line,
+                m.block_len
+            );
+            eprintln!("ct-view:   expected: {}", m.expected);
+            eprintln!("ct-view:   found:    {}", m.found);
+            if let Some(hint) = m.blank_line_hint() {
+                eprintln!("ct-view:   note:     {hint}");
+            }
+        }
+        return Ok(starts
+            .iter()
+            .flat_map(|&s| s..s + pat_lines.len())
+            .collect());
+    }
+    let effective = cli
+        .mode
+        .or(resolved.from_file.then_some(pattern::Mode::Literal));
+    let single = pat_lines.into_iter().next().unwrap_or_default();
+    let re = pattern::compile_with(&single, effective)
+        .map_err(|e| format!("invalid --match pattern: {e}"))?;
+    Ok(lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| re.is_match(l))
+        .map(|(i, _)| i)
+        .collect())
+}
+
 fn run(mut cli: Cli) -> Result<ExitCode, String> {
     // --json-pretty enables JSON output on its own; treat it as --json
     // everywhere the text path is gated.
@@ -37,56 +92,27 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
     let total = lines.len();
 
     // Resolve which line indices to show, and whether a --match found anything.
-    let (mut selected, matched): (Vec<usize>, Option<bool>) = if let Some(p) = &cli.pattern {
-        let resolved = payload::resolve(p)?;
-        let pat_lines = payload::to_find_lines(&resolved.text);
-        let hits: Vec<usize> = if pat_lines.len() > 1 {
-            // A multi-line pattern is a line-anchored literal block; the
-            // context window expands around the whole matched region.
-            if matches!(
-                cli.mode,
-                Some(pattern::Mode::Glob) | Some(pattern::Mode::Regex)
-            ) {
-                return Err(
-                    "a multi-line pattern matches as a literal block; --mode glob/regex is reserved"
-                        .to_string(),
-                );
+    // Several --match patterns produce one merged, de-duplicated window set:
+    // "show me around A and B" is one bounded read, not two calls whose windows
+    // the caller has to reconcile.
+    let mut per_pattern: Vec<(String, usize)> = Vec::with_capacity(cli.pattern.len());
+    let (mut selected, matched): (Vec<usize>, Option<bool>) = if !cli.pattern.is_empty() {
+        let mut hits: Vec<usize> = Vec::new();
+        for p in &cli.pattern {
+            let found = match_hits(&cli, &lines, p)?;
+            per_pattern.push((p.clone(), found.len()));
+            hits.extend(found);
+        }
+        // A pattern that found nothing inside a multi-pattern view would
+        // otherwise vanish into the union: name it, so a partial answer is not
+        // mistaken for a complete one.
+        if cli.pattern.len() > 1 && !cli.json {
+            for (p, _) in per_pattern.iter().filter(|(_, n)| *n == 0) {
+                eprintln!("ct-view: --match '{p}' matched no lines");
             }
-            let starts = block::find_starts(&lines, &pat_lines);
-            if starts.is_empty()
-                && let Some(m) = block::nearest_miss(&lines, &pat_lines)
-            {
-                eprintln!(
-                    "ct-view: nearest miss: {}:{}: block diverges at its line {} of {}",
-                    cli.path.display(),
-                    m.line,
-                    m.first_diverging_line,
-                    m.block_len
-                );
-                eprintln!("ct-view:   expected: {}", m.expected);
-                eprintln!("ct-view:   found:    {}", m.found);
-                if let Some(hint) = m.blank_line_hint() {
-                    eprintln!("ct-view:   note:     {hint}");
-                }
-            }
-            starts
-                .iter()
-                .flat_map(|&s| s..s + pat_lines.len())
-                .collect()
-        } else {
-            let effective = cli
-                .mode
-                .or(resolved.from_file.then_some(pattern::Mode::Literal));
-            let single = pat_lines.into_iter().next().unwrap_or_default();
-            let re = pattern::compile_with(&single, effective)
-                .map_err(|e| format!("invalid --match pattern: {e}"))?;
-            lines
-                .iter()
-                .enumerate()
-                .filter(|(_, l)| re.is_match(l))
-                .map(|(i, _)| i)
-                .collect()
-        };
+        }
+        hits.sort_unstable();
+        hits.dedup();
         let found = !hits.is_empty();
         (expand_and_merge(&hits, cli.context, total), Some(found))
     } else if let Some(r) = &cli.range {
@@ -135,6 +161,14 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         });
         if let Some(found) = matched {
             obj["matched"] = json!(found);
+            // Per-pattern counts, so a caller merging several --match windows
+            // can tell which pattern contributed nothing without re-running.
+            obj["matches"] = json!(
+                per_pattern
+                    .iter()
+                    .map(|(p, n)| json!({ "pattern": p, "hits": n }))
+                    .collect::<Vec<_>>()
+            );
         }
         // Additive: a "frontmatter" field appears only for OKF concepts.
         if let Some(p) = &fm_parsed {

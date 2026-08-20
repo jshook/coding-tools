@@ -331,3 +331,55 @@ fn the_zero_match_diagnosis_is_also_structured_json() {
     // The text path stays silent under --json: one machine-readable answer.
     assert!(!stderr(&out).contains("nearest miss"));
 }
+
+// ----- ct-view: repeatable --match ----------------------------------------------
+
+#[test]
+fn several_match_patterns_merge_into_one_window_set() {
+    let dir = scratch("multimatch");
+    let file = dir.join("src.txt");
+    std::fs::write(&file, "alpha\nfiller\nbeta\nfiller\nfiller\ngamma\n").unwrap();
+    let path = file.to_string_lossy().into_owned();
+
+    let out = run(
+        CT_VIEW,
+        &dir,
+        &[&path, "--match", "alpha", "--match", "gamma", "-C", "0"],
+    );
+    assert_eq!(code(&out), 0);
+    let text = stdout(&out);
+    assert!(text.contains("alpha") && text.contains("gamma"), "{text}");
+    assert!(!text.contains("beta"), "only the matched windows: {text}");
+
+    // A pattern that contributed nothing is named, so a partial answer is not
+    // mistaken for a complete one — but the union still succeeds.
+    let out = run(
+        CT_VIEW,
+        &dir,
+        &[&path, "--match", "alpha", "--match", "zzz", "-C", "0"],
+    );
+    assert_eq!(code(&out), 0);
+    assert!(
+        stderr(&out).contains("--match 'zzz' matched no lines"),
+        "{}",
+        stderr(&out)
+    );
+
+    // Exit follows the union: 1 only when nothing matched at all.
+    let out = run(CT_VIEW, &dir, &[&path, "--match", "zzz", "--match", "qqq"]);
+    assert_eq!(code(&out), 1);
+
+    // --json reports each pattern's contribution.
+    let out = run(
+        CT_VIEW,
+        &dir,
+        &[
+            &path, "--match", "alpha", "--match", "zzz", "-C", "0", "--json",
+        ],
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("json");
+    let matches = v["matches"].as_array().expect("matches array");
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0]["hits"], 1);
+    assert_eq!(matches[1]["hits"], 0);
+}

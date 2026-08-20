@@ -173,7 +173,7 @@
     },
     {
       "name": "ct-view",
-      "description": "Show one file's lines by range, or the regions around a pattern with context, instead of dumping the whole file. --range A:B (1-based inclusive; also A:, :B, A) prints a span; --match PATTERN prints the windows around matching lines with --context lines on each side (overlapping windows merge, like grep -C). Read-only, no allow-gate. With --json, emits {tool, path, total_lines, shown, lines:[{n,text}], matched?}. Exit status: 0 shown, 1 if --match matched nothing, 2 on a read or usage error. --match uses substring->glob->regex promotion, searched unanchored per line; --mode literal|glob|regex pins the interpretation (promotion off). --match accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (context expands around the whole matched region; a block with no match reports its nearest miss to stderr). Invoke as `ct view ...` or `ct-view ...`.",
+      "description": "Show one file's lines by range, or the regions around a pattern with context, instead of dumping the whole file. --range A:B (1-based inclusive; also A:, :B, A) prints a span; --match PATTERN prints the windows around matching lines with --context lines on each side (overlapping windows merge, like grep -C). Read-only, no allow-gate. With --json, emits {tool, path, total_lines, shown, lines:[{n,text}], matched?}. Exit status: 0 shown, 1 if --match matched nothing, 2 on a read or usage error. --match uses substring->glob->regex promotion, searched unanchored per line; --mode literal|glob|regex pins the interpretation (promotion off). --match accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (context expands around the whole matched region; a block with no match reports its nearest miss to stderr). --match is repeatable: several patterns are merged into one de-duplicated set of context windows in a single call, and --json reports each pattern's hit count in a `matches` array. Invoke as `ct view ...` or `ct-view ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -186,8 +186,11 @@
             "description": "Line range A:B (1-based, inclusive); also A: (to end), :B (from start), or A (one line)."
           },
           "match": {
-            "type": "string",
-            "description": "Show only lines matching this pattern (substring->glob->regex promoted, searched unanchored), with --context lines around each hit. Accepts file:PATH / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block."
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Show only lines matching this pattern (substring->glob->regex promoted, searched unanchored), with --context lines around each hit. Repeatable: several --match patterns produce ONE merged, de-duplicated set of windows, so \"show me around A and B\" is a single bounded read instead of two calls. In text output a pattern that matched nothing is named on stderr; under --json a `matches` array reports each pattern's hit count. Exit 1 means the union was empty (no pattern matched anything). Accepts file:PATH / stdin: / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block."
           },
           "mode": {
             "type": "string",
