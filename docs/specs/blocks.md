@@ -68,24 +68,33 @@ Applies to `ct-search --grep`/`--name`, `ct-view --match`, `ct-edit --find`,
 matchers of `ct-test`/`ct-each`/`ct-await`. In block scripts the same choice
 is the per-edit `mode=` attribute (§4), where the default flips to `literal`.
 
-## 3. Layer 2 — `file:`-sourced values
+## 3. Layer 2 — out-of-band values
 
 Payload-typed options accept a **scheme prefix**:
 
 | Prefix  | Meaning |
 | ------- | ------- |
 | `file:PATH` | The option's value is the file's contents, read verbatim (exact bytes, UTF-8). |
-| `text:VALUE` | The remainder is the literal value — the escape hatch for a payload that genuinely begins with `file:` or `text:`. |
+| `stdin:` | The option's value is all of standard input, read verbatim. Takes no argument. |
+| `text:VALUE` | The remainder is the literal value — the escape hatch for a payload that genuinely begins with `file:`, `stdin:`, or `text:`. |
 
-Only these two exact prefixes are recognised; everything else is literal
+Only these three exact prefixes are recognised; everything else is literal
 as-is (`--grep 'http://…'` and `--grep 'std::fmt'` are unaffected — there is
 no general `scheme:` reservation). The namespace deliberately leaves room
 for future sources without new syntax.
 
+`file:` and `stdin:` are both **out-of-band**: the value reaches the tool
+without passing through the shell's word expansion, so a payload containing
+backticks, `$`, quotes, or newlines arrives exactly as written. They differ
+only in cost and lifetime — `file:` needs a temp file the caller must create
+and clean up, `stdin:` needs neither. Prefer `stdin:` for a payload assembled
+programmatically and used once; prefer `file:` for a payload reused across
+several calls, or when standard input is already spoken for.
+
 Rules:
 
-- **Verbatim.** A `file:` payload is never promoted: its match mode defaults
-  to `literal` (overridable by `--mode`). Replacement and value payloads are
+- **Verbatim.** A `file:` or `stdin:` payload is never promoted: its match
+  mode defaults to `literal` (overridable by `--mode`). Replacement and value payloads are
   inserted byte-for-byte. In line-anchored matching contexts, a final
   terminating newline ends the last line; it does not add an empty trailing
   line.
@@ -95,6 +104,12 @@ Rules:
   tool's `--explain` enumerates its scheme-aware options.
 - `text:` only strips the prefix; it does not change match mode. Sourcing
   and matching stay orthogonal.
+- **Standard input is read once.** A process has one standard input, so every
+  `stdin:` payload in a single invocation resolves to that same text; it is
+  never re-read, and a second one never sees an already-drained pipe.
+  `stdin:` also takes no argument — `stdin:something` is a usage error that
+  names `text:stdin:something` as the escape hatch, rather than silently
+  reading a value the caller did not mean.
 
 Initial scheme-aware options:
 

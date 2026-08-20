@@ -27,7 +27,7 @@
       },
       "grep": {
         "type": "string",
-        "description": "Content pattern, substring->glob->regex promoted and searched unanchored against file contents. Implies regular files. Accepts file:PATH / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block."
+        "description": "Content pattern, substring->glob->regex promoted and searched unanchored against file contents. Implies regular files. Accepts file:PATH / stdin: / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block."
       },
       "mode": {
         "type": "string",

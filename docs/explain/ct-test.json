@@ -14,7 +14,7 @@
       },
       "stdin": {
         "type": "string",
-        "description": "Literal text written to the child's standard input. Accepts file:PATH / text:VALUE payloads."
+        "description": "Literal text written to the child's standard input. Accepts file:PATH / stdin: / text:VALUE payloads."
       },
       "mode": {
         "type": "string",

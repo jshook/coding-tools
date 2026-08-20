@@ -9,10 +9,16 @@
 //! * `file:PATH` — the value is the file's contents, read verbatim (exact
 //!   bytes, UTF-8). A `file:`-sourced pattern is never promoted: its match
 //!   mode defaults to literal.
+//! * `stdin:` — the value is everything on standard input, read verbatim, with
+//!   the same never-promoted semantics as `file:`. This is the shell-safe way
+//!   to pass a payload containing backticks, `$`, or quotes: the text never
+//!   passes through the shell's word expansion at all, and no temp file is
+//!   needed. Standard input is read **once** per process, so several `stdin:`
+//!   payloads in one invocation all resolve to that same text.
 //! * `text:VALUE` — the remainder is the literal value; the escape hatch for
-//!   a payload that genuinely begins with `file:` or `text:`.
+//!   a payload that genuinely begins with `file:`, `stdin:`, or `text:`.
 //!
-//! Only these two exact prefixes are recognised. Everything else is literal
+//! Only these three exact prefixes are recognised. Everything else is literal
 //! as-is — there is no general `scheme:` reservation, so values like
 //! `http://…` and `std::fmt` are unaffected.
 
@@ -21,12 +27,43 @@
 pub struct Resolved {
     /// The resolved value text.
     pub text: String,
-    /// True when the value was read from a `file:` source — such payloads
-    /// are verbatim: never promoted, matched literally by default.
+    /// True when the value came from a **verbatim** source (`file:` or
+    /// `stdin:`) rather than an argv literal — such payloads are never
+    /// promoted, and are matched literally by default.
     pub from_file: bool,
 }
 
-/// Resolve a raw option value through the `file:` / `text:` schemes.
+/// Standard input, read at most once per process. Every `stdin:` payload in an
+/// invocation resolves to this same text — a pipe can only be drained once, and
+/// a second read would silently hand back the empty string.
+static STDIN_PAYLOAD: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
+
+/// All of standard input, as the `stdin:` scheme reads it.
+///
+/// Public so a tool with its own stdin-reading flag (`ct-each --stdin`) can
+/// share the same single read: a process has one standard input, and two
+/// independent reads of it would leave the second holding an empty string.
+pub fn stdin_text() -> Result<String, String> {
+    read_stdin()
+}
+
+/// Read all of standard input as the payload text. Cached, so `--find stdin:`
+/// and `--replace stdin:` in one call see the same bytes instead of the second
+/// one seeing an already-drained pipe.
+fn read_stdin() -> Result<String, String> {
+    STDIN_PAYLOAD
+        .get_or_init(|| {
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map(|_| buf)
+                .map_err(|e| format!("reading the stdin: payload: {e}"))
+        })
+        .clone()
+}
+
+/// Resolve a raw option value through the `file:` / `stdin:` / `text:` schemes.
 ///
 /// # Examples
 ///
@@ -48,6 +85,17 @@ pub fn resolve(raw: &str) -> Result<Resolved, String> {
             text,
             from_file: true,
         })
+    } else if raw == "stdin:" || raw == "stdin:-" {
+        Ok(Resolved {
+            text: read_stdin()?,
+            from_file: true,
+        })
+    } else if let Some(rest) = raw.strip_prefix("stdin:") {
+        Err(format!(
+            "the stdin: payload scheme takes no argument (got 'stdin:{rest}'); write \
+             `stdin:` on its own and pipe the value in, or use `text:stdin:{rest}` for a \
+             literal value that starts with 'stdin:'"
+        ))
     } else if let Some(rest) = raw.strip_prefix("text:") {
         Ok(Resolved {
             text: rest.to_string(),
@@ -131,6 +179,17 @@ mod tests {
             assert_eq!(r.text, raw);
             assert!(!r.from_file);
         }
+    }
+
+    #[test]
+    fn stdin_scheme_rejects_an_argument_with_the_escape_hatch_named() {
+        let e = resolve("stdin:some/path").unwrap_err();
+        assert!(e.contains("takes no argument"), "{e}");
+        assert!(e.contains("text:stdin:some/path"), "{e}");
+        // The escape hatch itself stays literal, and is not a verbatim source.
+        let r = resolve("text:stdin:some/path").unwrap();
+        assert_eq!(r.text, "stdin:some/path");
+        assert!(!r.from_file);
     }
 
     #[test]

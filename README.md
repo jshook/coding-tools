@@ -79,8 +79,11 @@ less supervision:
   not a valid regex → glob; otherwise → regex. `--mode literal|glob|regex` pins
   the interpretation (promotion off) for verbatim code anchors.
 - **Payload schemes.** Payload-typed values accept `file:PATH` (the file's
-  contents, verbatim — never promoted) and `text:VALUE` (the escape for literal
-  values starting with a scheme prefix). A multi-line pattern matches as a
+  contents), `stdin:` (all of standard input) — both verbatim, never promoted —
+  and `text:VALUE` (the escape for literal values starting with a scheme
+  prefix). `file:` and `stdin:` are the shell-safe path for a payload
+  containing backticks, `$`, or quotes: the bytes never pass through word
+  expansion, and `stdin:` needs no temp file. A multi-line pattern matches as a
   line-anchored literal **block** in `ct-search`/`ct-view`/`ct-edit`, with a
   nearest-miss diagnostic when it matches nothing.
 - **Exit status.** `0` = success / verdict `SUCCESS`; `1` = clean negative /

@@ -26,11 +26,11 @@
       },
       "why": {
         "type": "string",
-        "description": "With --add: why this invariant exists; printed whenever the rule fails. Accepts file:PATH / text:VALUE payloads."
+        "description": "With --add: why this invariant exists; printed whenever the rule fails. Accepts file:PATH / stdin: / text:VALUE payloads."
       },
       "prompt": {
         "type": "string",
-        "description": "With --add: the verbatim human request behind this rule, retained in the store as provenance so the intent can be revisited (the confirmation tells the user it was retained). Never read by verification; strip all prompts with --flatten. Accepts file:PATH / text:VALUE payloads."
+        "description": "With --add: the verbatim human request behind this rule, retained in the store as provenance so the intent can be revisited (the confirmation tells the user it was retained). Never read by verification; strip all prompts with --flatten. Accepts file:PATH / stdin: / text:VALUE payloads."
       },
       "tag": {
         "type": "array",

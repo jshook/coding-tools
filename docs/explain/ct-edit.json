@@ -23,11 +23,11 @@
       },
       "find": {
         "type": "string",
-        "description": "Pattern to find (substring->glob->regex promoted), matched per line. Accepts file:PATH / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block. Required unless script is given."
+        "description": "Pattern to find (substring->glob->regex promoted), matched per line. Accepts file:PATH / stdin: / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block. Required unless script is given."
       },
       "replace": {
         "type": "string",
-        "description": "Replacement text. With a regex --find, $1/${name} expand (use $$ for literal $); otherwise literal. Accepts file:PATH / text:VALUE; for a block find, an empty payload deletes the matched lines. Required unless script is given."
+        "description": "Replacement text. With a regex --find, $1/${name} expand (use $$ for literal $); otherwise literal. Accepts file:PATH / stdin: / text:VALUE; for a block find, an empty payload deletes the matched lines. Required unless script is given."
       },
       "mode": {
         "type": "string",

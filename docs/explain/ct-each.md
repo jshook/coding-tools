@@ -52,8 +52,9 @@ and emits templated lines; exit status follows the verdict.
 Items come from three combinable sources, in this order:
 
 1. `--items A B C` — explicit items, repeatable. Items are payload-typed:
-   a `file:PATH` item expands to the file's non-empty lines (an item list
-   without a pipe), and `text:VALUE` is one literal item;
+   a `file:PATH` item expands to the file's non-empty lines and `stdin:`
+   expands to standard input's non-empty lines (an item list without a pipe),
+   and `text:VALUE` is one literal item;
 2. the **walker**: `--base PATH` (with the suite's shared `--name`/`--ext`/
    `--hidden`/`--follow` selectors; `--name`/`--ext` alone imply `--base .`)
    turns every matched file path into an item, in walk order — the natural

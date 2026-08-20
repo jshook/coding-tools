@@ -53,15 +53,38 @@ Only regular files are edited. Files that are not valid UTF-8 text are skipped.
 Replacements within a file preserve every untouched byte — line terminators,
 indentation, and surrounding text are left exactly as they were.
 
-### Payload schemes: `file:` / `text:`
+### Payload schemes: `file:` / `stdin:` / `text:`
 
-`--find` and `--replace` are payload-typed: `file:PATH` reads the value
-verbatim from a file (exact bytes; never promoted — its match mode defaults
-to literal), and `text:VALUE` is the escape hatch for a value that genuinely
-begins with `file:` or `text:`. Only those two exact prefixes are
-recognised; `http://…` and `std::fmt` are unaffected. Writing payloads to
-files and passing `file:` references avoids every shell-quoting hazard
-around code (`$`, quotes, backslashes, newlines).
+`--find` and `--replace` are payload-typed:
+
+| Scheme | The value is |
+| ------ | ------------ |
+| `file:PATH` | the file's contents, read verbatim (exact bytes, UTF-8) |
+| `stdin:` | all of standard input, read verbatim (no argument) |
+| `text:VALUE` | the literal remainder — the escape hatch for a value that genuinely begins with `file:`, `stdin:`, or `text:` |
+
+Only those three exact prefixes are recognised; `http://…` and `std::fmt`
+are unaffected. A `file:`- or `stdin:`-sourced payload is **verbatim**: never
+promoted, so its match mode defaults to literal.
+
+**Payloads containing `` ` ``, `$`, `!`, or quotes must not be written
+inline.** Under a POSIX shell an inline `text:` payload is expanded before
+`ct-edit` ever sees it — a backtick inside a code comment becomes a command
+substitution, `$foo` becomes empty, and the anchor that reaches the tool is
+not the one you wrote. `file:` and `stdin:` both dodge this completely,
+because the bytes never pass through word expansion:
+
+```sh
+# the cheap safe path: no temp file, no quoting to get right
+printf '%s' "$BLOCK" | ct-edit --base src --find stdin: --replace 'text:' --expect =1
+
+# the reusable safe path: write the payload once, reference it by path
+ct-edit --base src --find file:/tmp/anchor.txt --replace file:/tmp/new.txt --expect =1
+```
+
+Standard input is read **once** per process, so several `stdin:` payloads in
+one call all resolve to the same text — use `file:` when `--find` and
+`--replace` both need out-of-band values.
 
 ### Block find/replace
 

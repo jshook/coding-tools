@@ -163,7 +163,8 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         );
     }
     // Resolve the payload schemes per item: file:PATH expands to the file's
-    // non-empty lines, text:VALUE stays one literal item.
+    // non-empty lines and stdin: to standard input's, text:VALUE stays one
+    // literal item.
     let mut items: Vec<String> = Vec::with_capacity(cli.items.len());
     for raw in &cli.items {
         let resolved = payload::resolve(raw)?;
@@ -218,11 +219,10 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         }
     }
     if cli.stdin {
-        let mut text = String::new();
-        use std::io::Read;
-        std::io::stdin()
-            .read_to_string(&mut text)
-            .map_err(|e| format!("reading items from stdin: {e}"))?;
+        // Shares the `stdin:` payload scheme's single cached read, so `--stdin`
+        // and an `--items stdin:` in the same call agree instead of the second
+        // one finding an already-drained pipe.
+        let text = payload::stdin_text().map_err(|e| format!("reading items from stdin: {e}"))?;
         items.extend(
             text.lines()
                 .map(str::trim_end)
