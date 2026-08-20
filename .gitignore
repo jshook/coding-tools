@@ -21,3 +21,6 @@ target
 CMakeFiles/
 .claude/
 
+/.skaf/workers/1db0ed110baa18f35da6a18be031d1ae78bd3ff17e3b48f88dae85f1dccbe40a/skaf.exe
+/.skaf/inventory.skaf
+/.skaf/scaffold.sqlite
