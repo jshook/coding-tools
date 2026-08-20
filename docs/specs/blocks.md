@@ -61,7 +61,11 @@ Every pattern-taking tool gains `--mode literal|glob|regex`:
 - Absent → today's promotion, unchanged. Promotion remains the ergonomic
   default; nothing existing changes behaviour.
 - Present → promotion is **off** for every pattern argument in the
-  invocation; the stated mode is used as-is.
+  invocation; the stated mode is used as-is. *Every* argument, including the
+  file filter: `--mode literal --name '*.rs'` looks for a file literally
+  named `*.rs` and selects nothing. To pin a single anchor without touching
+  the selection, source it with `file:`/`stdin:`, which are verbatim by
+  construction (Layer 2) and need no `--mode` at all.
 
 Applies to `ct-search --grep`/`--name`, `ct-view --match`, `ct-edit --find`,
 `ct-outline --match`, `ct-tree --name`, and the `--ok-match`/`--err-match`

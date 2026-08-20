@@ -31,8 +31,12 @@
       },
       "mode": {
         "type": "string",
-        "enum": ["literal", "glob", "regex"],
-        "description": "Pin how --find (and --name) is interpreted; promotion off. Use literal for verbatim code anchors."
+        "enum": [
+          "literal",
+          "glob",
+          "regex"
+        ],
+        "description": "Pin how EVERY pattern in the call is interpreted; promotion off, --name included. Use literal for a verbatim code anchor -- but note that with a glob --name (e.g. '*.rs') it also makes the file filter literal, so the selection reads zero files. To pin only the anchor, pass --find as file:PATH or stdin:, which are verbatim by construction and need no --mode."
       },
       "squeeze-blank": {
         "type": "boolean",
@@ -81,7 +85,10 @@
       },
       "heartbeat-to": {
         "type": "string",
-        "enum": ["stderr", "stdout"],
+        "enum": [
+          "stderr",
+          "stdout"
+        ],
         "description": "Stream heartbeat pulses are written to. Default: stderr."
       },
       "no-ignore": {
@@ -96,7 +103,13 @@
     "required": []
   },
   "examples": [
-    {"cmd": "ct edit --base src --name '*.rs' --find 'foo_bar' --replace 'foo_baz' --mode literal --dry-run", "why": "Preview a rename across Rust sources before writing, instead of sed -i 's/foo_bar/foo_baz/g'."},
-    {"cmd": "ct edit --base src/steer.rs --find 'old_name' --replace 'new_name' --mode literal --expect 3", "why": "Rename in one file, refusing the write unless exactly the expected number of sites change."}
+    {
+      "cmd": "ct edit --base src --name '*.rs' --find 'foo_bar' --replace 'foo_baz' --dry-run",
+      "why": "Preview a rename across Rust sources before writing, instead of sed -i 's/foo_bar/foo_baz/g'."
+    },
+    {
+      "cmd": "ct edit --base src/steer.rs --find 'old_name' --replace 'new_name' --mode literal --expect 3",
+      "why": "Rename in one file, refusing the write unless exactly the expected number of sites change."
+    }
   ]
 }

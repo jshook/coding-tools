@@ -161,3 +161,48 @@ fn every_tool_has_examples_that_parse_and_appear_in_md() {
         }
     }
 }
+
+/// A `--mode` in an example must not silently empty the example's own file
+/// selection.
+///
+/// `--mode` switches promotion off for **every** pattern in an invocation, the
+/// `--name`/`--ext` file filter included — so `--mode literal --name '*.rs'`
+/// looks for a file literally called `*.rs` and reads zero files. Two shipped
+/// `ct-edit` examples did exactly that: they parsed, they appeared verbatim in
+/// the `.md`, and they matched nothing at all when run. Parsing is not
+/// running, so neither existing guard could see it.
+///
+/// The fix in an example is never `--mode`: pass the anchor as a `file:`/
+/// `stdin:` payload, which is verbatim by construction and pins only the
+/// anchor.
+#[test]
+fn no_example_pins_mode_over_a_glob_file_filter() {
+    // Tools whose `--name`/`--ext` is compiled through `--mode`.
+    const FILTERS: &[&str] = &["--name", "--ext"];
+    for tool in TOOLS {
+        let v = read_json(tool);
+        let Some(examples) = v["examples"].as_array() else {
+            continue;
+        };
+        for ex in examples {
+            let cmd = ex["cmd"].as_str().unwrap_or_default();
+            let argv = tokenize(cmd);
+            if !argv.iter().any(|a| a == "--mode") {
+                continue;
+            }
+            for (i, a) in argv.iter().enumerate() {
+                if !FILTERS.contains(&a.as_str()) {
+                    continue;
+                }
+                let value = argv.get(i + 1).cloned().unwrap_or_default();
+                assert!(
+                    !value.contains(['*', '?', '[']),
+                    "{tool}: example pins --mode while filtering with a glob {a} '{value}', \
+                     so it selects no files at all:\n  {cmd}\n  \
+                     (pass the anchor as file:/stdin: instead — verbatim, and it pins only \
+                     the anchor)"
+                );
+            }
+        }
+    }
+}

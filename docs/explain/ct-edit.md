@@ -46,7 +46,7 @@ Only regular files are edited. Files that are not valid UTF-8 text are skipped.
 | ----------- | --------- | -------------------------------------------------------------------------------------------- |
 | `--find`    | `PATTERN` | Text to find (substring → glob → regex promoted). A single-line pattern is matched **per line**; a multi-line payload matches as a **block** (below). |
 | `--replace` | `TEXT`    | Replacement. With a **regex** `--find`, `$1`/`${name}` expand (use `$$` for a literal `$`); otherwise the replacement is literal. For a block `--find`, an empty payload deletes the matched lines. |
-| `--mode`    | `literal\|glob\|regex` | Pin how `--find` (and `--name`) is interpreted — promotion **off**. State this when the pattern is verbatim code: a literal anchor like `todo!("…")` would otherwise promote to a regex and miss its own text. |
+| `--mode`    | `literal\|glob\|regex` | Pin how **every** pattern in the call is interpreted — promotion **off**, `--name` included. Use it for a verbatim code anchor like `todo!("…")`, which would otherwise promote to a regex and miss its own text — but with a glob `--name`, prefer `file:`/`stdin:`, which pin only the anchor (see *`--mode` pins the file filter too*). |
 | `--expect`  | `SPEC`    | Verdict expectation over the **total replacement count**: `any` (≥1, default), `none` (==0), `N` (≥N), `=N` (==N), `+N` (>N), `-N` (<N). |
 | `--dry-run` | —         | Compute and show the change and verdict, but write nothing.                                   |
 
@@ -127,6 +127,30 @@ block:
 When a block still fails to match, the nearest miss names the parsed block's
 line count (`diverges at its line 3 of 3`) and, when the expected line is empty,
 adds a `note:` flagging the likely stray blank line.
+
+#### `--mode` pins the file filter too
+
+`--mode` switches promotion off for **every** pattern in the invocation, and
+that includes `--name`. So
+
+```sh
+ct-edit --base src --name '*.rs' --mode literal --find 'reg::<Foo[T]>();' ...
+```
+
+looks for a file literally named `*.rs`, selects nothing, and returns a
+verdict that says nothing about the anchor. To pin *only* the anchor, source
+it out of band — a `file:`/`stdin:` payload is verbatim by construction, so
+`--mode` is not needed at all:
+
+```sh
+printf '%s' 'reg::<Foo[T]>();' \
+  | ct-edit --base src --name '*.rs' --find stdin: --replace 'text:' --expect =1
+```
+
+`--mode literal` is still right when the selection carries no glob — a single
+file in `--base`, or a literal `--name`. When it does, the empty-selection
+diagnosis below names this interaction rather than leaving it to be
+rediscovered.
 
 ### When nothing matched: the diagnosis
 
@@ -330,9 +354,10 @@ ct-edit --base src/version.rs --find 'v(\d+)\.(\d+)' --replace 'v$1_$2'
 # Machine-readable result for an agent.
 ct-edit --base config --name '*.conf' --find DEBUG --replace INFO --json
 
-# A verbatim code anchor: pin literal so '(' and '!' are not regex.
-ct-edit --base src --name '*.rs' --mode literal \
-  --find 'todo!("wire this")' --replace 'wire()' --expect =1
+# A verbatim code anchor, sourced out of band so it is never promoted --
+# unlike --mode, that pins only the anchor and leaves --name a glob.
+printf '%s' 'todo!("wire this")' \
+  | ct-edit --base src --name '*.rs' --find stdin: --replace 'text:wire()' --expect =1
 
 # A block edit from payload files (zero quoting), previewed first.
 ct-edit --base src --name '*.rs' \
@@ -346,7 +371,7 @@ ct-edit --base polydat/src --name '*.rs' --script target/edits.ctb
 
 - **Preview a rename across Rust sources before writing, instead of sed -i 's/foo_bar/foo_baz/g'.**
   ```sh
-  ct edit --base src --name '*.rs' --find 'foo_bar' --replace 'foo_baz' --mode literal --dry-run
+  ct edit --base src --name '*.rs' --find 'foo_bar' --replace 'foo_baz' --dry-run
   ```
 - **Rename in one file, refusing the write unless exactly the expected number of sites change.**
   ```sh
