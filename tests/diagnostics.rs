@@ -2,10 +2,20 @@
 // Copyright 2026 Jonathan Shook
 
 //! Guards on the suite's *self-diagnosing refusals* and the discovery surface
-//! around them — the behaviours that decide whether a failed call teaches the
-//! fix or reads as a false negative.
+//! around them — the behaviours a field report identified as the difference
+//! between a failed call that teaches the fix and one that reads as a false
+//! negative:
+//!
+//! * a **single-line** `ct-edit --find` that matches nothing says why, and
+//!   positions it (previously a bare `0 replacement(s) -> ERROR`);
+//! * a mistyped-but-guessable long flag names the real one;
+//! * `--list-allowed` shows a gate before a call is refused by it;
+//! * `ct-view --match` is repeatable, merging windows in one bounded read;
+//! * `stdin:` payloads carry shell-hostile text without a temp file;
+//! * `ct-await`'s built-in loopback probes and `--probe-timeout` bound.
 
 use std::io::Write;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -42,92 +52,10 @@ fn run(exe: &str, dir: &Path, args: &[&str]) -> Output {
         .expect("launch")
 }
 
-const CT_VIEW: &str = env!("CARGO_BIN_EXE_ct-view");
-const CT_SEARCH: &str = env!("CARGO_BIN_EXE_ct-search");
 const CT_EDIT: &str = env!("CARGO_BIN_EXE_ct-edit");
-
-// ----- flag synonyms ------------------------------------------------------------
-
-#[test]
-fn a_guessable_wrong_flag_names_the_right_one() {
-    let dir = scratch("flags");
-    // The two misses a field report actually hit.
-    let out = run(CT_SEARCH, &dir, &["--content", "foo"]);
-    assert_eq!(code(&out), 2);
-    assert!(
-        stderr(&out).contains("did you mean --grep?"),
-        "{}",
-        stderr(&out)
-    );
-
-    let out = run(CT_VIEW, &dir, &["--base", "x"]);
-    assert_eq!(code(&out), 2);
-    let err = stderr(&out);
-    assert!(err.contains("positional"), "{err}");
-    assert!(err.contains("<PATH>"), "{err}");
-
-    // A flag with no known synonym gets clap's message and nothing invented.
-    let out = run(CT_SEARCH, &dir, &["--frobnicate"]);
-    assert_eq!(code(&out), 2);
-    assert!(!stderr(&out).contains("did you mean"), "{}", stderr(&out));
-}
-
-// ----- stdin: payloads ----------------------------------------------------------
-
-#[test]
-fn a_stdin_payload_carries_shell_hostile_text_verbatim() {
-    let dir = scratch("stdin-payload");
-    // Backticks and `$` are exactly what a POSIX shell would have eaten out of
-    // an inline text: payload before ct-edit ever saw it.
-    let anchor = "// see `run($cfg)` for details";
-    std::fs::write(dir.join("a.rs"), format!("fn main() {{}}\n{anchor}\n")).unwrap();
-
-    let mut child = Command::new(CT_EDIT)
-        .current_dir(&dir)
-        .args([
-            "--base",
-            ".",
-            "--name",
-            "*.rs",
-            "--find",
-            "stdin:",
-            "--replace",
-            "text:// gone",
-            "--expect",
-            "=1",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("launch");
-    child
-        .stdin
-        .take()
-        .expect("piped")
-        .write_all(anchor.as_bytes())
-        .unwrap();
-    let out = child.wait_with_output().expect("wait");
-    assert_eq!(code(&out), 0, "{}", stderr(&out));
-    let after = std::fs::read_to_string(dir.join("a.rs")).unwrap();
-    assert!(after.contains("// gone"), "{after}");
-    assert!(!after.contains("run($cfg)"), "{after}");
-}
-
-#[test]
-fn the_stdin_scheme_refuses_an_argument_and_names_the_escape_hatch() {
-    let dir = scratch("stdin-arg");
-    std::fs::write(dir.join("a.rs"), "x\n").unwrap();
-    let out = run(
-        CT_EDIT,
-        &dir,
-        &["--base", ".", "--find", "stdin:oops", "--replace", "y"],
-    );
-    assert_eq!(code(&out), 2);
-    let err = stderr(&out);
-    assert!(err.contains("takes no argument"), "{err}");
-    assert!(err.contains("text:stdin:oops"), "{err}");
-}
+const CT_VIEW: &str = env!("CARGO_BIN_EXE_ct-view");
+const CT_AWAIT: &str = env!("CARGO_BIN_EXE_ct-await");
+const CT_SEARCH: &str = env!("CARGO_BIN_EXE_ct-search");
 
 // ----- ct-edit: a single-line find that matched nothing -------------------------
 
@@ -332,6 +260,32 @@ fn the_zero_match_diagnosis_is_also_structured_json() {
     assert!(!stderr(&out).contains("nearest miss"));
 }
 
+// ----- flag synonyms ------------------------------------------------------------
+
+#[test]
+fn a_guessable_wrong_flag_names_the_right_one() {
+    let dir = scratch("flags");
+    // The two misses the field report actually hit.
+    let out = run(CT_SEARCH, &dir, &["--content", "foo"]);
+    assert_eq!(code(&out), 2);
+    assert!(
+        stderr(&out).contains("did you mean --grep?"),
+        "{}",
+        stderr(&out)
+    );
+
+    let out = run(CT_VIEW, &dir, &["--base", "x"]);
+    assert_eq!(code(&out), 2);
+    let err = stderr(&out);
+    assert!(err.contains("positional"), "{err}");
+    assert!(err.contains("<PATH>"), "{err}");
+
+    // A flag with no known synonym gets clap's message and nothing invented.
+    let out = run(CT_SEARCH, &dir, &["--frobnicate"]);
+    assert_eq!(code(&out), 2);
+    assert!(!stderr(&out).contains("did you mean"), "{}", stderr(&out));
+}
+
 // ----- ct-view: repeatable --match ----------------------------------------------
 
 #[test]
@@ -382,4 +336,223 @@ fn several_match_patterns_merge_into_one_window_set() {
     assert_eq!(matches.len(), 2);
     assert_eq!(matches[0]["hits"], 1);
     assert_eq!(matches[1]["hits"], 0);
+}
+
+// ----- stdin: payloads ----------------------------------------------------------
+
+#[test]
+fn a_stdin_payload_carries_shell_hostile_text_verbatim() {
+    let dir = scratch("stdin-payload");
+    // Backticks and `$` are exactly what a POSIX shell would have eaten out of
+    // an inline text: payload before ct-edit ever saw it.
+    let anchor = "// see `run($cfg)` for details";
+    std::fs::write(dir.join("a.rs"), format!("fn main() {{}}\n{anchor}\n")).unwrap();
+
+    let mut child = Command::new(CT_EDIT)
+        .current_dir(&dir)
+        .args([
+            "--base",
+            ".",
+            "--name",
+            "*.rs",
+            "--find",
+            "stdin:",
+            "--replace",
+            "text:// gone",
+            "--expect",
+            "=1",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("launch");
+    child
+        .stdin
+        .take()
+        .expect("piped")
+        .write_all(anchor.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let after = std::fs::read_to_string(dir.join("a.rs")).unwrap();
+    assert!(after.contains("// gone"), "{after}");
+    assert!(!after.contains("run($cfg)"), "{after}");
+}
+
+#[test]
+fn the_stdin_scheme_refuses_an_argument_and_names_the_escape_hatch() {
+    let dir = scratch("stdin-arg");
+    std::fs::write(dir.join("a.rs"), "x\n").unwrap();
+    let out = run(
+        CT_EDIT,
+        &dir,
+        &["--base", ".", "--find", "stdin:oops", "--replace", "y"],
+    );
+    assert_eq!(code(&out), 2);
+    let err = stderr(&out);
+    assert!(err.contains("takes no argument"), "{err}");
+    assert!(err.contains("text:stdin:oops"), "{err}");
+}
+
+// ----- ct-await: built-in probes and per-run bounds ------------------------------
+
+#[test]
+fn the_tcp_probe_sees_a_listener_and_refuses_a_non_loopback_host() {
+    let dir = scratch("await-tcp");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+
+    let out = run(
+        CT_AWAIT,
+        &dir,
+        &[
+            "--timeout",
+            "5",
+            "--every",
+            "0.2",
+            "--tcp-port",
+            &port,
+            "--quiet",
+        ],
+    );
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+
+    // With nothing listening, the wait ends on its bound rather than hanging.
+    drop(listener);
+    let out = run(
+        CT_AWAIT,
+        &dir,
+        &[
+            "--timeout",
+            "1",
+            "--every",
+            "0.2",
+            "--tcp-port",
+            &port,
+            "--quiet",
+        ],
+    );
+    assert_eq!(code(&out), 1);
+    assert!(
+        stderr(&out).contains("timed out after 1s"),
+        "{}",
+        stderr(&out)
+    );
+
+    // Loopback-only, and the refusal says so rather than silently resolving.
+    let out = run(
+        CT_AWAIT,
+        &dir,
+        &["--timeout", "5", "--http", "http://example.com/health"],
+    );
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("loopback"), "{}", stderr(&out));
+
+    // https is refused for a loopback health check, with the reason.
+    let out = run(
+        CT_AWAIT,
+        &dir,
+        &["--timeout", "5", "--http", "https://127.0.0.1/h"],
+    );
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("http://"), "{}", stderr(&out));
+
+    // Exactly one probe form.
+    let out = run(
+        CT_AWAIT,
+        &dir,
+        &[
+            "--timeout",
+            "5",
+            "--tcp-port",
+            "1",
+            "--",
+            "ct-search",
+            "--base",
+            ".",
+        ],
+    );
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("give one probe"), "{}", stderr(&out));
+}
+
+#[test]
+fn probe_timeout_bounds_each_run_without_ending_the_wait() {
+    let dir = scratch("await-per-run");
+    // A per-run bound must not change the outcome of a wait whose probe answers
+    // comfortably inside it. (The *messages* for a run that is cut short, or
+    // that is still going when the overall bound arrives, are exercised as unit
+    // tests on `probe::expired_reason`/`probe::deadline_reason`: reproducing a
+    // reliably-slow-but-not-too-slow probe from an integration test is neither
+    // portable nor deterministic.)
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+    let out = run(
+        CT_AWAIT,
+        &dir,
+        &[
+            "--timeout",
+            "5",
+            "--every",
+            "0.2",
+            "--probe-timeout",
+            "2",
+            "--tcp-port",
+            &port,
+            "--quiet",
+        ],
+    );
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+
+    // A per-run bound larger than the whole wait is clamped, not honoured: the
+    // wait still ends on its own --timeout.
+    drop(listener);
+    let out = run(
+        CT_AWAIT,
+        &dir,
+        &[
+            "--timeout",
+            "1",
+            "--every",
+            "0.2",
+            "--probe-timeout",
+            "60",
+            "--tcp-port",
+            &port,
+            "--quiet",
+        ],
+    );
+    assert_eq!(code(&out), 1);
+    assert!(
+        stderr(&out).contains("timed out after 1s"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn ct_await_still_refuses_to_poll_itself_and_prints_why() {
+    let dir = scratch("await-self");
+    let out = run(
+        CT_AWAIT,
+        &dir,
+        &[
+            "--timeout",
+            "1",
+            "--",
+            "ct-await",
+            "--quiet",
+            "--timeout",
+            "1",
+            "--tcp-port",
+            "1",
+        ],
+    );
+    assert_eq!(code(&out), 2, "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("not an allowed probe"),
+        "{}",
+        stderr(&out)
+    );
 }

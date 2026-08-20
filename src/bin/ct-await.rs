@@ -10,6 +10,15 @@
 //! the suite's read-only set (plus `ct-test`; `ct-check` included, so "wait
 //! until the invariants hold" is one command) — execution authority stays
 //! with whoever runs the real work; `ct-await` only observes its effects.
+//!
+//! Two **built-in** probes cover the one wait the allowlist could not express,
+//! "a local service is listening now": `--tcp-port` and `--http`, both
+//! loopback-only (see [`coding_tools::probe`]). Each probe run is bounded by
+//! `--probe-timeout` when given, and never by more than what is left of
+//! `--timeout` — a run stopped by the overall deadline reports how long it had
+//! been running, so a too-slow probe diagnoses itself instead of reading as a
+//! false negative.
+//!
 //! Reachable directly or as `ct await`. The canonical reference is
 //! `docs/explain/ct-await.md`; `docs/explain/ct-await.json` is the MCP
 //! tool-use definition. Both are embedded below.
@@ -21,6 +30,7 @@ use coding_tools::allowlist;
 use coding_tools::cli::ct_await::Cli;
 use coding_tools::explain::Format;
 use coding_tools::pattern;
+use coding_tools::probe;
 use coding_tools::pulse::{self, PulseState};
 use coding_tools::supervise;
 use coding_tools::template;
@@ -44,9 +54,112 @@ fn deny_message(name: &str) -> String {
     )
 }
 
-fn run(cli: Cli) -> Result<ExitCode, String> {
+/// What one tick of the wait polls.
+enum Probe {
+    /// An allow-listed argv, launched directly (never through a shell).
+    Argv { argv: Vec<String>, name: String },
+    /// Built-in: connect once to a loopback TCP port.
+    Tcp {
+        addrs: Vec<std::net::SocketAddr>,
+        port: u16,
+    },
+    /// Built-in: one `GET` to a loopback `http://` URL.
+    Http {
+        target: probe::HttpTarget,
+        url: String,
+        ok_status: u16,
+    },
+}
+
+/// What one probe run produced, normalised across the argv and built-in forms
+/// so the wait loop's matcher precedence is identical for both.
+struct Run {
+    /// Text the matchers search — a command's stdout, or a built-in's detail.
+    out: String,
+    /// A command's stderr; empty for a built-in probe.
+    err: String,
+    /// The probe's own verdict: exit 0, or the endpoint answering.
+    established: bool,
+    /// Whether the run was cut short by its bound rather than finishing.
+    cut_short: bool,
+}
+
+impl Probe {
+    /// How the probe is named in messages and the `{CMD}` token.
+    fn label(&self) -> String {
+        match self {
+            Probe::Argv { argv, .. } => argv.join(" "),
+            Probe::Tcp { port, .. } => format!("--tcp-port {port}"),
+            Probe::Http { url, ok_status, .. } => format!("--http {url} --ok-status {ok_status}"),
+        }
+    }
+
+    /// Run once, bounded by `bound`.
+    fn run_once(&self, bound: std::time::Duration) -> Result<Run, String> {
+        match self {
+            Probe::Argv { argv, name } => {
+                let mut command = Command::new(supervise::resolve_program(&argv[0], name));
+                command.args(&argv[1..]);
+                let outcome = supervise::run_captured(command, None, Some(bound))
+                    .map_err(|e| format!("probe '{}': {e}", argv[0]))?;
+                Ok(Run {
+                    established: outcome.status.is_some_and(|s| s.success()),
+                    cut_short: outcome.timed_out,
+                    out: outcome.stdout,
+                    err: outcome.stderr,
+                })
+            }
+            // The endpoint probes bound themselves via the socket's own connect
+            // and read timeouts, so they never need killing.
+            Probe::Tcp { addrs, .. } => {
+                let r = probe::probe_tcp(addrs, bound);
+                Ok(Run {
+                    out: r.detail,
+                    err: String::new(),
+                    established: r.established,
+                    cut_short: false,
+                })
+            }
+            Probe::Http {
+                target, ok_status, ..
+            } => {
+                let r = probe::probe_http(target, *ok_status, bound);
+                Ok(Run {
+                    out: r.detail,
+                    err: String::new(),
+                    established: r.established,
+                    cut_short: false,
+                })
+            }
+        }
+    }
+}
+
+/// Resolve the requested probe, refusing a non-gated argv and a non-loopback
+/// endpoint. Exactly one probe form must be given.
+fn select_probe(cli: &Cli) -> Result<Result<Probe, ExitCode>, String> {
+    let builtin = cli.tcp_port.is_some() || cli.http.is_some();
+    if builtin && !cli.probe.is_empty() {
+        return Err(
+            "give one probe: either a built-in (--tcp-port/--http) or an argv after `--`"
+                .to_string(),
+        );
+    }
+    if let Some(port) = cli.tcp_port {
+        return Ok(Ok(Probe::Tcp {
+            addrs: probe::loopback_addrs("127.0.0.1", port)?,
+            port,
+        }));
+    }
+    if let Some(url) = &cli.http {
+        return Ok(Ok(Probe::Http {
+            target: probe::parse_http_url(url)?,
+            url: url.clone(),
+            ok_status: cli.ok_status,
+        }));
+    }
     if cli.probe.is_empty() {
-        return Err("missing probe: supply one after `--`, e.g. `ct-await --timeout 600 -- ct-search --base target/build.log --grep 'BUILD SUCCESS' --quiet`".to_string());
+        return Err("missing probe: supply one after `--`, e.g. `ct-await --timeout 600 -- ct-search --base target/build.log --grep 'BUILD SUCCESS' --quiet`, or use a built-in (--tcp-port 8080). `--list-allowed` prints every option.".to_string());
     }
     let name = allowlist::gated_name(&cli.probe[0]);
     // `ct-await` is on the read-only allowlist (so other tools can poll it), but
@@ -56,10 +169,40 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         && !(name == "ct-each" && cli.probe.iter().any(|a| a == "--mutating"));
     if !gated_ok {
         eprint!("{}", deny_message(&name));
-        return Ok(ExitCode::from(2));
+        return Ok(Err(ExitCode::from(2)));
     }
+    Ok(Ok(Probe::Argv {
+        argv: cli.probe.clone(),
+        name,
+    }))
+}
+
+/// Whether the overall bound has arrived.
+fn limit_reached(started: Instant, limit: std::time::Duration) -> bool {
+    started.elapsed() >= limit
+}
+
+fn run(cli: Cli) -> Result<ExitCode, String> {
+    let probe = match select_probe(&cli)? {
+        Ok(p) => p,
+        Err(code) => return Ok(code),
+    };
     let every = pulse::secs("--every", cli.every)?;
-    let limit = pulse::secs("--timeout", cli.timeout)?;
+    // Bounded by design: `--timeout` is mandatory for a wait. It is not a clap
+    // `required` only so the flags that run no wait — `--list-allowed`,
+    // `--explain` — can be reached without inventing a bound for them.
+    let Some(timeout) = cli.timeout else {
+        return Err(
+            "missing --timeout: every wait is bounded, so name the bound in seconds \
+             (e.g. --timeout 600)"
+                .to_string(),
+        );
+    };
+    let limit = pulse::secs("--timeout", timeout)?;
+    let per_run = cli
+        .probe_timeout
+        .map(|v| pulse::secs("--probe-timeout", v))
+        .transpose()?;
     let ok_re = cli
         .ok_match
         .as_deref()
@@ -76,7 +219,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 .map_err(|e| format!("invalid --err-match pattern: {e}"))
         })
         .transpose()?;
-    let cmdline = cli.probe.join(" ");
+    let cmdline = probe.label();
 
     if !cli.quiet
         && let Some(q) = &cli.question
@@ -91,28 +234,38 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 
     let started = Instant::now();
     let mut ticks = 0u64;
+    // Runs that hit `--probe-timeout` and were retried rather than being fatal.
+    // Reported at the end: a wait that expired while *every* run was being cut
+    // short is a probe-too-slow problem, and the outcome line has to say so.
+    let mut cut_runs = 0u64;
+    // What the most recent run reported, so an expiry can say what was actually
+    // observed instead of only that the condition never held.
+    let mut last_seen = String::new();
     let (verdict, reason) = loop {
         let remaining = limit.saturating_sub(started.elapsed());
         if remaining.is_zero() {
             break (
                 Verdict::Error,
-                format!(
-                    "timed out after {} ({ticks} probe run(s))",
-                    pulse::limit_label(limit)
-                ),
+                probe::expired_reason(limit, ticks, cut_runs, per_run, &last_seen),
             );
         }
         ticks += 1;
         state.set("TICKS", &ticks.to_string());
-        let mut command = Command::new(supervise::resolve_program(&cli.probe[0], &name));
-        command.args(&cli.probe[1..]);
-        // A single probe run may never outlive the overall bound.
-        let outcome = supervise::run_captured(command, None, Some(remaining))
-            .map_err(|e| format!("probe '{}': {e}", cli.probe[0]))?;
+        // A run is bounded by --probe-timeout when given, and never by more than
+        // what is left of --timeout.
+        let bound = per_run.map_or(remaining, |p| p.min(remaining));
+        let run_started = Instant::now();
+        let outcome = probe.run_once(bound)?;
+        let run_took = run_started.elapsed();
+        last_seen = if outcome.err.trim().is_empty() {
+            outcome.out.clone()
+        } else {
+            outcome.err.clone()
+        };
         // Matcher precedence is exactly ct-test's: a failure signal is
         // decisive; a supplied ok-match is the required success proof.
         if let Some(re) = &err_re
-            && (re.is_match(&outcome.stdout) || re.is_match(&outcome.stderr))
+            && (re.is_match(&outcome.out) || re.is_match(&outcome.err))
         {
             break (
                 Verdict::Error,
@@ -122,20 +275,25 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 ),
             );
         }
-        if outcome.timed_out {
-            break (
-                Verdict::Error,
-                format!(
-                    "timed out after {} (probe run {ticks} killed)",
-                    pulse::limit_label(limit)
-                ),
-            );
-        }
-        let established = match &ok_re {
-            Some(re) => re.is_match(&outcome.stdout) || re.is_match(&outcome.stderr),
-            None => outcome.status.is_some_and(|s| s.success()),
-        };
-        if established {
+        if outcome.cut_short {
+            // Two very different things wear the same "killed" hat, and the old
+            // message conflated them. A run stopped by its own --probe-timeout
+            // is just "not yet" and the wait continues; a run stopped because
+            // the overall --timeout arrived mid-run ends the wait — and says how
+            // long that run had been going, so "narrow the probe" is visibly the
+            // fix rather than looking like a false negative.
+            if per_run.is_some_and(|p| run_took >= p) && !limit_reached(started, limit) {
+                cut_runs += 1;
+            } else {
+                break (
+                    Verdict::Error,
+                    probe::deadline_reason(limit, ticks, run_took),
+                );
+            }
+        } else if match &ok_re {
+            Some(re) => re.is_match(&outcome.out) || re.is_match(&outcome.err),
+            None => outcome.established,
+        } {
             break (
                 Verdict::Success,
                 format!(
@@ -144,8 +302,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 ),
             );
         }
-        // Not yet: a non-zero exit, or a missing required ok-match, just
-        // means the condition is not established (a file that does not exist
+        // Not yet: a non-zero exit, a missing required ok-match, or a run cut
+        // short by --probe-timeout. All are ordinary (a file that does not exist
         // yet is the normal case).
         let sleep = every.min(limit.saturating_sub(started.elapsed()));
         if sleep.is_zero() {

@@ -18,9 +18,10 @@ use crate::pulse::HeartbeatOpts;
     long_about = "ct-await runs a gated read-only probe every --every seconds until the condition \
                   is established — probe exit 0, or a required --ok-match appearing in its output — \
                   or until an --err-match appears (immediate ERROR) or the required --timeout \
-                  expires (ERROR). Observe an external process's effects without owning its \
-                  execution (also reachable as `ct await`). See `ct-await --explain` for \
-                  agent-oriented documentation."
+                  expires (ERROR). The probe is an argv after `--`, or one of the built-in \
+                  loopback endpoint probes (--tcp-port / --http). Observe an external process's \
+                  effects without owning its execution (also reachable as `ct await`). See \
+                  `ct-await --explain` for agent-oriented documentation."
 )]
 pub struct Cli {
     /// Question this wait answers; printed as a "== ... ==" banner.
@@ -31,9 +32,25 @@ pub struct Cli {
     #[arg(long, value_name = "SECS", default_value_t = 5.0)]
     pub every: f64,
 
-    /// Hard bound on the whole wait (fractional allowed). Required: a wait is bounded by design.
+    /// Hard bound on the whole wait (fractional allowed). Required for any wait: a wait is bounded by design. (Omittable only for `--explain`, which runs no wait at all.)
     #[arg(long, value_name = "SECS")]
-    pub timeout: f64,
+    pub timeout: Option<f64>,
+
+    /// Bound each individual probe run (fractional allowed). A run that exceeds it is cut short and counts as "not yet", so a slow probe cannot eat the whole --timeout. Default: a run may use whatever is left of --timeout.
+    #[arg(long, value_name = "SECS")]
+    pub probe_timeout: Option<f64>,
+
+    /// Built-in probe: wait until something accepts TCP connections on this loopback port. Replaces the `--` argv probe.
+    #[arg(long, value_name = "PORT", conflicts_with = "http")]
+    pub tcp_port: Option<u16>,
+
+    /// Built-in probe: wait until this loopback http:// URL answers with --ok-status. Replaces the `--` argv probe.
+    #[arg(long, value_name = "URL")]
+    pub http: Option<String>,
+
+    /// The HTTP status that establishes the condition for --http.
+    #[arg(long, value_name = "CODE", default_value_t = 200, requires = "http")]
+    pub ok_status: u16,
 
     /// SUCCESS when this pattern (substring->glob->regex promoted) appears in the probe's output. When supplied it is the REQUIRED proof: a clean exit without it means "not yet".
     #[arg(long, value_name = "PATTERN")]

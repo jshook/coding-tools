@@ -92,6 +92,7 @@ pub mod outline;
 pub mod patch;
 pub mod pattern;
 pub mod payload;
+pub mod probe;
 pub mod pulse;
 pub mod rules;
 pub mod steer;

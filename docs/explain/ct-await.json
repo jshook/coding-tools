@@ -1,6 +1,6 @@
 {
   "name": "ct-await",
-  "description": "Wait, observably and boundedly, for an external outcome: poll a gated read-only probe every --every seconds (default 5) until the condition is established — probe exit 0, or a required --ok-match pattern appearing in its output — or until an --err-match pattern appears (immediate ERROR, decisive over everything — a failed build reports in seconds, not after the timeout; exactly ct-test's matcher precedence, and a supplied --ok-match is the REQUIRED proof: exit 0 without it is still 'not yet'), or until the REQUIRED --timeout expires (ERROR; a wait is bounded by design, and no single probe run can outlive the bound — process-group kill). The probe is an argv after `--`, launched directly each tick (never through a shell) from the current directory; matchers see only what the probe prints (pair them with content-surfacing probes like cat or ct-view; self-classifying probes like ct-search --quiet need none); any non-zero probe exit simply means 'not yet' (a log file that does not exist yet is the normal waiting case) — only a probe that cannot launch, or a non-gated probe, is exit 2. Probes are the same fixed read-only set ct-each dispatches by default: the allowlist (a platform-aware read-only set: cross-platform core ct-await ct-check ct-outline ct-search ct-tree ct-view, plus the host OS native utilities — cat echo false file grep head ls pwd stat tail true wc on Unix/MSYS2, or findstr hostname more where whoami on native Windows) plus ct-test and ct-each (without --mutating); ct-check included means 'wait until the project's invariants hold' is one command. ct-await separates observation authority from execution authority: whoever owns the work (a human's mvn run, CI, a deploy) executes it; ct-await only watches its effects. ct-await can itself be dispatched as a read-only probe, but it never polls itself (no self-nesting). On ERROR the reason goes to stderr. --heartbeat pulses while waiting ({ELAPSED} {TOOL} {QUESTION} {CMD} {TICKS}); --emit/--emit-stderr templates take {RESULT} {ELAPSED} {TICKS} {REASON} {QUESTION} {CMD}. Exit: 0 the condition was established within the bound, 1 err-match matched or the timeout expired, 2 usage error / refused probe / launch failure. Invoke as `ct await ...` or `ct-await ...`.",
+  "description": "Wait, observably and boundedly, for an external outcome: poll a gated read-only probe every --every seconds (default 5) until the condition is established — probe exit 0, or a required --ok-match pattern appearing in its output — or until an --err-match pattern appears (immediate ERROR, decisive over everything — a failed build reports in seconds, not after the timeout; exactly ct-test's matcher precedence, and a supplied --ok-match is the REQUIRED proof: exit 0 without it is still 'not yet'), or until the REQUIRED --timeout expires (ERROR; a wait is bounded by design, and no single probe run can outlive the bound — process-group kill). --probe-timeout additionally bounds each individual run: a run that exceeds it is cut short and counts as 'not yet', so a probe slower than the poll interval cannot consume the whole wait; a run still going when --timeout arrives ends the wait and the reason reports how long that run had been running, so 'the probe is too slow' is distinguishable from 'the condition never came true'. The probe is an argv after `--`, launched directly each tick (never through a shell) from the current directory; matchers see only what the probe prints (pair them with content-surfacing probes like cat or ct-view; self-classifying probes like ct-search --quiet need none); any non-zero probe exit simply means 'not yet' (a log file that does not exist yet is the normal waiting case) — only a probe that cannot launch, or a non-gated probe, is exit 2. Probes are the same fixed read-only set ct-each dispatches by default: the allowlist (a platform-aware read-only set: cross-platform core ct-await ct-check ct-outline ct-search ct-tree ct-view, plus the host OS native utilities — cat echo false file grep head ls pwd stat tail true wc on Unix/MSYS2, or findstr hostname more where whoami on native Windows) plus ct-test and ct-each (without --mutating); ct-check included means 'wait until the project's invariants hold' is one command. ct-await separates observation authority from execution authority: whoever owns the work (a human's mvn run, CI, a deploy) executes it; ct-await only watches its effects. ct-await can itself be dispatched as a read-only probe, but it never polls itself (no self-nesting). Two built-in probes need no `--` argv at all and cover the wait the command gate cannot express — 'a local service is listening now': --tcp-port PORT connects once to a loopback port, and --http URL [--ok-status CODE] issues one GET to a loopback http:// URL. Both are loopback-only (127.0.0.0/8, ::1, localhost) by design, so a bounded wait never becomes a general-purpose network client. On ERROR the reason goes to stderr, and an expiry names what the last probe run reported ('; last probe: HTTP 200 from 127.0.0.1:8080/health (want 503)') so a wrong expectation is distinguishable from an absent service. --heartbeat pulses while waiting ({ELAPSED} {TOOL} {QUESTION} {CMD} {TICKS}); --emit/--emit-stderr templates take {RESULT} {ELAPSED} {TICKS} {REASON} {QUESTION} {CMD}. Exit: 0 the condition was established within the bound, 1 err-match matched or the timeout expired, 2 usage error / refused probe / launch failure. Invoke as `ct await ...` or `ct-await ...`.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -16,6 +16,23 @@
       "timeout": {
         "type": "number",
         "description": "Required hard bound on the whole wait in seconds (fractional allowed). Expiry is ERROR with a reason naming the bound and the probe-run count."
+      },
+      "probe-timeout": {
+        "type": "number",
+        "description": "Bound each individual probe run in seconds (fractional allowed). A run that exceeds it is cut short and counts as 'not yet', so the wait keeps polling instead of one slow run eating the whole --timeout. Default: a run may use whatever is left of --timeout, and a run still going when --timeout arrives ends the wait with ERROR reporting how long that run had been going."
+      },
+      "tcp-port": {
+        "type": "integer",
+        "description": "Built-in probe: wait until something accepts TCP connections on this port of the loopback interface. Replaces the `--` argv probe (giving both is a usage error). The connection is opened and dropped — nothing is sent, nothing is read. Loopback-only by design: ct-await observes this machine, never a third party's."
+      },
+      "http": {
+        "type": "string",
+        "description": "Built-in probe: wait until this http:// URL answers with --ok-status. Replaces the `--` argv probe. One GET per tick, no redirects followed and no body read past the status line. The host must be loopback (127.0.0.0/8, ::1, localhost) and the scheme must be http — https is refused, because a loopback certificate would fail validation and turn 'service is up' into an unrelated TLS error."
+      },
+      "ok-status": {
+        "type": "integer",
+        "description": "The HTTP status that establishes the condition for --http. Default: 200.",
+        "default": 200
       },
       "ok-match": {
         "type": "string",
@@ -71,12 +88,29 @@
       }
     },
     "required": [
-      "timeout",
-      "probe"
+      "timeout"
     ]
   },
   "examples": [
-    {"cmd": "ct await --timeout 60 --every 2 -- ct-search --base logs --grep 'server ready' --quiet", "why": "Poll until ct-search finds 'server ready' in logs (bounded at 60s), instead of a hand-rolled sleep/retry loop."},
-    {"cmd": "ct await --timeout 30 -- ct-search --base . --name health.txt --grep ok --quiet", "why": "Wait until 'ok' appears in health.txt (probe exit 0), bounded at 30s."}
+    {
+      "cmd": "ct await --timeout 60 --every 2 -- ct-search --base logs --grep 'server ready' --quiet",
+      "why": "Poll until ct-search finds 'server ready' in logs (bounded at 60s), instead of a hand-rolled sleep/retry loop."
+    },
+    {
+      "cmd": "ct await --timeout 30 -- ct-search --base . --name health.txt --grep ok --quiet",
+      "why": "Wait until 'ok' appears in health.txt (probe exit 0), bounded at 30s."
+    },
+    {
+      "cmd": "ct await --timeout 30 --every 1 --tcp-port 8080 --question 'Is the dev server listening?'",
+      "why": "Wait for a just-started local service to accept connections — the built-in loopback probe, instead of a hand-rolled poll loop."
+    },
+    {
+      "cmd": "ct await --timeout 60 --every 2 --http http://127.0.0.1:8080/health --ok-status 200",
+      "why": "Wait until the local health endpoint answers 200, bounded at 60s."
+    },
+    {
+      "cmd": "ct await --timeout 120 --every 5 --probe-timeout 2 -- ct-search --base target --name build.log --grep 'BUILD SUCCESS' --quiet",
+      "why": "Bound each probe run at 2s so a slow scan is retried rather than swallowing the whole 120s wait."
+    }
   ]
 }

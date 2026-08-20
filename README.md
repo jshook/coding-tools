@@ -27,7 +27,7 @@ full name.
 | `ct okf`    | `ct-okf`    | Author and query OKF knowledge bundles — validate, list/query metadata, links, scaffold. |
 | `ct rules`  | `ct-rules`  | Record the project's invariants in `.ct/rules.jsonc` — verified at the moment they're written. |
 | `ct check`  | `ct-check`  | Re-verify every recorded invariant; five lanes, one exit status. Read-only.   |
-| `ct await`  | `ct-await`  | Wait, boundedly, for an external outcome via a read-only probe.               |
+| `ct await`  | `ct-await`  | Wait, boundedly, for an external outcome via a read-only probe (or a built-in loopback port/HTTP probe). |
 | `ct steer`  | `ct-steer`  | Steer ad-hoc shell to the `ct` tool that serves it; install the PreToolUse hook. |
 
 `ct rules`/`ct check` also host **built-in checks** — `deps` (crate-graph),
@@ -79,15 +79,14 @@ less supervision:
   not a valid regex → glob; otherwise → regex. `--mode literal|glob|regex` pins
   the interpretation (promotion off) for verbatim code anchors — for *every*
   pattern in the call, `--name` included, so an anchor is usually better pinned
-  by sourcing it out of band with `file:`/`stdin:`.
+  by sourcing it out of band (below).
 - **Payload schemes.** Payload-typed values accept `file:PATH` (the file's
   contents), `stdin:` (all of standard input) — both verbatim, never promoted —
   and `text:VALUE` (the escape for literal values starting with a scheme
   prefix). `file:` and `stdin:` are the shell-safe path for a payload
   containing backticks, `$`, or quotes: the bytes never pass through word
   expansion, and `stdin:` needs no temp file. A multi-line pattern matches as a
-  line-anchored literal **block** in `ct-search`/`ct-view`/`ct-edit`, with a
-  nearest-miss diagnostic when it matches nothing.
+  line-anchored literal **block** in `ct-search`/`ct-view`/`ct-edit`.
 - **Exit status.** `0` = success / verdict `SUCCESS`; `1` = clean negative /
   verdict `ERROR`; `2` = usage or runtime error. The `0`/`1` split composes in
   `&&`/`||` pipelines.

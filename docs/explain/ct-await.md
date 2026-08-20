@@ -58,13 +58,50 @@ a self-classifying probe (`ct-search --quiet`, `ct-check --quiet`) needs none.
 `--mode literal|glob|regex` pins how both matchers are interpreted
 (promotion off) — state `literal` when a matcher is verbatim output text.
 
-`--timeout SECS` is **required** — a wait is bounded by design. The bound
-covers everything: a single probe run can never outlive it (process-group
-kill), and expiry is `ERROR` with a reason naming the bound and the number
-of probe runs. `--heartbeat SECS` pulses while waiting (tokens: `{ELAPSED}`
+`--timeout SECS` is **required** — a wait is bounded by design. (`--explain`,
+which runs no wait at all, needs no bound; it used to demand one, and so was
+unreachable.) The bound covers everything: a single probe run can never outlive it
+(process-group kill), and expiry is `ERROR` with a reason naming the bound
+and the number of probe runs. `--heartbeat SECS` pulses while waiting (tokens: `{ELAPSED}`
 `{TOOL}` `{QUESTION}` `{CMD}` `{TICKS}`); `--heartbeat-emit` sets the pulse
 template and `--heartbeat-to` picks the stream (`stderr`, the default, or
 `stdout`).
+
+### Bounding a single run: `--probe-timeout`
+
+By default there is **no separate per-run limit** — a probe run may use
+whatever is left of `--timeout`. That is the honest default, but it has one
+sharp edge: a probe slower than the wait (a `ct-search` over a huge tree,
+say) can spend the entire budget inside a single run, and the wait then
+expires without the probe ever having answered.
+
+`--probe-timeout SECS` bounds each run separately. A run that exceeds it is
+cut short and counts as *not yet*, so the wait keeps polling instead of
+stalling inside one call:
+
+```sh
+# each scan gets 2s; a slow one is abandoned and retried next tick
+ct-await --timeout 120 --every 5 --probe-timeout 2 \
+  -- ct-search --base target --name build.log --grep 'BUILD SUCCESS' --quiet
+```
+
+The same rule covers a probe that *hangs* rather than merely being slow — a
+filtered port whose connect never answers, for instance. Without a per-run
+bound, one such attempt consumes the rest of `--timeout` and the wait reports
+a single probe run; `--probe-timeout` turns it back into a poll.
+
+The two ways a run can stop are reported differently, because they call for
+different fixes:
+
+- **cut short by `--probe-timeout`** → not fatal; the wait continues. If it
+  eventually expires, the reason says how many runs were cut — *"every run
+  was cut short by --probe-timeout 2s without finishing"* means the probe is
+  too slow to answer at all, so **narrow the probe** (a smaller `--base`, a
+  more specific `--name`) rather than raising `--timeout`.
+- **still running when `--timeout` arrived** → the wait ends `ERROR`, and the
+  reason reports **how long that run had been going**
+  (`probe run 3 was still running at the deadline (it had run 13s)`), so a
+  slow probe diagnoses itself instead of reading like a false negative.
 
 ## What a probe may be
 
@@ -79,7 +116,43 @@ invariants hold"* is one command. `ct-await` will dispatch the read-only `ct-*`
 tools — including `ct-await` itself as a bounded poll — but it never polls
 **itself** (no self-nesting), the same guard `ct-each` has.
 
+### Built-in probes: `--tcp-port` and `--http`
+
+The most common wait an agent has — *"the local service I just started is
+accepting connections now"* — cannot be expressed with the command
+allowlist, because the honest way to ask is to open a socket and no
+allow-listed program does that. Two built-in probes cover it, and they need
+no `--` argv at all (giving both a built-in probe and an argv probe is a
+usage error):
+
+```sh
+# a port is accepting connections
+ct-await --timeout 30 --every 1 --tcp-port 8080
+
+# a health endpoint is answering
+ct-await --timeout 60 --every 2 --http http://127.0.0.1:8080/health --ok-status 200
+```
+
+Both stay inside the read-only philosophy two ways. They are **observations**:
+`--tcp-port` opens a connection and drops it, sending nothing and reading
+nothing; `--http` issues one `GET`, follows no redirect, and reads no further
+than the status line. And they are **loopback-only** — the host must be
+`127.0.0.0/8`, `::1`, or `localhost`, and anything else is refused with the
+reason rather than resolved, so a bounded wait can never become a
+general-purpose network client. `--http` takes `http://` only: a loopback
+health check has nothing to protect in transit, and a self-signed certificate
+on `127.0.0.1` would turn *"is the service up?"* into an unrelated TLS error.
+`--ok-status` (default `200`) is the status that establishes the condition;
+any other status, a refused connection, or a malformed reply is an ordinary
+*not yet*. `--ok-match`/`--err-match` still apply, matched against the
+probe's one-line detail (`connected to 127.0.0.1:8080`, `HTTP 503 from ...`).
+
 ## Reporting
+
+An expiry also names **what the last run saw** — `; last probe: HTTP 200 from
+127.0.0.1:8080/health (want 503)`, or `; last probe: no listener on
+127.0.0.1:8080: connection refused`. A wrong expectation and an absent
+service produce the same bare timeout without it.
 
 Default: the `== question ==` banner and one outcome line
 (`SUCCESS (probe succeeded after 42s (9 run(s)))`); the reason also goes to
@@ -120,6 +193,18 @@ ct-await --every 2 --timeout 1800 \
 - **Wait until 'ok' appears in health.txt (probe exit 0), bounded at 30s.**
   ```sh
   ct await --timeout 30 -- ct-search --base . --name health.txt --grep ok --quiet
+  ```
+- **Wait for a just-started local service to accept connections — the built-in loopback probe, instead of a hand-rolled poll loop.**
+  ```sh
+  ct await --timeout 30 --every 1 --tcp-port 8080 --question 'Is the dev server listening?'
+  ```
+- **Wait until the local health endpoint answers 200, bounded at 60s.**
+  ```sh
+  ct await --timeout 60 --every 2 --http http://127.0.0.1:8080/health --ok-status 200
+  ```
+- **Bound each probe run at 2s so a slow scan is retried rather than swallowing the whole 120s wait.**
+  ```sh
+  ct await --timeout 120 --every 5 --probe-timeout 2 -- ct-search --base target --name build.log --grep 'BUILD SUCCESS' --quiet
   ```
 
 ### Documentation
