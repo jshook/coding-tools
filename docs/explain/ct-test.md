@@ -240,7 +240,8 @@ Examples: `ERROR:` → literal; `WARN*` → glob; `^FATAL`, `ok|done`, `\d+ erro
 
 `--mode literal|glob|regex` switches promotion **off** for every matcher in
 the invocation — state `literal` when a matcher is verbatim code whose `(`
-`!` `?` would otherwise promote to a regex.
+`!` `?` would otherwise promote to a regex. `--mode auto` names the promoting
+default explicitly.
 
 ## Exit status
 

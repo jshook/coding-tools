@@ -16,9 +16,10 @@
         "enum": [
           "literal",
           "glob",
-          "regex"
+          "regex",
+          "auto"
         ],
-        "description": "Pin how --name/--ext walker patterns are interpreted; promotion off. Use literal for names whose characters would otherwise promote."
+        "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
       },
       "base": {
         "type": "string",

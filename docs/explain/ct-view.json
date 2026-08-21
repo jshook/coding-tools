@@ -1,6 +1,6 @@
 {
   "name": "ct-view",
-  "description": "Show one file's lines by range, or the regions around a pattern with context, instead of dumping the whole file. --range A:B (1-based inclusive; also A:, :B, A) prints a span; --match PATTERN prints the windows around matching lines with --context lines on each side (overlapping windows merge, like grep -C). Read-only, no allow-gate. With --json, emits {tool, path, total_lines, shown, lines:[{n,text}], matched?}. Exit status: 0 shown, 1 if --match matched nothing, 2 on a read or usage error. --match uses substring->glob->regex promotion, searched unanchored per line; --mode literal|glob|regex pins the interpretation (promotion off). --match accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (context expands around the whole matched region; a block with no match reports its nearest miss to stderr). --match is repeatable: several patterns are merged into one de-duplicated set of context windows in a single call, and --json reports each pattern's hit count in a `matches` array. Invoke as `ct view ...` or `ct-view ...`.",
+  "description": "Show one file's lines by range, or the regions around a pattern with context, instead of dumping the whole file. --range A:B (1-based inclusive; also A:, :B, A) prints a span; --match PATTERN prints the windows around matching lines with --context lines on each side (overlapping windows merge, like grep -C). Read-only, no allow-gate. With --json, emits {tool, path, total_lines, shown, lines:[{n,text}], matched?}. Exit status: 0 shown, 1 if --match matched nothing, 2 on a read or usage error. --match uses substring->glob->regex promotion, searched unanchored per line; --mode literal|glob|regex|auto states the interpretation (auto is the promotion rule, requested out loud). --match accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (context expands around the whole matched region; a block with no match reports its nearest miss to stderr). --match is repeatable: several patterns are merged into one de-duplicated set of context windows in a single call, and --json reports each pattern's hit count in a `matches` array. Invoke as `ct view ...` or `ct-view ...`.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -24,9 +24,10 @@
         "enum": [
           "literal",
           "glob",
-          "regex"
+          "regex",
+          "auto"
         ],
-        "description": "Pin how the --match pattern is interpreted; promotion off. Use literal for verbatim code anchors."
+        "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
       },
       "context": {
         "type": "integer",

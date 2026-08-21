@@ -38,7 +38,7 @@
   "tools": [
     {
       "name": "ct-search",
-      "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. --mode literal|glob|regex pins the interpretation (promotion off) for every pattern in the invocation. --grep accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (K lines match K consecutive source lines byte-for-byte; each occurrence counts at its start line; under --detail a block with no match reports its nearest miss to stderr). Invoke as `ct search ...` or `ct-search ...`.",
+      "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. --mode literal|glob|regex|auto states the interpretation for every pattern in the invocation (auto is the promotion rule, requested out loud). --grep accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (K lines match K consecutive source lines byte-for-byte; each occurrence counts at its start line; under --detail a block with no match reports its nearest miss to stderr). Invoke as `ct search ...` or `ct-search ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -72,9 +72,10 @@
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
-            "description": "Pin how patterns are interpreted; promotion off for every pattern in the invocation. Use literal for verbatim code anchors."
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
           },
           "okf-type": {
             "type": "string",
@@ -173,7 +174,7 @@
     },
     {
       "name": "ct-view",
-      "description": "Show one file's lines by range, or the regions around a pattern with context, instead of dumping the whole file. --range A:B (1-based inclusive; also A:, :B, A) prints a span; --match PATTERN prints the windows around matching lines with --context lines on each side (overlapping windows merge, like grep -C). Read-only, no allow-gate. With --json, emits {tool, path, total_lines, shown, lines:[{n,text}], matched?}. Exit status: 0 shown, 1 if --match matched nothing, 2 on a read or usage error. --match uses substring->glob->regex promotion, searched unanchored per line; --mode literal|glob|regex pins the interpretation (promotion off). --match accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (context expands around the whole matched region; a block with no match reports its nearest miss to stderr). --match is repeatable: several patterns are merged into one de-duplicated set of context windows in a single call, and --json reports each pattern's hit count in a `matches` array. Invoke as `ct view ...` or `ct-view ...`.",
+      "description": "Show one file's lines by range, or the regions around a pattern with context, instead of dumping the whole file. --range A:B (1-based inclusive; also A:, :B, A) prints a span; --match PATTERN prints the windows around matching lines with --context lines on each side (overlapping windows merge, like grep -C). Read-only, no allow-gate. With --json, emits {tool, path, total_lines, shown, lines:[{n,text}], matched?}. Exit status: 0 shown, 1 if --match matched nothing, 2 on a read or usage error. --match uses substring->glob->regex promotion, searched unanchored per line; --mode literal|glob|regex|auto states the interpretation (auto is the promotion rule, requested out loud). --match accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (context expands around the whole matched region; a block with no match reports its nearest miss to stderr). --match is repeatable: several patterns are merged into one de-duplicated set of context windows in a single call, and --json reports each pattern's hit count in a `matches` array. Invoke as `ct view ...` or `ct-view ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -197,9 +198,10 @@
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
-            "description": "Pin how the --match pattern is interpreted; promotion off. Use literal for verbatim code anchors."
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
           },
           "context": {
             "type": "integer",
@@ -276,9 +278,10 @@
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
-            "description": "Pin how --name/--ext patterns are interpreted; promotion off. Use literal for names whose characters would otherwise promote."
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
           },
           "ext": {
             "type": "array",
@@ -451,9 +454,10 @@
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
-            "description": "Pin how EVERY pattern in the call is interpreted; promotion off, --name included. Use literal for a verbatim code anchor -- but note that with a glob --name (e.g. '*.rs') it also makes the file filter literal, so the selection reads zero files. To pin only the anchor, pass --find as file:PATH or stdin:, which are verbatim by construction and need no --mode."
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
           },
           "squeeze-blank": {
             "type": "boolean",
@@ -639,11 +643,12 @@
             "description": "Stream heartbeat pulses are written to. Default: stderr."
           },
           "mode": {
-            "description": "Pin how --name is interpreted (promotion off): literal, glob, or regex.",
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors.",
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
             "type": "string"
           },
@@ -661,7 +666,7 @@
     },
     {
       "name": "ct-test",
-      "description": "Run a command as a framed experiment: pose a question, classify the result from stdout/stderr pattern matches, and emit a templated verdict. Pass/fail is decided by what the command prints, not only its exit code. ct-test is fail-closed; {RESULT} resolves in order: (0) the run timed out (--timeout) => ERROR (decisive — the experiment did not complete, so no match in partial output can establish success; {CODE} becomes 'timeout'); (1) any err-match hit => ERROR (decisive, never overridden); (2) else any ok-match hit => SUCCESS (a supplied --ok-match is a REQUIRED proof of success — a clean exit does not substitute for it); (3) else the run is inconclusive and --otherwise decides (success|error|exit), defaulting to error when an --ok-match was supplied, otherwise exit. The -stdout/-stderr matcher variants search only that one stream (e.g. cargo test writes 'test result: ok' to stdout, so --ok-match-stderr would miss it). On ERROR a one-line reason explaining which rule fired is printed to stderr and is available as the {REASON} emit token. --focus distils the captured output to the lines matching a pattern (with --context around each), printed to stderr and available as {FOCUS}; --capture-tail N bounds the {STDOUT}/{STDERR} emit tokens to the last N lines (matchers and --focus still see everything). --timeout SECS kills the command's whole process group after SECS seconds (fractional allowed). --heartbeat SECS prints a minimal liveness pulse while the command runs ([{ELAPSED}s] by default, customisable with --heartbeat-emit, routed to stderr or stdout by --heartbeat-to). Exit status is 0 when RESULT is SUCCESS, 1 when ERROR, 2 on a usage or runtime error. ct-test runs only a fixed, immutable built-in set of read-only commands (a platform-aware read-only set: cross-platform core ct-await ct-check ct-outline ct-search ct-tree ct-view, plus the host OS native utilities — cat echo false file grep head ls pwd stat tail true wc on Unix/MSYS2, or findstr hostname more where whoami on native Windows), so it is a ready conditional wrapper around the read-only ct-* tools; a command not on it is refused with exit 2 and nothing runs, and there is no run-time way to extend the list. Gating is by program name (the basename of cmd, with a Windows .exe suffix stripped). There is no shell mode: the command is always launched directly, never through sh, so the match predicates and --focus replace the usual '| grep' post-processing (use ct-each for dispatch over many items). Pattern arguments use substring->glob->regex promotion and are searched unanchored. Invoke as `ct test ...` or `ct-test ...`. --stdin accepts payload schemes (file:PATH / stdin: / text:VALUE); --mode literal|glob|regex pins matcher interpretation (promotion off).",
+      "description": "Run a command as a framed experiment: pose a question, classify the result from stdout/stderr pattern matches, and emit a templated verdict. Pass/fail is decided by what the command prints, not only its exit code. ct-test is fail-closed; {RESULT} resolves in order: (0) the run timed out (--timeout) => ERROR (decisive — the experiment did not complete, so no match in partial output can establish success; {CODE} becomes 'timeout'); (1) any err-match hit => ERROR (decisive, never overridden); (2) else any ok-match hit => SUCCESS (a supplied --ok-match is a REQUIRED proof of success — a clean exit does not substitute for it); (3) else the run is inconclusive and --otherwise decides (success|error|exit), defaulting to error when an --ok-match was supplied, otherwise exit. The -stdout/-stderr matcher variants search only that one stream (e.g. cargo test writes 'test result: ok' to stdout, so --ok-match-stderr would miss it). On ERROR a one-line reason explaining which rule fired is printed to stderr and is available as the {REASON} emit token. --focus distils the captured output to the lines matching a pattern (with --context around each), printed to stderr and available as {FOCUS}; --capture-tail N bounds the {STDOUT}/{STDERR} emit tokens to the last N lines (matchers and --focus still see everything). --timeout SECS kills the command's whole process group after SECS seconds (fractional allowed). --heartbeat SECS prints a minimal liveness pulse while the command runs ([{ELAPSED}s] by default, customisable with --heartbeat-emit, routed to stderr or stdout by --heartbeat-to). Exit status is 0 when RESULT is SUCCESS, 1 when ERROR, 2 on a usage or runtime error. ct-test runs only a fixed, immutable built-in set of read-only commands (a platform-aware read-only set: cross-platform core ct-await ct-check ct-outline ct-search ct-tree ct-view, plus the host OS native utilities — cat echo false file grep head ls pwd stat tail true wc on Unix/MSYS2, or findstr hostname more where whoami on native Windows), so it is a ready conditional wrapper around the read-only ct-* tools; a command not on it is refused with exit 2 and nothing runs, and there is no run-time way to extend the list. Gating is by program name (the basename of cmd, with a Windows .exe suffix stripped). There is no shell mode: the command is always launched directly, never through sh, so the match predicates and --focus replace the usual '| grep' post-processing (use ct-each for dispatch over many items). Pattern arguments use substring->glob->regex promotion and are searched unanchored. Invoke as `ct test ...` or `ct-test ...`. --stdin accepts payload schemes (file:PATH / stdin: / text:VALUE); --mode literal|glob|regex|auto states matcher interpretation (auto is the promotion rule, requested out loud).",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -686,9 +691,10 @@
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
-            "description": "Pin how matcher patterns are interpreted; promotion off. Use literal for verbatim code anchors."
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
           },
           "timeout": {
             "type": "number",
@@ -803,9 +809,10 @@
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
-            "description": "Pin how --name/--ext walker patterns are interpreted; promotion off. Use literal for names whose characters would otherwise promote."
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
           },
           "base": {
             "type": "string",
@@ -1097,9 +1104,10 @@
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
-            "description": "Pin how --match/--name patterns are interpreted; promotion off. Use literal for names whose characters would otherwise promote."
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
           },
           "kind": {
             "type": "array",
@@ -1379,9 +1387,10 @@
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
-            "description": "Pin how --id is interpreted (promotion off): literal, glob, or regex."
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
           },
           "tag": {
             "type": "array",
@@ -1499,9 +1508,10 @@
             "enum": [
               "literal",
               "glob",
-              "regex"
+              "regex",
+              "auto"
             ],
-            "description": "Pin how --ok-match/--err-match patterns are interpreted; promotion off. Use literal for verbatim code anchors."
+            "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
           },
           "emit": {
             "type": "string",

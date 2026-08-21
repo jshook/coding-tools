@@ -31,7 +31,7 @@ pub struct Cli {
     #[arg(long)]
     pub id: Option<String>,
 
-    /// Pin how --id is interpreted (promotion off): literal, glob, or regex.
+    /// How --id is interpreted: literal, glob, regex, or auto (the promoting default, stated out loud).
     #[arg(long, value_enum)]
     pub mode: Option<pattern::Mode>,
 

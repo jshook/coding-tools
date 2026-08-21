@@ -37,7 +37,7 @@ pub struct Cli {
     #[arg(long)]
     pub stdin: Option<String>,
 
-    /// Pin how matcher patterns are interpreted (promotion off): literal, glob, or regex.
+    /// How matcher patterns are interpreted: literal, glob, regex, or auto (the promoting default, stated out loud).
     #[arg(long, value_enum)]
     pub mode: Option<pattern::Mode>,
 

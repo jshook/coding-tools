@@ -28,8 +28,9 @@ pub enum PatternKind {
     Regex,
 }
 
-/// An explicit `--mode` choice that switches promotion off for every pattern
-/// argument in an invocation: the stated interpretation is used as-is.
+/// An explicit `--mode` choice for every pattern argument in an invocation:
+/// three modes pin the interpretation and switch promotion off, and
+/// [`Auto`](Mode::Auto) states the promoting default out loud.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Mode {
     /// Match the pattern text verbatim.
@@ -38,24 +39,52 @@ pub enum Mode {
     Glob,
     /// Interpret the pattern as a regular expression, exactly as written.
     Regex,
+    /// Let the substring->glob->regex promotion rule decide, per pattern.
+    ///
+    /// This is what an absent `--mode` already means for a *query* pattern
+    /// (`--grep`, `--match`, `--name`). Naming it makes it requestable where
+    /// the default is not promotion: `ct-edit --find`, whose default is
+    /// [`Literal`](Mode::Literal) because an anchor is a piece of code.
+    Auto,
 }
 
 impl Mode {
-    /// The [`PatternKind`] this explicit mode pins a pattern to.
-    pub fn kind(self) -> PatternKind {
+    /// The [`PatternKind`] this mode reads `pat` as. Every mode but
+    /// [`Auto`](Mode::Auto) ignores `pat` and pins the kind.
+    pub fn kind_of(self, pat: &str) -> PatternKind {
         match self {
             Mode::Literal => PatternKind::Literal,
             Mode::Glob => PatternKind::Glob,
             Mode::Regex => PatternKind::Regex,
+            Mode::Auto => classify(pat),
+        }
+    }
+
+    /// The mode's name, spelled the way it is typed on the command line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use coding_tools::pattern::Mode;
+    ///
+    /// assert_eq!(Mode::Literal.label(), "literal");
+    /// assert_eq!(Mode::Auto.label(), "auto");
+    /// ```
+    pub fn label(self) -> &'static str {
+        match self {
+            Mode::Literal => "literal",
+            Mode::Glob => "glob",
+            Mode::Regex => "regex",
+            Mode::Auto => "auto",
         }
     }
 }
 
-/// [`classify`] under an optional explicit mode: a stated [`Mode`] pins the
-/// kind; absent, promotion decides.
+/// [`classify`] under an optional explicit mode: a stated [`Mode`] decides
+/// (`auto` by promoting); absent, promotion decides.
 pub fn classify_with(pat: &str, mode: Option<Mode>) -> PatternKind {
     match mode {
-        Some(m) => m.kind(),
+        Some(m) => m.kind_of(pat),
         None => classify(pat),
     }
 }
@@ -325,5 +354,18 @@ mod tests {
             classify_with("*.rs", Some(Mode::Literal)),
             PatternKind::Literal
         );
+    }
+
+    #[test]
+    fn auto_mode_is_promotion_stated_out_loud() {
+        // `auto` is indistinguishable from an absent mode, per pattern.
+        for pat in ["ERROR:", "*.java", "^ERROR", r"\d+", "todo!(\"x\")"] {
+            assert_eq!(
+                classify_with(pat, Some(Mode::Auto)),
+                classify_with(pat, None),
+                "{pat}"
+            );
+            assert_eq!(promote_with(pat, Some(Mode::Auto)), promote(pat), "{pat}");
+        }
     }
 }

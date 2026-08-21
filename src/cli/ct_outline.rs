@@ -52,7 +52,7 @@ pub struct Cli {
     #[arg(long = "match")]
     pub pattern: Option<String>,
 
-    /// Pin how --match/--name patterns are interpreted (promotion off): literal, glob, or regex.
+    /// How --match/--name patterns are interpreted: literal, glob, regex, or auto (the promoting default, stated out loud).
     #[arg(long, value_enum)]
     pub mode: Option<pattern::Mode>,
 

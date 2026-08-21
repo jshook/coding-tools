@@ -1,6 +1,6 @@
 {
   "name": "ct-search",
-  "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. --mode literal|glob|regex pins the interpretation (promotion off) for every pattern in the invocation. --grep accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (K lines match K consecutive source lines byte-for-byte; each occurrence counts at its start line; under --detail a block with no match reports its nearest miss to stderr). Invoke as `ct search ...` or `ct-search ...`.",
+  "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. --mode literal|glob|regex|auto states the interpretation for every pattern in the invocation (auto is the promotion rule, requested out loud). --grep accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (K lines match K consecutive source lines byte-for-byte; each occurrence counts at its start line; under --detail a block with no match reports its nearest miss to stderr). Invoke as `ct search ...` or `ct-search ...`.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -34,9 +34,10 @@
         "enum": [
           "literal",
           "glob",
-          "regex"
+          "regex",
+          "auto"
         ],
-        "description": "Pin how patterns are interpreted; promotion off for every pattern in the invocation. Use literal for verbatim code anchors."
+        "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
       },
       "okf-type": {
         "type": "string",

@@ -55,8 +55,9 @@ precedence:
 Matchers see only what the probe *prints* — so a probe that surfaces content
 (`cat build.log`, `ct-view`, `ct-search --detail`) pairs with matchers, while
 a self-classifying probe (`ct-search --quiet`, `ct-check --quiet`) needs none.
-`--mode literal|glob|regex` pins how both matchers are interpreted
-(promotion off) — state `literal` when a matcher is verbatim output text.
+`--mode literal|glob|regex|auto` states how both matchers are interpreted:
+the first three switch promotion **off**, and `auto` is the promoting default
+requested out loud. State `literal` when a matcher is verbatim output text.
 
 `--timeout SECS` is **required** — a wait is bounded by design. (The two
 flags that run no wait at all, `--list-allowed` and `--explain`, need no

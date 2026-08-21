@@ -78,7 +78,7 @@ number of `lines` emitted; line gaps are implied by non-consecutive `n`.
 **unanchored** against each line: text with no metacharacters is a literal
 substring; glob metacharacters (`*` `?` `[ ]`) that are not a valid regex are a
 glob; otherwise it is a regex. (See `ct-search --explain` for the full table.)
-`--mode literal|glob|regex` pins the interpretation (promotion off).
+`--mode literal|glob|regex|auto` states the interpretation (auto is the promotion rule, requested out loud).
 
 `--match` is **repeatable**. Several patterns produce one merged,
 de-duplicated set of context windows in a single call — *"show me around A

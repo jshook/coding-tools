@@ -14,7 +14,7 @@
 use crate::block::{self, NearestMiss};
 use crate::blockdoc::Item;
 use crate::edit::{Site, edit_content};
-use crate::pattern::{self, Mode};
+use crate::pattern::{self, Mode, PatternKind};
 use crate::payload;
 use crate::verdict::{Expect, Verdict};
 use regex::Regex;
@@ -100,7 +100,12 @@ pub fn compile_item(item: &Item, ordinal: usize) -> Result<EditSpec, String> {
         "literal" => Mode::Literal,
         "glob" => Mode::Glob,
         "regex" => Mode::Regex,
-        other => return Err(at(format!("invalid mode '{other}' (literal|glob|regex)"))),
+        "auto" => Mode::Auto,
+        other => {
+            return Err(at(format!(
+                "invalid mode '{other}' (literal|glob|regex|auto)"
+            )));
+        }
     };
 
     let find_payload = item
@@ -123,7 +128,7 @@ pub fn compile_item(item: &Item, ordinal: usize) -> Result<EditSpec, String> {
     }
 
     let op = if find_lines.len() > 1 {
-        if mode != Mode::Literal {
+        if !matches!(mode, Mode::Literal | Mode::Auto) {
             return Err(at(
                 "a multi-line find matches as a literal block; mode glob/regex is reserved"
                     .to_string(),
@@ -140,7 +145,10 @@ pub fn compile_item(item: &Item, ordinal: usize) -> Result<EditSpec, String> {
             .map_err(|e| at(format!("invalid find pattern: {e}")))?;
         Op::Line {
             re,
-            literal: mode != Mode::Regex,
+            literal: !matches!(
+                pattern::classify_with(&single, Some(mode)),
+                PatternKind::Regex
+            ),
             replace: replace_payload
                 .strip_suffix('\n')
                 .unwrap_or(replace_payload)

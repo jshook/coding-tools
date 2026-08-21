@@ -34,9 +34,10 @@
         "enum": [
           "literal",
           "glob",
-          "regex"
+          "regex",
+          "auto"
         ],
-        "description": "Pin how EVERY pattern in the call is interpreted; promotion off, --name included. Use literal for a verbatim code anchor -- but note that with a glob --name (e.g. '*.rs') it also makes the file filter literal, so the selection reads zero files. To pin only the anchor, pass --find as file:PATH or stdin:, which are verbatim by construction and need no --mode."
+        "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
       },
       "squeeze-blank": {
         "type": "boolean",

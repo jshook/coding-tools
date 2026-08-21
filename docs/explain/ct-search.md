@@ -56,7 +56,7 @@ An entry matches only when **all** supplied predicates hold.
 | `--name`     | `PATTERN` | Match the entry's file name. `\|`-separated alternatives; each is promoted (see *Pattern matching*) and anchored to the whole name. |
 | `--type`     | `KINDS`   | Restrict to entry kinds: `f` (file), `d` (directory), `l` (symlink). Repeatable or comma-joined (`--type f,l`). |
 | `--grep`     | `PATTERN` | Match file **contents** (promoted; searched unanchored). Implies regular files. Accepts `file:PATH` / `stdin:` / `text:VALUE`; a multi-line payload matches as a line-anchored literal **block**. |
-| `--mode`     | `literal\|glob\|regex` | Pin how patterns are interpreted — promotion **off** for every pattern in the invocation. State `literal` when the pattern is verbatim code. |
+| `--mode`     | `literal\|glob\|regex\|auto` | How patterns are interpreted. `literal`/`glob`/`regex` pin one reading for every pattern in the invocation — promotion **off**; state `literal` when the pattern is verbatim code. `auto` is the promoting default, stated out loud. |
 | `--size`     | `EXPR`    | Size predicate `[+\|-]N[k\|m\|g]`: `+N` larger than, `-N` smaller than, `N` at least N. Applies to regular files. |
 | `--hidden`   | —         | Include dot-entries (names starting with `.`). Default: skipped, and dot-directories are not descended into. |
 | `--follow`   | —         | Follow symlinks while traversing.                                                           |

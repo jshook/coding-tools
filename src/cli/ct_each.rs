@@ -32,7 +32,7 @@ pub struct Cli {
     #[arg(long)]
     pub list_allowed: bool,
 
-    /// Pin how --name/--ext walker patterns are interpreted (promotion off): literal, glob, or regex.
+    /// How --name/--ext walker patterns are interpreted: literal, glob, regex, or auto (the promoting default, stated out loud).
     #[arg(long, value_enum)]
     pub mode: Option<pattern::Mode>,
 

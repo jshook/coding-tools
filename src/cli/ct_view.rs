@@ -34,7 +34,7 @@ pub struct Cli {
     #[arg(long = "match")]
     pub pattern: Vec<String>,
 
-    /// Pin how the pattern is interpreted (promotion off): literal, glob, or regex.
+    /// How the pattern is interpreted: literal, glob, regex, or auto (the promoting default, stated out loud).
     #[arg(long, value_enum)]
     pub mode: Option<pattern::Mode>,
 

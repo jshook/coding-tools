@@ -200,19 +200,10 @@ fn empty_selection_note(cli: &Cli) -> String {
             "; note that --mode pins every pattern in the call, so --name '{n}' was matched \
              as {} rather than as a glob — drop --mode and pass --find via file:/stdin: to \
              pin only the anchor",
-            mode_label(mode)
+            mode.label()
         ));
     }
     note
-}
-
-/// A `--mode` value spelled the way the caller typed it on the command line.
-fn mode_label(mode: pattern::Mode) -> &'static str {
-    match mode {
-        pattern::Mode::Literal => "literal",
-        pattern::Mode::Glob => "glob",
-        pattern::Mode::Regex => "regex",
-    }
 }
 
 /// The note for a single-line `--find` that no file came close to: report the
