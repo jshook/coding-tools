@@ -96,8 +96,9 @@ less supervision:
 - **Self-diagnosing refusals.** A refusal explains itself, positioned in the
   source: a `ct-edit --find` that matched nothing reports the nearest miss for a
   block anchor *and* for a single line (naming the cause — whitespace drift, a
-  selection that read no files, or a stated `--mode` that read the anchor past
-  its own text), and a
+  selection that read no files, a stated `--mode` that read the anchor past its
+  own text, or a `--nth`/`--at` pick that took none of what the anchor matched),
+  and a
   mistyped-but-guessable flag names the real one (`--content` → `did you mean
   --grep?`). `ct-test`/`ct-each`/`ct-await` print their command gate on demand
   with `--list-allowed`, instead of only on refusal.

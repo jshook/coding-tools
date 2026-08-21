@@ -5,7 +5,7 @@
 //! that preserves every untouched byte (line terminators, indentation, and
 //! surrounding text) and records the changed lines.
 
-use regex::{NoExpand, Regex};
+use regex::Regex;
 
 /// One line that an edit changed, captured before/after for preview.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +14,173 @@ pub struct Site {
     pub line: usize,
     pub before: String,
     pub after: String,
+}
+
+/// Which of the sites an anchor matched the edit actually applies to.
+///
+/// The suite's answer to a non-unique anchor has been "make it unique" — widen
+/// the `--find` until it spans a distinguishing line. That is the right default
+/// (an anchor that names its site survives the file changing around it), but it
+/// is overkill when the caller can already see the list and just wants the
+/// second one. [`Nth`](Pick::Nth) and [`At`](Pick::At) say so directly, without
+/// giving up the `--expect` gate: a pick still has to land, and a pick that
+/// lands on nothing fails as loudly as an anchor that matched nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Pick {
+    /// Every matched site (the default, and what `--expect` has always judged).
+    #[default]
+    All,
+    /// Only the Nth match (1-based) in selection order: files in walk order,
+    /// and within a file, top to bottom.
+    Nth(usize),
+    /// Only a match that starts on `line` of `file`.
+    At { file: String, line: usize },
+}
+
+/// How many match sightings a [`Picker`] remembers for its diagnosis. A pick
+/// that missed needs to show where the anchor *did* land; a handful is enough
+/// to redirect it, and the cap keeps a broad anchor from collecting a file's
+/// worth of positions nobody will read.
+const SIGHTING_CAP: usize = 8;
+
+/// A [`Pick`] in progress across a whole selection.
+///
+/// One picker is threaded through every file the edit scans, so
+/// [`Nth`](Pick::Nth) counts in selection order rather than restarting per
+/// file, and the tally it accumulates is what separates *"the anchor matched
+/// nothing"* from *"the anchor matched, and the pick chose none of it"* — two
+/// zero-replacement runs with completely different fixes.
+#[derive(Debug)]
+pub struct Picker<'a> {
+    pick: &'a Pick,
+    seen: usize,
+    taken: usize,
+    sightings: Vec<(String, usize)>,
+}
+
+impl<'a> Picker<'a> {
+    /// A picker for `pick`, positioned before the first match.
+    pub fn new(pick: &'a Pick) -> Self {
+        Self {
+            pick,
+            seen: 0,
+            taken: 0,
+            sightings: Vec::new(),
+        }
+    }
+
+    /// Offer the next match, at `line` of `path`, and answer whether the edit
+    /// applies to it. Every match must be offered exactly once, in order, even
+    /// when the answer is obviously "no": the running count is the ordinal
+    /// [`Pick::Nth`] selects on.
+    pub fn accept(&mut self, path: &str, line: usize) -> bool {
+        self.seen += 1;
+        if self.sightings.len() < SIGHTING_CAP {
+            self.sightings.push((path.to_string(), line));
+        }
+        let hit = match self.pick {
+            Pick::All => true,
+            Pick::Nth(n) => self.seen == *n,
+            Pick::At { file, line: want } => *want == line && path_matches(path, file),
+        };
+        if hit {
+            self.taken += 1;
+        }
+        hit
+    }
+
+    /// How many matches the anchor found, whether or not the pick took them.
+    pub fn seen(&self) -> usize {
+        self.seen
+    }
+
+    /// How many matches the pick took.
+    pub fn taken(&self) -> usize {
+        self.taken
+    }
+
+    /// The note for a pick that took nothing from an anchor that *did* match,
+    /// or `None` when there is no such mismatch to explain (the pick landed,
+    /// or the anchor found nothing and the ordinary nearest-miss diagnosis
+    /// applies instead).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use coding_tools::edit::{Pick, Picker};
+    ///
+    /// let pick = Pick::Nth(3);
+    /// let mut p = Picker::new(&pick);
+    /// p.accept("a.rs", 4);
+    /// p.accept("a.rs", 9);
+    /// let note = p.miss_note().unwrap();
+    /// assert!(note.starts_with("--nth 3, but the selection holds 2 match(es)"));
+    /// assert!(note.contains("a.rs:4, a.rs:9"));
+    ///
+    /// // A pick that landed has nothing to explain.
+    /// let all = Pick::All;
+    /// let mut p = Picker::new(&all);
+    /// p.accept("a.rs", 4);
+    /// assert_eq!(p.miss_note(), None);
+    /// ```
+    pub fn miss_note(&self) -> Option<String> {
+        if self.taken > 0 || self.seen == 0 || matches!(self.pick, Pick::All) {
+            return None;
+        }
+        let head = match self.pick {
+            Pick::Nth(n) => format!("--nth {n}, but the selection holds {} match(es)", self.seen),
+            Pick::At { file, line } => format!(
+                "--at {file}:{line} matched no site, though the anchor matched {} time(s)",
+                self.seen
+            ),
+            Pick::All => unreachable!("Pick::All takes every match"),
+        };
+        Some(format!(
+            "{head}; the anchor matched at {}",
+            self.sightings_label()
+        ))
+    }
+
+    /// The remembered match positions as `path:line`, comma-joined and elided
+    /// once the cap is reached.
+    fn sightings_label(&self) -> String {
+        let shown: Vec<String> = self
+            .sightings
+            .iter()
+            .map(|(p, l)| format!("{p}:{l}"))
+            .collect();
+        if self.seen > shown.len() {
+            format!(
+                "{} (and {} more)",
+                shown.join(", "),
+                self.seen - shown.len()
+            )
+        } else {
+            shown.join(", ")
+        }
+    }
+}
+
+/// Whether `path` is the file `spec` names: the same path, or a
+/// whole-component suffix of it, with `/` and `\` treated as equivalent so a
+/// spec written with forward slashes matches the OS-native paths the walker
+/// yields on Windows.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::edit::path_matches;
+///
+/// assert!(path_matches("src/edit.rs", "src/edit.rs"));
+/// assert!(path_matches("src/edit.rs", "edit.rs"));
+/// assert!(path_matches(r"src\cli\ct_edit.rs", "cli/ct_edit.rs"));
+/// // A suffix must start at a component boundary.
+/// assert!(!path_matches("src/my_edit.rs", "edit.rs"));
+/// ```
+pub fn path_matches(path: &str, spec: &str) -> bool {
+    let norm = |p: &str| p.replace('\\', "/");
+    let (path, spec) = (norm(path), norm(spec));
+    path == spec || path.ends_with(&format!("/{spec}"))
 }
 
 /// Apply `re`/`replacement` to one file's `content`, per line, preserving line
@@ -46,6 +213,44 @@ pub fn edit_content(
     replacement: &str,
     literal: bool,
 ) -> (String, usize, Vec<Site>) {
+    edit_content_picked(
+        path,
+        content,
+        re,
+        replacement,
+        literal,
+        &mut Picker::new(&Pick::All),
+    )
+}
+
+/// [`edit_content`] under a running [`Picker`]: every occurrence is offered to
+/// the picker in selection order, and only the accepted ones are replaced.
+/// The returned count is what was *applied*, so an `--expect` gate keeps
+/// judging the edit's real effect.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::edit::{edit_content_picked, Pick, Picker};
+/// use coding_tools::pattern::compile;
+///
+/// let re = compile("foo").unwrap();
+/// let pick = Pick::Nth(2);
+/// let mut picker = Picker::new(&pick);
+/// let (out, n, _) = edit_content_picked("f.rs", "foo\nfoo\nfoo\n", &re, "X", true, &mut picker);
+/// assert_eq!((out.as_str(), n), ("foo\nX\nfoo\n", 1));
+/// // The picker still saw every match, which is what lets a missed pick
+/// // report where the anchor did land.
+/// assert_eq!(picker.seen(), 3);
+/// ```
+pub fn edit_content_picked(
+    path: &str,
+    content: &str,
+    re: &Regex,
+    replacement: &str,
+    literal: bool,
+    picker: &mut Picker<'_>,
+) -> (String, usize, Vec<Site>) {
     let mut out = String::with_capacity(content.len());
     let mut count = 0usize;
     let mut sites = Vec::new();
@@ -55,23 +260,39 @@ pub fn edit_content(
             Some(b) => (b, "\n"),
             None => (segment, ""),
         };
-        let hits = re.find_iter(body).count();
+        let line = idx + 1;
+        // Assembled occurrence by occurrence rather than by `replace_all`, so a
+        // pick can decline one match on a line and keep the rest of that line
+        // byte-identical.
+        let mut new_body = String::new();
+        let mut last = 0usize;
+        let mut hits = 0usize;
+        for caps in re.captures_iter(body) {
+            let m = caps.get(0).expect("capture group 0 always participates");
+            if !picker.accept(path, line) {
+                continue;
+            }
+            hits += 1;
+            new_body.push_str(&body[last..m.start()]);
+            if literal {
+                new_body.push_str(replacement);
+            } else {
+                caps.expand(replacement, &mut new_body);
+            }
+            last = m.end();
+        }
         if hits == 0 {
             out.push_str(segment);
             continue;
         }
+        new_body.push_str(&body[last..]);
         count += hits;
-        let new_body = if literal {
-            re.replace_all(body, NoExpand(replacement))
-        } else {
-            re.replace_all(body, replacement)
-        };
-        if new_body.as_ref() != body {
+        if new_body != body {
             sites.push(Site {
                 path: path.to_string(),
-                line: idx + 1,
+                line,
                 before: body.to_string(),
-                after: new_body.to_string(),
+                after: new_body.clone(),
             });
         }
         out.push_str(&new_body);

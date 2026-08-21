@@ -19,7 +19,7 @@
 use std::process::ExitCode;
 
 use coding_tools::cli::ct_edit::Cli;
-use coding_tools::edit::Site;
+use coding_tools::edit::{Pick, Picker, Site};
 use coding_tools::editscript::{self, EditOutcome, FileBuf, Op};
 use coding_tools::explain::Format;
 use coding_tools::pulse::{self, PulseState, Watchdog};
@@ -285,14 +285,49 @@ fn compile_argv_op(cli: &Cli) -> Result<(Op, Option<LineFind>), String> {
     }
 }
 
+/// Resolve `--nth`/`--at` into a [`Pick`]. `--at` is `FILE:LINE`, split at the
+/// *last* colon so a Windows drive letter or a colon in a name survives.
+fn parse_pick(cli: &Cli) -> Result<Pick, String> {
+    if let Some(n) = cli.nth {
+        if n == 0 {
+            return Err("--nth counts from 1; --nth 0 selects nothing".to_string());
+        }
+        return Ok(Pick::Nth(n));
+    }
+    let Some(spec) = cli.at.as_deref() else {
+        return Ok(Pick::All);
+    };
+    let (file, line) = spec
+        .rsplit_once(':')
+        .ok_or_else(|| format!("--at '{spec}': expected FILE:LINE"))?;
+    let line: usize = line
+        .parse()
+        .map_err(|_| format!("--at '{spec}': '{line}' is not a line number"))?;
+    if file.is_empty() || line == 0 {
+        return Err(format!(
+            "--at '{spec}': expected FILE:LINE with a 1-based line"
+        ));
+    }
+    Ok(Pick::At {
+        file: file.to_string(),
+        line,
+    })
+}
+
 /// The single-edit argv form: one op over the selection, verdict over the
 /// total count, write only on SUCCESS.
 fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String> {
     let (op, line_find) = compile_argv_op(cli)?;
+    let pick = parse_pick(cli)?;
+    // Naming one site is a statement that exactly one is meant, so the pick
+    // carries the strict expectation a `.ctb` script's anchored edit has by
+    // default. An explicit --expect still wins.
     let expect = match &cli.expect {
         Some(s) => Expect::parse(s).map_err(|e| format!("invalid --expect: {e}"))?,
+        None if !matches!(pick, Pick::All) => Expect::parse("=1").expect("'=1' is a valid expect"),
         None => Expect::default(),
     };
+    let mut picker = Picker::new(&pick);
 
     let mut files = load_files(&selector(cli)?)?;
     let scanned = files.len();
@@ -302,13 +337,14 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
     let mut miss: Option<(String, coding_tools::block::NearestMiss)> = None;
 
     for (i, f) in files.iter_mut().enumerate() {
-        let (new_content, hits, file_sites) = op.apply(&f.path, &f.content);
+        let (new_content, hits, file_sites) = op.apply_picked(&f.path, &f.content, &mut picker);
         replacements += hits;
         if hits > 0 && new_content != f.content {
             f.content = new_content;
             changed[i] = true;
             sites.extend(file_sites);
         } else if hits == 0
+            && picker.seen() == 0
             && let Op::Block { find, squeeze, .. } = &op
         {
             let lines: Vec<&str> = f.content.lines().collect();
@@ -324,7 +360,7 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
 
     // A single-line --find that matched nothing gets the same positioned
     // diagnosis a block find has always had (see `render_line_miss`).
-    let line_miss = (replacements == 0)
+    let line_miss = (replacements == 0 && picker.seen() == 0)
         .then_some(line_find.as_ref())
         .flatten()
         .and_then(|lf| {
@@ -335,13 +371,20 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
             )
         });
 
+    // A pick that took nothing out of an anchor that *did* match is a third,
+    // distinct failure: the anchor is fine and only the ordinal or position is
+    // wrong, so the fix is to move the pick, not to rewrite the pattern.
+    let pick_miss = (replacements == 0).then(|| picker.miss_note()).flatten();
+
     if replacements == 0 && !cli.json {
         // Nothing matched because nothing was *read* is a distinct failure from
         // nothing matched in the files that were: say which one happened.
         if scanned == 0 {
             eprintln!("ct-edit: {}", empty_selection_note(cli));
         }
-        if let Some((path, m)) = &miss {
+        if let Some(note) = &pick_miss {
+            eprintln!("ct-edit: {note}");
+        } else if let Some((path, m)) = &miss {
             for line in render_miss(path, m) {
                 eprintln!("ct-edit: {line}");
             }
@@ -382,7 +425,9 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
         });
         if replacements == 0 {
             obj["files_scanned"] = json!(scanned);
-            if let Some((path, m)) = &miss {
+            if let Some(note) = &pick_miss {
+                obj["pick_miss"] = json!({ "note": note, "anchor_matches": picker.seen() });
+            } else if let Some((path, m)) = &miss {
                 obj["nearest_miss"] = miss_json(path, m);
             } else if let Some(m) = &line_miss {
                 obj["nearest_miss"] = line_miss_json(m);

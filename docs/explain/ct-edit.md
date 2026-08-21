@@ -47,7 +47,9 @@ Only regular files are edited. Files that are not valid UTF-8 text are skipped.
 | `--find`    | `ANCHOR`  | Text to find, read as **literal** unless `--mode` says otherwise. A single-line anchor is matched **per line**; a multi-line payload matches as a **block** (below). |
 | `--replace` | `TEXT`    | Replacement. With a **regex** `--find`, `$1`/`${name}` expand (use `$$` for a literal `$`); otherwise the replacement is literal. For a block `--find`, an empty payload deletes the matched lines. |
 | `--mode`    | `literal\|glob\|regex\|auto` | How **every** pattern in the call is interpreted. Absent, `--find` is **literal** and `--name` promotes; `regex`/`glob` pin the other readings, and `auto` restores substring → glob → regex promotion for the whole call. Note that any explicit `--mode` pins `--name` too (see *`--mode` pins the file filter too*), so to change only the anchor's reading with a glob `--name`, prefer `file:`/`stdin:`. |
-| `--expect`  | `SPEC`    | Verdict expectation over the **total replacement count**: `any` (≥1, default), `none` (==0), `N` (≥N), `=N` (==N), `+N` (>N), `-N` (<N). |
+| `--nth`     | `N`       | Apply only the **Nth** match (1-based) in selection order: files in walk order, then top to bottom. Implies `--expect =1`. |
+| `--at`      | `FILE:LINE` | Apply only the match **starting there**. `FILE` may be a whole-component path suffix (`cli/ct_edit.rs`); `LINE` is 1-based. Implies `--expect =1`. |
+| `--expect`  | `SPEC`    | Verdict expectation over the **total replacement count**: `any` (≥1, default), `none` (==0), `N` (≥N), `=N` (==N), `+N` (>N), `-N` (<N). Under `--nth`/`--at` the default becomes `=1`. |
 | `--dry-run` | —         | Compute and show the change and verdict, but write nothing.                                   |
 
 Replacements within a file preserve every untouched byte — line terminators,
@@ -80,6 +82,38 @@ ct edit --mode auto  --find 'foo|bar' --replace 'baz'                # promotion
 `--mode` still pins **every** pattern in the call, `--name` included; absent, only
 `--find` is literal and `--name` keeps promoting as a glob. A `file:`/`stdin:`
 payload was always literal and still is.
+
+### Picking one site: `--nth` / `--at`
+
+The suite's answer to a non-unique anchor is to make it unique — widen `--find`
+until it spans a distinguishing line. That stays the right default, because an
+anchor that names its own site survives the file changing around it. But when
+you can already see the list and just want the second one, capturing a whole
+block first is overkill:
+
+```sh
+ct search --base src --grep 'let v = compute' --detail
+# src/a.rs:12:    let v = compute(1);
+# src/a.rs:13:    let v = compute(2);
+
+ct edit --base src --find 'let v = compute' --replace 'let w = compute' --nth 2
+ct edit --base src --find 'let v = compute' --replace 'let w = compute' --at a.rs:13
+```
+
+`--nth N` counts matches in **selection order**: files in walk order, then top to
+bottom within a file. `--at FILE:LINE` names the site directly, which is what the
+`path:line:text` rows of `ct search --detail` hand you. Both imply `--expect =1`,
+so a pick is still a claim the run has to make good on — and a pick that lands on
+nothing reports where the anchor *did* match, rather than reading as a bad
+pattern:
+
+```
+ct-edit: --nth 9, but the selection holds 3 match(es); the anchor matched at
+         src/a.rs:12, src/a.rs:13, src/a.rs:14
+```
+
+Neither combines with `--script`: inside a batch, an edit narrows with `file=`
+and states its own `expect=`.
 
 ### Payload schemes: `file:` / `stdin:` / `text:`
 
@@ -217,6 +251,11 @@ A **block** `--find` reports the nearest miss described above. A **single-line**
 - **Nothing was read at all.** The selection matched **0 files**, so the
   verdict says nothing about the pattern — the fault is in `--base`/`--name`.
   This one is reported for block finds too.
+- **The pick took nothing.** With `--nth`/`--at`, the anchor matched but the
+  ordinal or position selected none of it. The note says how many matches the
+  anchor found and where, so the fix is to move the pick rather than rewrite
+  the pattern. Under `--json` this is a `pick_miss` object instead of
+  `nearest_miss`.
 
 Under `--json`, the same diagnosis is the `nearest_miss` object (with
 `"kind": "line"` or `"kind": "block"`), alongside a `files_scanned` count.
@@ -400,6 +439,10 @@ ct-edit --base polydat/src --name '*.rs' --script target/edits.ctb
 - **Preview a rename across Rust sources before writing, instead of sed -i 's/foo_bar/foo_baz/g'.**
   ```sh
   ct edit --base src --name '*.rs' --find 'foo_bar' --replace 'foo_baz' --dry-run
+  ```
+- **Change one site of a repeated anchor by position, taken straight from a ct search --detail row; --at implies --expect =1.**
+  ```sh
+  ct edit --base src --find 'let v = compute' --replace 'let w = compute' --at a.rs:13 --dry-run
   ```
 - **Rename in one file, refusing the write unless exactly the expected number of sites change.**
   ```sh

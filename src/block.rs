@@ -284,7 +284,7 @@ fn nearest_miss_squeezed<S: AsRef<str>>(lines: &[S], block: &[String]) -> Option
         })
 }
 
-use crate::edit::Site;
+use crate::edit::{Pick, Picker, Site};
 
 /// Replace every non-overlapping occurrence of `block` in `content` with
 /// `replacement` lines, preserving every untouched byte (including a missing
@@ -328,6 +328,41 @@ pub fn edit_blocks_with(
     replacement: &[String],
     squeeze: bool,
 ) -> (String, usize, Vec<Site>) {
+    edit_blocks_picked(
+        path,
+        content,
+        block,
+        replacement,
+        squeeze,
+        &mut Picker::new(&Pick::All),
+    )
+}
+
+/// [`edit_blocks_with`] under a running [`Picker`]: every matched span is
+/// offered in order (by its 1-based start line) and only the accepted ones are
+/// replaced.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::block::edit_blocks_picked;
+/// use coding_tools::edit::{Pick, Picker};
+///
+/// let block = vec!["b".to_string()];
+/// let repl = vec!["X".to_string()];
+/// let pick = Pick::At { file: "f".to_string(), line: 3 };
+/// let mut picker = Picker::new(&pick);
+/// let (out, n, _) = edit_blocks_picked("f", "b\na\nb\n", &block, &repl, false, &mut picker);
+/// assert_eq!((out.as_str(), n), ("b\na\nX\n", 1));
+/// ```
+pub fn edit_blocks_picked(
+    path: &str,
+    content: &str,
+    block: &[String],
+    replacement: &[String],
+    squeeze: bool,
+    picker: &mut Picker<'_>,
+) -> (String, usize, Vec<Site>) {
     // Split into (body, terminator) per line so untouched bytes round-trip. The
     // terminator captures the whole line ending (`\r\n`, `\n`, a lone trailing
     // `\r`, or none at EOF), so bodies are carriage-return-free and match a
@@ -364,6 +399,12 @@ pub fn edit_blocks_with(
             .map(|s| (s, block.len()))
             .collect()
     };
+    // Offer every span to the pick, in order, before any are applied: the
+    // ordinal `--nth` counts on is the anchor's, not the pick's.
+    let spans: Vec<(usize, usize)> = spans
+        .into_iter()
+        .filter(|(s, _)| picker.accept(path, s + 1))
+        .collect();
     if spans.is_empty() {
         return (content.to_string(), 0, Vec::new());
     }

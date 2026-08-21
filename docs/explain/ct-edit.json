@@ -1,6 +1,6 @@
 {
   "name": "ct-edit",
-  "description": "Find/replace across files chosen by ct-search-style predicates, framed as a self-checking edit. It computes every replacement first, classifies the total against --expect into a SUCCESS/ERROR verdict, and writes ONLY when the verdict is SUCCESS and --dry-run is not set; otherwise nothing is written. Replacements preserve every untouched byte (line terminators, indentation, surrounding text). --find/--replace accept payload schemes: file:PATH reads the value verbatim from a file (never promoted; literal by default), text:VALUE escapes the prefix. A single-line --find is matched per line and read as LITERAL text by default, because an anchor is a piece of code and code is full of ( ) [ ] . ? | *; --mode regex or --mode glob asks for the other readings, and --mode auto restores substring->glob->regex promotion. --mode applies to EVERY pattern in the invocation, so absent it --name still promotes as a glob while --find stays literal. A MULTI-LINE find payload matches as a line-anchored literal block (K lines match K consecutive source lines byte-for-byte; the replace payload's lines replace the block, an empty replace deletes it; a failed block reports its nearest miss: best-aligned candidate and first diverging line). With a regex --find, $1/${name} expand in --replace (use $$ for literal $); otherwise the replacement is literal. --script PATH runs a .ctb batch of edits atomically under the prepare/confirm/write standard: '#% edit expect=\"=1\" mode=literal file=...' opens an edit (expect defaults to =1 in scripts), '#% find' / '#% replace' carry verbatim payloads, '#% end' closes; the whole script is simulated in memory first (cascade: each edit sees earlier edits' output; --no-cascade matches pristine and rejects overlap), every changed file is pre-flighted for writability, and nothing is written unless EVERY edit passes — no flag permits a partial write. Only regular UTF-8 text files are edited. Not subject to the ct-test command allowlist (it runs no programs); safety is via --dry-run, --expect, atomicity, and your VCS. With --json emits {tool, verdict, dry_run, applied, replacements, files_changed, sites:[{path,line,before,after}]}; script runs emit per-edit results {ordinal, expect, mode, replacements, verdict, sites, nearest_miss?}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct edit ...` or `ct-edit ...`.",
+  "description": "Find/replace across files chosen by ct-search-style predicates, framed as a self-checking edit. It computes every replacement first, classifies the total against --expect into a SUCCESS/ERROR verdict, and writes ONLY when the verdict is SUCCESS and --dry-run is not set; otherwise nothing is written. Replacements preserve every untouched byte (line terminators, indentation, surrounding text). --find/--replace accept payload schemes: file:PATH reads the value verbatim from a file (never promoted; literal by default), text:VALUE escapes the prefix. A single-line --find is matched per line and read as LITERAL text by default, because an anchor is a piece of code and code is full of ( ) [ ] . ? | *; --mode regex or --mode glob asks for the other readings, and --mode auto restores substring->glob->regex promotion. --mode applies to EVERY pattern in the invocation, so absent it --name still promotes as a glob while --find stays literal. When an anchor genuinely is not unique, --nth N applies only the Nth match in selection order (files in walk order, then top to bottom) and --at FILE:LINE applies only the match starting there; both imply --expect '=1', and a pick that lands on nothing reports where the anchor did match. A MULTI-LINE find payload matches as a line-anchored literal block (K lines match K consecutive source lines byte-for-byte; the replace payload's lines replace the block, an empty replace deletes it; a failed block reports its nearest miss: best-aligned candidate and first diverging line). With a regex --find, $1/${name} expand in --replace (use $$ for literal $); otherwise the replacement is literal. --script PATH runs a .ctb batch of edits atomically under the prepare/confirm/write standard: '#% edit expect=\"=1\" mode=literal file=...' opens an edit (expect defaults to =1 in scripts), '#% find' / '#% replace' carry verbatim payloads, '#% end' closes; the whole script is simulated in memory first (cascade: each edit sees earlier edits' output; --no-cascade matches pristine and rejects overlap), every changed file is pre-flighted for writability, and nothing is written unless EVERY edit passes — no flag permits a partial write. Only regular UTF-8 text files are edited. Not subject to the ct-test command allowlist (it runs no programs); safety is via --dry-run, --expect, atomicity, and your VCS. With --json emits {tool, verdict, dry_run, applied, replacements, files_changed, sites:[{path,line,before,after}]}; script runs emit per-edit results {ordinal, expect, mode, replacements, verdict, sites, nearest_miss?}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct edit ...` or `ct-edit ...`.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -39,6 +39,14 @@
         ],
         "description": "How patterns are interpreted. literal|glob|regex pin one reading for every pattern in the invocation; auto states the substring->glob->regex promotion rule out loud. Use literal for verbatim code anchors."
       },
+      "nth": {
+        "type": "integer",
+        "description": "Apply only the Nth match (1-based) in selection order: files in walk order, then top to bottom within a file. For a non-unique anchor, when capturing a whole distinguishing block first would be overkill. Implies --expect '=1'; mutually exclusive with --at and --script."
+      },
+      "at": {
+        "type": "string",
+        "description": "Apply only the match starting at FILE:LINE, where FILE may be a whole-component path suffix (cli/ct_edit.rs) and LINE is 1-based. Pairs with `ct search --grep ... --detail`, whose path:line:text rows name the site directly. Implies --expect '=1'; mutually exclusive with --nth and --script."
+      },
       "squeeze-blank": {
         "type": "boolean",
         "description": "Blank-line tolerant block matching: a maximal run of blank (empty or whitespace-only) lines in a multi-line --find matches a run of one-or-more blank lines in the source, regardless of count. No effect on a single-line --find or on --replace. In scripts, set per-edit squeeze=true instead."
@@ -58,7 +66,7 @@
       },
       "expect": {
         "type": "string",
-        "description": "Verdict expectation over the total replacement count; default 'any' (in scripts, per-edit expect= defaults to '=1'). One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). The edit is written only if the verdict is SUCCESS."
+        "description": "Verdict expectation over the total replacement count; default 'any', or '=1' under --nth/--at (in scripts, per-edit expect= defaults to '=1'). One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). The edit is written only if the verdict is SUCCESS."
       },
       "dry-run": {
         "type": "boolean",
@@ -107,6 +115,10 @@
     {
       "cmd": "ct edit --base src --name '*.rs' --find 'foo_bar' --replace 'foo_baz' --dry-run",
       "why": "Preview a rename across Rust sources before writing, instead of sed -i 's/foo_bar/foo_baz/g'."
+    },
+    {
+      "cmd": "ct edit --base src --find 'let v = compute' --replace 'let w = compute' --at a.rs:13 --dry-run",
+      "why": "Change one site of a repeated anchor by position, taken straight from a ct search --detail row; --at implies --expect =1."
     },
     {
       "cmd": "ct edit --base src/steer.rs --find 'old_name' --replace 'new_name' --expect 3",

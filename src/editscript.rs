@@ -13,7 +13,7 @@
 
 use crate::block::{self, NearestMiss};
 use crate::blockdoc::Item;
-use crate::edit::{Site, edit_content};
+use crate::edit::{Pick, Picker, Site, edit_content_picked};
 use crate::pattern::{self, Mode, PatternKind};
 use crate::payload;
 use crate::verdict::{Expect, Verdict};
@@ -175,16 +175,10 @@ fn candidates(spec: &EditSpec, files: &[FileBuf]) -> Result<Vec<usize>, String> 
     let Some(f) = &spec.file else {
         return Ok((0..files.len()).collect());
     };
-    let norm = |p: &str| p.replace('\\', "/");
-    let target = norm(f);
-    let suffix = format!("/{target}");
     let cand: Vec<usize> = files
         .iter()
         .enumerate()
-        .filter(|(_, fb)| {
-            let p = norm(&fb.path);
-            p == target || p.ends_with(&suffix)
-        })
+        .filter(|(_, fb)| crate::edit::path_matches(&fb.path, f))
         .map(|(i, _)| i)
         .collect();
     if cand.is_empty() {
@@ -200,17 +194,30 @@ impl Op {
     /// Apply this operation to one file's content: new content, occurrence
     /// count, changed sites. Shared by the script engine and the argv form.
     pub fn apply(&self, path: &str, content: &str) -> (String, usize, Vec<Site>) {
+        self.apply_picked(path, content, &mut Picker::new(&Pick::All))
+    }
+
+    /// [`apply`](Op::apply) under a running [`Picker`], so the argv form's
+    /// `--nth`/`--at` can take one site out of several. The picker is threaded
+    /// across files by the caller: an ordinal counts over the whole selection,
+    /// not per file.
+    pub fn apply_picked(
+        &self,
+        path: &str,
+        content: &str,
+        picker: &mut Picker<'_>,
+    ) -> (String, usize, Vec<Site>) {
         match self {
             Op::Block {
                 find,
                 replace,
                 squeeze,
-            } => block::edit_blocks_with(path, content, find, replace, *squeeze),
+            } => block::edit_blocks_picked(path, content, find, replace, *squeeze, picker),
             Op::Line {
                 re,
                 literal,
                 replace,
-            } => edit_content(path, content, re, replace, *literal),
+            } => edit_content_picked(path, content, re, replace, *literal, picker),
         }
     }
 }

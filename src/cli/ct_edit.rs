@@ -22,7 +22,8 @@ use crate::{blockdoc, pattern};
                   the total against --expect, and writes only when the verdict is SUCCESS and \
                   --dry-run is not set. --find is read as literal text unless --mode says \
                   otherwise; --find/--replace accept file:PATH / text:VALUE payloads, and a \
-                  multi-line find matches as a literal block. --script runs a .ctb batch \
+                  multi-line find matches as a literal block. --nth/--at pick one site when \
+                  an anchor is not unique. --script runs a .ctb batch \
                   atomically: everything is verified in memory before anything is written. \
                   See `ct-edit --explain` for agent-oriented documentation."
 )]
@@ -75,7 +76,15 @@ pub struct Cli {
     #[arg(long, requires = "script")]
     pub no_cascade: bool,
 
-    /// Verdict expectation over the total replacement count: any|none|N|=N|+N|-N (default: any). In scripts, per-edit expect= defaults to =1.
+    /// Apply only the Nth match (1-based) in selection order -- files in walk order, then top to bottom -- when an anchor genuinely is not unique. Implies --expect =1.
+    #[arg(long, value_name = "N", conflicts_with_all = ["script", "at"])]
+    pub nth: Option<usize>,
+
+    /// Apply only the match starting at FILE:LINE (FILE may be a whole-component path suffix). Implies --expect =1.
+    #[arg(long, value_name = "FILE:LINE", conflicts_with = "script")]
+    pub at: Option<String>,
+
+    /// Verdict expectation over the total replacement count: any|none|N|=N|+N|-N (default: any, or =1 under --nth/--at). In scripts, per-edit expect= defaults to =1.
     #[arg(long, conflicts_with = "script")]
     pub expect: Option<String>,
 
