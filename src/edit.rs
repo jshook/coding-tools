@@ -104,10 +104,11 @@ pub struct LineMiss {
 /// The diagnosed cause behind a [`LineMiss`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LineMissCause {
-    /// The find text is present verbatim, but was compiled as a promoted
-    /// glob/regex (it carries metacharacters) that did not match it. The
-    /// payload names the kind it was promoted to and how many lines hold the
-    /// literal text — `--mode literal` is the fix.
+    /// The find text is present verbatim, but was compiled as a glob/regex
+    /// (it carries metacharacters) that did not match it. Reachable only
+    /// under an explicit `--mode glob`/`regex`/`auto`, since a bare `--find`
+    /// is literal; the payload names the kind it was read as and how many
+    /// lines hold the literal text — dropping the `--mode` is the fix.
     Promoted {
         kind: &'static str,
         literal_hits: usize,
@@ -122,10 +123,10 @@ impl LineMiss {
     pub fn note(&self) -> String {
         match &self.cause {
             LineMissCause::Promoted { kind, literal_hits } => format!(
-                "the --find text carries {kind} metacharacters, so it was read as a {kind} and \
-                 did not match; the text is present verbatim on {literal_hits} line(s) — \
-                 pass the anchor as file:PATH or stdin: (verbatim, and it pins only --find), \
-                 or add --mode literal (which pins every pattern in the call, --name included)"
+                "the --find text carries {kind} metacharacters, and the stated --mode read it \
+                 as a {kind}, which did not match; the text is present verbatim on \
+                 {literal_hits} line(s) — drop the --mode (a bare --find is already literal), \
+                 or pass the anchor as file:PATH or stdin: to pin only --find"
             ),
             LineMissCause::Whitespace => "the line differs only in leading/trailing whitespace; \
                  a single-line --find is matched against the line as written, so copy its exact \

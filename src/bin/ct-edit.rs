@@ -193,13 +193,13 @@ fn empty_selection_note(cli: &Cli) -> String {
     // that worked a moment ago suddenly reads nothing — name it here rather than
     // leaving the caller to rediscover it.
     if let (Some(mode), Some(n)) = (cli.mode, cli.name.as_deref())
-        && mode != pattern::Mode::Glob
+        && !matches!(mode, pattern::Mode::Glob | pattern::Mode::Auto)
         && n.contains(['*', '?', '['])
     {
         note.push_str(&format!(
             "; note that --mode pins every pattern in the call, so --name '{n}' was matched \
-             as {} rather than as a glob — drop --mode and pass --find via file:/stdin: to \
-             pin only the anchor",
+             as {} rather than as a glob — drop --mode (a bare --find is already literal), \
+             or state --mode auto to keep promotion for --name",
             mode.label()
         ));
     }
@@ -236,9 +236,10 @@ fn compile_argv_op(cli: &Cli) -> Result<(Op, Option<LineFind>), String> {
     match find_lines.len() {
         0 => Err("empty --find payload".to_string()),
         1 => {
-            let effective = cli
-                .mode
-                .or(find.from_file.then_some(pattern::Mode::Literal));
+            // A bare `--find` is an anchor in code, not a query: `(`, `[`, `.`,
+            // `?` and `|` are what code is made of, so the default reading is
+            // the verbatim one. `--mode auto` asks for the promotion rule back.
+            let effective = Some(cli.mode.unwrap_or(pattern::Mode::Literal));
             let single = find_lines.into_iter().next().unwrap();
             let re = pattern::compile_with(&single, effective)
                 .map_err(|e| format!("invalid --find pattern: {e}"))?;

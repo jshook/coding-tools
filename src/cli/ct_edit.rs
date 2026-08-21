@@ -20,8 +20,9 @@ use crate::{blockdoc, pattern};
     long_about = "ct-edit applies a find/replace to the files chosen by ct-search-style predicates \
                   (also reachable as `ct edit`). It computes every replacement first, classifies \
                   the total against --expect, and writes only when the verdict is SUCCESS and \
-                  --dry-run is not set. --find/--replace accept file:PATH / text:VALUE payloads; \
-                  a multi-line find matches as a literal block. --script runs a .ctb batch \
+                  --dry-run is not set. --find is read as literal text unless --mode says \
+                  otherwise; --find/--replace accept file:PATH / text:VALUE payloads, and a \
+                  multi-line find matches as a literal block. --script runs a .ctb batch \
                   atomically: everything is verified in memory before anything is written. \
                   See `ct-edit --explain` for agent-oriented documentation."
 )]
@@ -46,15 +47,15 @@ pub struct Cli {
     #[arg(long)]
     pub no_ignore: bool,
 
-    /// Pattern to find (substring->glob->regex promoted); matched per line. Accepts file:PATH / text:VALUE; a multi-line payload matches as a line-anchored literal block. Required unless --script is given.
+    /// Anchor to find, matched per line and read as LITERAL text unless --mode says otherwise. Accepts file:PATH / stdin: / text:VALUE; a multi-line payload matches as a line-anchored literal block. Required unless --script is given.
     #[arg(long, conflicts_with = "script")]
     pub find: Option<String>,
 
-    /// Replacement text. With a regex --find, $1/${name} expand; otherwise literal. Accepts file:PATH / text:VALUE; for a block --find, an empty payload deletes the matched lines. Required unless --script is given.
+    /// Replacement text. With a regex --find (--mode regex, or --mode auto promoting to one), $1/${name} expand; otherwise literal. Accepts file:PATH / text:VALUE; for a block --find, an empty payload deletes the matched lines. Required unless --script is given.
     #[arg(long, conflicts_with = "script")]
     pub replace: Option<String>,
 
-    /// Pin how patterns are interpreted (promotion off): literal, glob, or regex. Applies to EVERY pattern in the call, --name included -- to pin only the anchor, pass --find as file:PATH or stdin: instead.
+    /// How patterns are interpreted: literal (the --find default), glob, regex, or auto (substring->glob->regex promotion). Applies to EVERY pattern in the call -- absent, --find is literal and --name promotes.
     #[arg(long, value_enum, conflicts_with = "script")]
     pub mode: Option<pattern::Mode>,
 

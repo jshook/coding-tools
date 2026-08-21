@@ -62,12 +62,19 @@ const CT_SEARCH: &str = env!("CARGO_BIN_EXE_ct-search");
 // ----- ct-edit: a single-line find that matched nothing -------------------------
 
 #[test]
-fn single_line_find_promoted_past_its_own_text_is_diagnosed() {
-    let dir = scratch("promoted");
-    // `[T]` makes this a *valid* regex whose character class matches `T`, so the
-    // promoted pattern does not match the text it was copied from. This is the
-    // reported failure, and it used to produce a bare ERROR with no hint.
-    std::fs::write(dir.join("a.rs"), "fn main() {\n    reg::<Foo[T]>();\n}\n").unwrap();
+fn a_code_anchor_matches_its_own_text_without_a_mode() {
+    let dir = scratch("literal-default");
+    // `[T]` makes this a *valid* regex whose character class matches `T`, so a
+    // promoted pattern does not match the text it was copied from. That was the
+    // reported failure; `--find` is literal by default, so it now just works.
+    std::fs::write(
+        dir.join("a.rs"),
+        "fn main() {
+    reg::<Foo[T]>();
+}
+",
+    )
+    .unwrap();
 
     let out = run(
         CT_EDIT,
@@ -80,6 +87,46 @@ fn single_line_find_promoted_past_its_own_text_is_diagnosed() {
             "--find",
             "reg::<Foo[T]>();",
             "--replace",
+            "reg::<Bar>();",
+            "--expect",
+            "1",
+        ],
+    );
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let after = std::fs::read_to_string(dir.join("a.rs")).unwrap();
+    assert!(after.contains("reg::<Bar>();"), "{after}");
+    // `--name` still promotes: the literal default belongs to the anchor alone.
+    assert!(!after.contains("Foo[T]"), "{after}");
+}
+
+#[test]
+fn single_line_find_promoted_past_its_own_text_is_diagnosed() {
+    let dir = scratch("promoted");
+    std::fs::write(
+        dir.join("a.rs"),
+        "fn main() {
+    reg::<Foo[T]>();
+}
+",
+    )
+    .unwrap();
+
+    // Promotion is now opt-in, so this is the caller stating `--mode auto` and
+    // getting a pattern that does not match the text it was copied from. The
+    // diagnosis is what turns that from a bare ERROR into a fix.
+    let out = run(
+        CT_EDIT,
+        &dir,
+        &[
+            "--base",
+            ".",
+            "--name",
+            "*.rs",
+            "--mode",
+            "auto",
+            "--find",
+            "reg::<Foo[T]>();",
+            "--replace",
             "",
             "--expect",
             "1",
@@ -89,17 +136,13 @@ fn single_line_find_promoted_past_its_own_text_is_diagnosed() {
     let err = stderr(&out);
     assert!(err.contains("nearest miss: "), "positioned: {err}");
     assert!(err.contains("a.rs:2"), "names the line: {err}");
-    assert!(err.contains("--mode literal"), "names the fix: {err}");
+    assert!(err.contains("drop the --mode"), "names the fix: {err}");
     assert!(err.contains("stdin:"), "names the scoped fix too: {err}");
     // And nothing was written.
     let after = std::fs::read_to_string(dir.join("a.rs")).unwrap();
     assert!(after.contains("reg::<Foo[T]>();"));
 
-    // Taking the *scoped* fix the note names first makes the same edit succeed.
-    // (`--mode literal` would also pin `--name '*.rs'`, which is exactly why the
-    // note offers `file:`/`stdin:` ahead of it.)
-    let anchor = dir.join("anchor.txt");
-    std::fs::write(&anchor, "reg::<Foo[T]>();").unwrap();
+    // Taking the fix the note names first makes the same edit succeed.
     let fixed = run(
         CT_EDIT,
         &dir,
@@ -109,7 +152,7 @@ fn single_line_find_promoted_past_its_own_text_is_diagnosed() {
             "--name",
             "*.rs",
             "--find",
-            &format!("file:{}", anchor.display()),
+            "reg::<Foo[T]>();",
             "--replace",
             "text:",
             "--expect",
@@ -241,6 +284,8 @@ fn the_zero_match_diagnosis_is_also_structured_json() {
             ".",
             "--name",
             "*.rs",
+            "--mode",
+            "auto",
             "--find",
             "reg::<Foo[T]>();",
             "--replace",

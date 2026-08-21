@@ -44,14 +44,42 @@ Only regular files are edited. Files that are not valid UTF-8 text are skipped.
 
 | Option      | Argument  | Meaning                                                                                       |
 | ----------- | --------- | -------------------------------------------------------------------------------------------- |
-| `--find`    | `PATTERN` | Text to find (substring → glob → regex promoted). A single-line pattern is matched **per line**; a multi-line payload matches as a **block** (below). |
+| `--find`    | `ANCHOR`  | Text to find, read as **literal** unless `--mode` says otherwise. A single-line anchor is matched **per line**; a multi-line payload matches as a **block** (below). |
 | `--replace` | `TEXT`    | Replacement. With a **regex** `--find`, `$1`/`${name}` expand (use `$$` for a literal `$`); otherwise the replacement is literal. For a block `--find`, an empty payload deletes the matched lines. |
-| `--mode`    | `literal\|glob\|regex` | Pin how **every** pattern in the call is interpreted — promotion **off**, `--name` included. Use it for a verbatim code anchor like `todo!("…")`, which would otherwise promote to a regex and miss its own text — but with a glob `--name`, prefer `file:`/`stdin:`, which pin only the anchor (see *`--mode` pins the file filter too*). |
+| `--mode`    | `literal\|glob\|regex\|auto` | How **every** pattern in the call is interpreted. Absent, `--find` is **literal** and `--name` promotes; `regex`/`glob` pin the other readings, and `auto` restores substring → glob → regex promotion for the whole call. Note that any explicit `--mode` pins `--name` too (see *`--mode` pins the file filter too*), so to change only the anchor's reading with a glob `--name`, prefer `file:`/`stdin:`. |
 | `--expect`  | `SPEC`    | Verdict expectation over the **total replacement count**: `any` (≥1, default), `none` (==0), `N` (≥N), `=N` (==N), `+N` (>N), `-N` (<N). |
 | `--dry-run` | —         | Compute and show the change and verdict, but write nothing.                                   |
 
 Replacements within a file preserve every untouched byte — line terminators,
 indentation, and surrounding text are left exactly as they were.
+
+### `--find` is literal by default
+
+The rest of the suite promotes a pattern — substring → glob → regex — because
+the other tools take *queries*, and a query is usually meant loosely. `--find`
+is not a query. It is an **anchor**: a piece of code, copied out of the file it
+is meant to match, and code is made of `(`, `)`, `[`, `]`, `.`, `?`, `|` and
+`*`. Promoting it reads those as syntax, which at best misses the line it was
+copied from and at worst matches a *different* one.
+
+So a bare `--find` is matched **verbatim**:
+
+```sh
+ct edit --base src --name '*.rs' \
+  --find 'reg::<Foo[T]>();' --replace 'reg::<Bar>();' --expect =1
+```
+
+`--mode` asks for another reading. `regex` and `glob` pin one; `auto` restores
+promotion, which is what every `--find` used to get:
+
+```sh
+ct edit --mode regex --find 'v(\d+)' --replace 'ver$1' --expect =1   # captures
+ct edit --mode auto  --find 'foo|bar' --replace 'baz'                # promotion
+```
+
+`--mode` still pins **every** pattern in the call, `--name` included; absent, only
+`--find` is literal and `--name` keeps promoting as a glob. A `file:`/`stdin:`
+payload was always literal and still is.
 
 ### Payload schemes: `file:` / `stdin:` / `text:`
 
@@ -161,25 +189,25 @@ than an investigation.
 A **block** `--find` reports the nearest miss described above. A **single-line**
 `--find` gets the equivalent, in one of four shapes:
 
-- **The text is there, but the pattern was promoted past it.** A find that
-  carries metacharacters is read as a glob or a regex (the suite's
-  substring→glob→regex promotion), and a line like
-  `reg::<Foo[T]>();` is a *valid* regex whose `[T]` is a character class — so
-  it does not match its own text. ct-edit finds the text verbatim, points at
-  it, and names the fix:
+- **The text is there, but the pattern was promoted past it.** Only reachable
+  under an explicit `--mode glob`/`regex`/`auto`, since a bare `--find` is
+  literal. A line like `reg::<Foo[T]>();` is a *valid* regex whose `[T]` is a
+  character class — so read as one, it does not match its own text. ct-edit
+  finds the text verbatim, points at it, and names the fix:
 
   ```
   nearest miss: src/app.rs:3243: the --find text is here, but the pattern was promoted
     pattern:  'reg::<Foo[T]>();'
     found:    '    reg::<Foo[T]>();'
-    note:     the --find text carries regex metacharacters, so it was read as a
-              regex and did not match; the text is present verbatim on 1 line(s)
-              — re-run with --mode literal
+    note:     the --find text carries regex metacharacters, and the stated --mode
+              read it as a regex, which did not match; the text is present
+              verbatim on 1 line(s) — drop the --mode (a bare --find is already
+              literal), or pass the anchor as file:PATH or stdin: to pin only
+              --find
   ```
 
-  This is the single most common single-line failure. Pinning `--mode literal`
-  — or sourcing the anchor with `file:`/`stdin:`, which pins it for you —
-  prevents it outright.
+  This was the single most common single-line failure while `--find` promoted
+  by default; dropping the `--mode` prevents it outright.
 - **Whitespace drift.** A line matches once leading/trailing whitespace is
   ignored. Both rows are printed quoted, because the difference is invisible
   otherwise.
@@ -375,5 +403,5 @@ ct-edit --base polydat/src --name '*.rs' --script target/edits.ctb
   ```
 - **Rename in one file, refusing the write unless exactly the expected number of sites change.**
   ```sh
-  ct edit --base src/steer.rs --find 'old_name' --replace 'new_name' --mode literal --expect 3
+  ct edit --base src/steer.rs --find 'old_name' --replace 'new_name' --expect 3
   ```

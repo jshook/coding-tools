@@ -148,7 +148,9 @@ regex); `^ERROR`, `foo|bar`, `\d+` → regex.
 
 `--mode literal|glob|regex` switches promotion **off** and pins the stated
 interpretation — the right tool when the pattern is verbatim code whose `(`
-`!` `?` would otherwise promote to a regex and miss its own text.
+`!` `?` would otherwise promote to a regex and miss its own text. `--mode auto`
+names the promoting default explicitly, which is how `ct-edit --find` (literal
+by default, because an anchor is code) asks for this rule back.
 
 ### Payload schemes and block matching
 

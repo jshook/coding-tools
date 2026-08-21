@@ -74,12 +74,18 @@ less supervision:
 
 ## Shared conventions
 
-- **Pattern promotion.** Any *pattern* argument is promoted with one rule: no
-  metacharacters → literal substring; glob metacharacters (`*` `?` `[ ]`) that are
-  not a valid regex → glob; otherwise → regex. `--mode literal|glob|regex` pins
-  the interpretation (promotion off) for verbatim code anchors — for *every*
-  pattern in the call, `--name` included, so an anchor is usually better pinned
-  by sourcing it out of band (below).
+- **Pattern promotion — for *queries*.** A pattern argument that asks a
+  question (`--grep`, `--match`, `--name`, the matchers) is promoted with one
+  rule: no metacharacters → literal substring; glob metacharacters (`*` `?`
+  `[ ]`) that are not a valid regex → glob; otherwise → regex.
+- **Anchors are literal.** `ct-edit --find` is not a query, it is a piece of
+  code copied out of the file it must match — and code is full of `(`, `[`,
+  `.`, `?`, `|`, `*`. So a bare `--find` matches **verbatim**, and a `.ctb`
+  script's `find` section always did. `--mode literal|glob|regex|auto` states
+  the reading explicitly (`auto` is the promotion rule, requested out loud) —
+  for *every* pattern in the call, `--name` included, which is why an anchor
+  that needs pinning **and** a glob `--name` is best sourced out of band
+  (below).
 - **Payload schemes.** Payload-typed values accept `file:PATH` (the file's
   contents), `stdin:` (all of standard input) — both verbatim, never promoted —
   and `text:VALUE` (the escape for literal values starting with a scheme
@@ -89,8 +95,9 @@ less supervision:
   line-anchored literal **block** in `ct-search`/`ct-view`/`ct-edit`.
 - **Self-diagnosing refusals.** A refusal explains itself, positioned in the
   source: a `ct-edit --find` that matched nothing reports the nearest miss for a
-  block anchor *and* for a single line (naming the cause — a pattern promoted
-  past its own text, whitespace drift, or a selection that read no files), and a
+  block anchor *and* for a single line (naming the cause — whitespace drift, a
+  selection that read no files, or a stated `--mode` that read the anchor past
+  its own text), and a
   mistyped-but-guessable flag names the real one (`--content` → `did you mean
   --grep?`). `ct-test`/`ct-each`/`ct-await` print their command gate on demand
   with `--list-allowed`, instead of only on refusal.
