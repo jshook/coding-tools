@@ -1,6 +1,6 @@
 {
   "name": "ct-search",
-  "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. --mode literal|glob|regex|auto states the interpretation for every pattern in the invocation (auto is the promotion rule, requested out loud). --grep accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (K lines match K consecutive source lines byte-for-byte; each occurrence counts at its start line; under --detail a block with no match reports its nearest miss to stderr). Invoke as `ct search ...` or `ct-search ...`.",
+  "description": "Recursively find files by name, type, size, and content from a chosen root, replacing find|xargs|grep pipelines. An entry matches only when all supplied predicates hold. A search can also be posed as a pass/fail test: --question frames it, --expect sets an expectation over the match count, and --emit prints a templated verdict. The exit status follows the verdict = --expect applied to the count: 0 SUCCESS, 1 ERROR, 2 usage/runtime error; the default expectation 'any' makes this 0 if anything matched and 1 if not. Pattern arguments use substring->glob->regex promotion: text with no metacharacters is a literal substring; glob metacharacters (* ? [ ]) that are not a valid regex are treated as a glob; otherwise the pattern is used as a regex. --mode literal|glob|regex|auto states the interpretation for every pattern in the invocation (auto is the promotion rule, requested out loud). --grep accepts payload schemes: file:PATH reads the pattern verbatim from a file (literal by default), text:VALUE escapes the prefix; a multi-line pattern matches as a line-anchored literal BLOCK (K lines match K consecutive source lines byte-for-byte; each occurrence counts at its start line; under --detail a block with no match reports its nearest miss to stderr). --detail prints each hit as path:line:text (grep -n); adding --context N (-C) surrounds each hit with N lines shown as path-line-text, so the two rows stay distinguishable and the output can be filtered back down to the hits. Invoke as `ct search ...` or `ct-search ...`.",
   "input_schema": {
     "type": "object",
     "properties": {
@@ -94,6 +94,10 @@
         "type": "boolean",
         "description": "Output mode: print matches plus, for --grep, each hit as path:line:text. Mutually exclusive with the other output modes."
       },
+      "context": {
+        "type": "integer",
+        "description": "Lines of context printed around each --grep hit, grep's -C: a hit row is path:line:text, a context row is path-line-text, and '--' separates non-adjacent windows across the whole run. Implies --detail; a matched multi-line block shows whole, with the context around it."
+      },
       "quiet": {
         "type": "boolean",
         "description": "Output mode: print no per-match output and no --question banner; report via exit status (and --emit, which still fires). Mutually exclusive with the other output modes."
@@ -136,6 +140,7 @@
   "examples": [
     {"cmd": "ct search --grep 'TODO|FIXME' --name '*.rs' --base src", "why": "Find every TODO/FIXME in Rust sources under src/ in one call, instead of grep -rn -E 'TODO|FIXME' --include='*.rs' src."},
     {"cmd": "ct search --name '*.rs' --type f --base src --list", "why": "List Rust file paths under src/, instead of find src -name '*.rs' -type f."},
+    {"cmd": "ct search --base src --grep 'fn resolve' --detail --context 3", "why": "Read the matching lines with three lines of context around each - the grep -n -C3 shape, without leaving the suite."},
     {"cmd": "ct search --grep 'panic!' --name '*.rs' --quiet --expect none", "why": "Assert there are no panic! calls as a pass/fail gate (exit 1 if any exist), with no piping into wc or grep."}
   ]
 }

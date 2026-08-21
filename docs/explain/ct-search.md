@@ -74,7 +74,35 @@ Mutually exclusive; defaults to `--list`.
 | `--detail`  | Matching paths plus, for `--grep`, each hit as `path:line:text`.   |
 | `--quiet`   | No per-match output, and no `--question` banner; communicate via exit status (and `--emit`). |
 
-`--json` overrides these text modes (and `--emit`), emitting a structured result `{tool, verdict, base, count, lines, matches}`. `--json-pretty` does the same, pretty-printed (indented).
+`--json` overrides these text modes (and `--emit`), emitting a structured result `{tool, verdict, base, count, lines, matches}`. With `--detail` it also carries `hits: [{path, line, text}]`. `--json-pretty` does the same, pretty-printed (indented).
+
+#### Lines with context: `--context` (`-C`)
+
+`--detail` is `grep -n`: one `path:line:text` row per hit. `--context N` (short `-C`)
+is `grep -C N` — it surrounds each hit with N lines on either side, and implies
+`--detail`:
+
+```sh
+ct search --base src --name '*.rs' --grep 'fn expand_and_merge' --context 2
+```
+
+```
+src/view.rs-82-/// assert_eq!(expand_and_merge(&[0], 2, 3), vec![0, 1, 2]);
+src/view.rs-83-/// ```
+src/view.rs:84:pub fn expand_and_merge(hits: &[usize], ctx: usize, total: usize) -> Vec<usize> {
+src/view.rs-85-    if hits.is_empty() || total == 0 {
+src/view.rs-86-        return Vec::new();
+```
+
+A **hit** row keeps the `:` separators; a **context** row uses `-`, exactly as grep
+does, so the two stay distinguishable and the output can be filtered back down to
+the hits without re-running the search. Overlapping windows merge, and `--`
+separates non-adjacent ones across the whole run. A matched multi-line block shows
+whole, with the context around it.
+
+For one file, `ct view --match PATTERN --context N` is the same read with a
+line-number gutter instead of a path prefix; `--context` here is the across-files
+form.
 
 ### Framing the search as a test
 
@@ -235,6 +263,10 @@ ct-search --explain json
 - **List Rust file paths under src/, instead of find src -name '*.rs' -type f.**
   ```sh
   ct search --name '*.rs' --type f --base src --list
+  ```
+- **Read the matching lines with three lines of context around each - the grep -n -C3 shape, without leaving the suite.**
+  ```sh
+  ct search --base src --grep 'fn resolve' --detail --context 3
   ```
 - **Assert there are no panic! calls as a pass/fail gate (exit 1 if any exist), with no piping into wc or grep.**
   ```sh

@@ -16,6 +16,7 @@ use coding_tools::cli::ct_search::Cli;
 use coding_tools::explain::Format;
 use coding_tools::pulse::{self, PulseState};
 use coding_tools::verdict::Expect;
+use coding_tools::view::{expand_and_merge, segments};
 use coding_tools::walk;
 use coding_tools::{pattern, payload, template};
 use regex::Regex;
@@ -37,7 +38,7 @@ impl Mode {
     fn from(cli: &Cli) -> Mode {
         if cli.summary {
             Mode::Summary
-        } else if cli.detail {
+        } else if cli.detail || cli.context.is_some() {
             Mode::Detail
         } else if cli.quiet {
             Mode::Quiet
@@ -73,6 +74,32 @@ fn compile_grep(resolved: &payload::Resolved, mode: Option<pattern::Mode>) -> Re
     pattern::compile_with(&single, effective)
         .map(Grep::Line)
         .map_err(|e| format!("invalid --grep pattern: {e}"))
+}
+
+/// Print one file's hits with `ctx` lines of context, in grep's own shape: a
+/// hit row is `path:line:text`, a context row is `path-line-text`, and a `--`
+/// separates non-adjacent windows (including across files, which is why
+/// `opened` is threaded through the whole run rather than reset per file).
+///
+/// The distinction between `:` and `-` is what makes the output re-greppable:
+/// `ct search --grep X --context 3` can be filtered back down to just the hits
+/// without re-running the search.
+fn print_windows(path: &str, file_lines: &[&str], hits: &[usize], ctx: usize, opened: &mut bool) {
+    let selected = expand_and_merge(hits, ctx, file_lines.len());
+    for (start, end) in segments(&selected) {
+        if *opened {
+            println!("--");
+        }
+        *opened = true;
+        for (i, line) in file_lines.iter().enumerate().take(end + 1).skip(start) {
+            let sep = if hits.binary_search(&i).is_ok() {
+                ':'
+            } else {
+                '-'
+            };
+            println!("{path}{sep}{}{sep}{line}", i + 1);
+        }
+    }
 }
 
 fn run(mut cli: Cli) -> Result<ExitCode, String> {
@@ -123,9 +150,16 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
 
     let mode = Mode::from(&cli);
     let emit_present = cli.emit.is_some() || cli.emit_stderr.is_some();
-    let need_lines =
-        (matches!(mode, Mode::Detail | Mode::Summary) || emit_present) && grep_re.is_some();
+    let need_lines = (matches!(mode, Mode::Detail | Mode::Summary) || emit_present || cli.json)
+        && grep_re.is_some();
     let collect_matches = emit_present || cli.json;
+    // Context is a *display* of the hits, so it is only assembled where hits are
+    // printed as lines; `--context 0` stays the plain `path:line:text` form.
+    let ctx = cli.context.unwrap_or(0);
+    let want_context = ctx > 0 && matches!(mode, Mode::Detail) && !cli.json;
+    // `--` separates windows across the whole run, not per file.
+    let mut opened = false;
+    let mut hit_rows: Vec<serde_json::Value> = Vec::new();
 
     if !cli.json
         && !cli.quiet
@@ -167,6 +201,10 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         }
 
         let mut lines: Vec<(usize, String)> = Vec::new();
+        // 0-based indices to *show* — the hit lines themselves, plus the rest of
+        // a matched block, which `lines` deliberately counts only once.
+        let mut shown: Vec<usize> = Vec::new();
+        let mut content = String::new();
         if let Some(grep) = &grep_re {
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
@@ -175,7 +213,7 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
                 Ok(b) => b,
                 Err(_) => continue,
             };
-            let content = String::from_utf8_lossy(&bytes);
+            content = String::from_utf8_lossy(&bytes).into_owned();
             match grep {
                 Grep::Line(re) => {
                     if !re.is_match(&content) {
@@ -185,6 +223,7 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
                         for (i, line) in content.lines().enumerate() {
                             if re.is_match(line) {
                                 lines.push((i + 1, line.to_string()));
+                                shown.push(i);
                             }
                         }
                     }
@@ -204,6 +243,9 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
                     }
                     for s in starts {
                         lines.push((s + 1, file_lines[s].to_string()));
+                        // A block hit shows whole, so the window around it is
+                        // context on the block, not on its first line.
+                        shown.extend(s..(s + b.len()).min(file_lines.len()));
                     }
                 }
             }
@@ -214,17 +256,37 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         if collect_matches {
             match_paths.push(entry.path().display().to_string());
         }
+        if cli.json && cli.detail {
+            for (ln, text) in &lines {
+                hit_rows.push(json!({
+                    "path": entry.path().display().to_string(),
+                    "line": ln,
+                    "text": text,
+                }));
+            }
+        }
 
         if !cli.json {
             match mode {
                 Mode::List => println!("{}", entry.path().display()),
                 Mode::Detail => {
-                    if grep_re.is_some() && !lines.is_empty() {
+                    if grep_re.is_none() || lines.is_empty() {
+                        println!("{}", entry.path().display());
+                    } else if want_context {
+                        let file_lines: Vec<&str> = content.lines().collect();
+                        shown.sort_unstable();
+                        shown.dedup();
+                        print_windows(
+                            &entry.path().display().to_string(),
+                            &file_lines,
+                            &shown,
+                            ctx,
+                            &mut opened,
+                        );
+                    } else {
                         for (ln, text) in &lines {
                             println!("{}:{}:{}", entry.path().display(), ln, text);
                         }
-                    } else {
-                        println!("{}", entry.path().display());
                     }
                 }
                 Mode::Summary | Mode::Quiet => {}
@@ -272,7 +334,7 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
     let verdict = expect.eval(matched as u64);
 
     if cli.json {
-        let obj = json!({
+        let mut obj = json!({
             "tool": "ct-search",
             "verdict": verdict.label(),
             "base": cli.base.display().to_string(),
@@ -280,6 +342,9 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
             "lines": total_lines,
             "matches": match_paths,
         });
+        if cli.detail {
+            obj["hits"] = json!(hit_rows);
+        }
         coding_tools::jsonout::print(&obj, cli.json_pretty);
     } else if emit_present {
         let count = matched.to_string();

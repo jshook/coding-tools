@@ -110,6 +110,10 @@ pub struct Cli {
     #[arg(long)]
     pub detail: bool,
 
+    /// Lines of context printed around each --grep hit under --detail, grep-style: a hit is path:line:text, a context line is path-line-text, and '--' separates windows. Implies --detail.
+    #[arg(long, short = 'C', value_name = "N")]
+    pub context: Option<usize>,
+
     /// Output mode: print nothing; report via exit status only.
     #[arg(long)]
     pub quiet: bool,

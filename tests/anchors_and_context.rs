@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Jonathan Shook
 
-//! Guards on `ct-edit`'s pattern rules, where the suite's promotion rule used to
-//! fight the code it was pointed at.
+//! Guards on the three answers to "the pattern rules fought the code":
 //!
-//! 1. `--find` is **literal by default** — an anchor is a piece of code, and
-//!    code is made of the characters promotion would read as syntax. `--mode
-//!    regex`/`glob` ask for the other readings; `--mode auto` restores the
-//!    promotion rule the rest of the suite still applies to *queries*.
+//! 1. `ct-edit --find` is **literal by default** — an anchor is a piece of code,
+//!    and code is made of the characters promotion would read as syntax.
+//!    `--mode regex`/`glob` ask for the other readings; `--mode auto` restores
+//!    the promotion rule the rest of the suite still applies to *queries*.
 //! 2. `--nth`/`--at` pick **one** site when an anchor genuinely is not unique,
 //!    without giving up the `--expect` gate.
+//! 3. `ct-search --context` prints hits with surrounding lines in grep's own
+//!    shape, so "show me the matching lines with context" — the most common
+//!    read there is — no longer has to leave the suite.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const CT_EDIT: &str = env!("CARGO_BIN_EXE_ct-edit");
+const CT_SEARCH: &str = env!("CARGO_BIN_EXE_ct-search");
 
 /// A clean scratch directory for one test.
 fn scratch(tag: &str) -> PathBuf {
@@ -314,4 +317,86 @@ fn a_pick_is_a_single_edit_concept_and_a_script_refuses_it() {
         ],
     );
     assert_eq!(code(&both), 2, "{}", stderr(&both));
+}
+
+// ----- ct-search: hits with context ---------------------------------------------
+
+#[test]
+fn context_prints_grep_shaped_rows_and_separates_windows() {
+    let dir = scratch("context");
+    std::fs::write(
+        dir.join("a.rs"),
+        "one\ntwo\nMARK first\nfour\nfive\nsix\nseven\nMARK second\nnine\n",
+    )
+    .unwrap();
+
+    let out = run(
+        CT_SEARCH,
+        &dir,
+        &["--base", "a.rs", "--grep", "MARK", "--context", "1"],
+    );
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let text = stdout(&out).replace('\\', "/");
+    // A hit keeps grep's `:` separators; a context line uses `-`.
+    assert!(text.contains("a.rs:3:MARK first"), "{text}");
+    assert!(text.contains("a.rs-2-two"), "{text}");
+    assert!(text.contains("a.rs-4-four"), "{text}");
+    // Non-adjacent windows are separated, exactly as grep does it.
+    assert!(text.contains("\n--\n"), "{text}");
+    assert!(text.contains("a.rs:8:MARK second"), "{text}");
+    // Lines outside both windows are not printed.
+    assert!(!text.contains("six"), "{text}");
+
+    // Overlapping windows merge into one, with no separator inside them.
+    let wide = run(
+        CT_SEARCH,
+        &dir,
+        &["--base", "a.rs", "--grep", "MARK", "--context", "4"],
+    );
+    assert!(!stdout(&wide).contains("\n--\n"), "{}", stdout(&wide));
+}
+
+#[test]
+fn context_implies_detail_and_zero_context_is_the_plain_form() {
+    let dir = scratch("context-modes");
+    std::fs::write(dir.join("a.rs"), "alpha\nMARK\nbeta\n").unwrap();
+
+    // No --detail passed: --context turns it on.
+    let ctx = run(
+        CT_SEARCH,
+        &dir,
+        &["--base", "a.rs", "--grep", "MARK", "-C", "1"],
+    );
+    assert!(stdout(&ctx).contains("a.rs-1-alpha"), "{}", stdout(&ctx));
+
+    // `--context 0` is `--detail`: hits only, no context rows.
+    let zero = run(
+        CT_SEARCH,
+        &dir,
+        &["--base", "a.rs", "--grep", "MARK", "--context", "0"],
+    );
+    let text = stdout(&zero);
+    assert!(text.contains(":2:MARK"), "{text}");
+    assert!(!text.contains("alpha"), "{text}");
+
+    // The default list mode is untouched by any of this.
+    let list = run(CT_SEARCH, &dir, &["--base", "a.rs", "--grep", "MARK"]);
+    assert_eq!(stdout(&list).lines().count(), 1, "{}", stdout(&list));
+}
+
+#[test]
+fn detail_json_carries_the_hit_lines() {
+    let dir = scratch("context-json");
+    std::fs::write(dir.join("a.rs"), "alpha\nMARK\nbeta\nMARK\n").unwrap();
+    let out = run(
+        CT_SEARCH,
+        &dir,
+        &["--base", "a.rs", "--grep", "MARK", "--detail", "--json"],
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("json");
+    let hits = v["hits"].as_array().expect("hits array");
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0]["line"], 2);
+    assert_eq!(hits[1]["line"], 4);
+    assert_eq!(hits[0]["text"], "MARK");
 }
