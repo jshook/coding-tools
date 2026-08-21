@@ -724,7 +724,11 @@ fn rule_find_grep(stages: &[Vec<String>]) -> Option<Steer> {
     Some(Steer {
         rule_id: "find-grep",
         tool: "ct search",
-        suggestion: search_suggestion(find_base(find), glob, pat),
+        suggestion: format!(
+            "{}{}",
+            search_suggestion(find_base(find), glob, pat),
+            grep_display_tail(grep_stage)
+        ),
         note: "ct search recurses, filters by name/type/size, and greps in one declarative pass — find | xargs grep in a single command",
     })
 }
@@ -738,11 +742,15 @@ fn rule_grep_recursive(stages: &[Vec<String>]) -> Option<Steer> {
         if recursive_grep || matches!(cmd, "rg" | "ripgrep" | "ag") {
             let pat = grep_pattern(s);
             // `grep -r PAT PATH` / `rg PAT PATH`: the second positional is the path.
-            let base = positionals(s).get(1).copied();
+            let base = grep_positionals(s).get(1).copied();
             return Some(Steer {
                 rule_id: "grep-recursive",
                 tool: "ct search",
-                suggestion: search_suggestion(base, None, pat),
+                suggestion: format!(
+                    "{}{}",
+                    search_suggestion(base, None, pat),
+                    grep_display_tail(s)
+                ),
                 note: "ct search is the suite's recursive content search, with a framed --expect verdict (e.g. --expect none asserts absence)",
             });
         }
@@ -938,6 +946,95 @@ fn search_suggestion(base: Option<&str>, name: Option<&str>, grep: Option<&str>)
     out
 }
 
+/// The `ct search` output tail that reproduces a grep stage's *display*:
+/// `--detail` for `-n` (one `path:line:text` row per hit) and
+/// `--context N` for `-C`/`-A`/`-B` (the widest of them wins, since ct-search
+/// shows one symmetric window). Empty when the grep asked for neither, which is
+/// the plain "which files" search `--list` already answers.
+///
+/// Without this, the suggestion for `grep -rn -C3 PAT src` dropped the two
+/// flags that made it worth running — the steer read as "ct search cannot do
+/// that", and the caller went back to grep.
+fn grep_display_tail(stage: &[String]) -> String {
+    let n = |names: &[&str], ch: char| -> Option<usize> {
+        flag_value(stage, names)
+            .and_then(|v| v.parse().ok())
+            .or_else(|| attached_short_value(stage, ch)?.parse().ok())
+    };
+    let ctx = [
+        n(&["-C", "--context"], 'C'),
+        n(&["-A", "--after-context"], 'A'),
+        n(&["-B", "--before-context"], 'B'),
+    ]
+    .into_iter()
+    .flatten()
+    .max();
+    match ctx {
+        Some(c) if c > 0 => format!(" --detail --context {c}"),
+        _ if has_short(stage, 'n') || has_flag(stage, "--line-number") => " --detail".to_string(),
+        _ => String::new(),
+    }
+}
+
+/// The digits attached to a short flag in a bundled argument: `-C3` -> `"3"`,
+/// `-rnC3` -> `"3"`. Returns [`None`] when the flag is absent or its value was
+/// written as a separate word (which [`flag_value`] handles).
+fn attached_short_value(stage: &[String], ch: char) -> Option<&str> {
+    for w in stage {
+        if !w.starts_with('-') || w.starts_with("--") {
+            continue;
+        }
+        if let Some(i) = w[1..].find(ch) {
+            let rest = &w[1 + i + 1..];
+            if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+                return Some(rest);
+            }
+        }
+    }
+    None
+}
+
+/// A grep stage's positional arguments, counted from the grep token itself (so
+/// `xargs grep TODO` yields `["TODO"]`) and with the values of its value-taking
+/// flags removed: in `grep -r -C 3 PAT src`, the `3` belongs to `-C` and is
+/// neither the pattern nor the path.
+fn grep_positionals(stage: &[String]) -> Vec<&str> {
+    const TAKES_VALUE: [char; 6] = ['C', 'A', 'B', 'm', 'e', 'f'];
+    let start = stage
+        .iter()
+        .position(|w| {
+            matches!(
+                base_name(w),
+                "grep" | "egrep" | "fgrep" | "rg" | "ripgrep" | "ag"
+            )
+        })
+        .map_or(1, |i| i + 1);
+    let mut out = Vec::new();
+    let mut skip_next = false;
+    for w in stage.iter().skip(start) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if w.starts_with("--") {
+            skip_next = matches!(
+                w.as_str(),
+                "--context" | "--after-context" | "--before-context" | "--max-count" | "--regexp"
+            );
+            continue;
+        }
+        if w.starts_with('-') && w.len() > 1 {
+            // A bundled short run takes a following value only when its LAST
+            // character is value-taking and nothing is attached (`-rC 3`).
+            let last = w.chars().last().unwrap_or(' ');
+            skip_next = TAKES_VALUE.contains(&last);
+            continue;
+        }
+        out.push(w.as_str());
+    }
+    out
+}
+
 /// Build a `ct view` suggestion for a file and optional line range.
 fn view_steer(file: Option<&str>, range: Option<(u32, u32)>) -> Steer {
     let f = file.unwrap_or("<file>");
@@ -1034,19 +1131,7 @@ fn grep_pattern(stage: &[String]) -> Option<&str> {
     if let Some(v) = flag_value(stage, &["-e", "--regexp"]) {
         return Some(v);
     }
-    let start = stage
-        .iter()
-        .position(|w| {
-            matches!(
-                base_name(w),
-                "grep" | "egrep" | "fgrep" | "rg" | "ripgrep" | "ag"
-            )
-        })
-        .map_or(1, |i| i + 1);
-    stage[start..]
-        .iter()
-        .find(|w| !w.starts_with('-'))
-        .map(String::as_str)
+    grep_positionals(stage).first().copied()
 }
 
 /// Parse `s/FIND/REPLACE/flags` (any single-char delimiter) → (find, replace).
@@ -1110,12 +1195,29 @@ fn parse_sed_range(w: &str) -> Option<(u32, u32)> {
 // through [`analyze`].
 
 /// Steer a harness `Grep` call to `ct search` (the suite's content search).
-pub fn grep_steer(pattern: &str, path: Option<&str>, glob: Option<&str>) -> Steer {
+///
+/// `context` is the widest of the call's `-C`/`-A`/`-B`, and `lines` its `-n`
+/// (or `output_mode: "content"`, which prints matching lines). Both are carried
+/// into the suggestion, so the steer offers the same read the caller asked for
+/// rather than a bare file list.
+pub fn grep_steer(
+    pattern: &str,
+    path: Option<&str>,
+    glob: Option<&str>,
+    context: Option<i64>,
+    lines: bool,
+) -> Steer {
+    let mut suggestion = search_suggestion(path, glob, Some(pattern));
+    match context {
+        Some(c) if c > 0 => suggestion.push_str(&format!(" --detail --context {c}")),
+        _ if lines => suggestion.push_str(" --detail"),
+        _ => {}
+    }
     Steer {
         rule_id: "harness-grep",
         tool: "ct search",
-        suggestion: search_suggestion(path, glob, Some(pattern)),
-        note: "ct search is the suite's content search — recursive, filtered by name/type/size, with a framed --expect verdict; ct outline maps a file's symbols when you are after a definition",
+        suggestion,
+        note: "ct search is the suite's content search — recursive, filtered by name/type/size, with a framed --expect verdict; --detail gives grep -n rows and --context N surrounds them, and ct outline maps a file's symbols when you are after a definition",
     }
 }
 
@@ -1243,6 +1345,13 @@ pub mod hook {
                 str_field(input, "pattern")?,
                 str_field(input, "path"),
                 str_field(input, "glob"),
+                ["-C", "-A", "-B"]
+                    .iter()
+                    .filter_map(|k| int_field(input, k))
+                    .max(),
+                int_field(input, "-n").is_some()
+                    || input.get("-n").and_then(Value::as_bool).unwrap_or(false)
+                    || str_field(input, "output_mode") == Some("content"),
             )),
             "Glob" => Some(glob_steer(
                 str_field(input, "pattern")?,
