@@ -139,10 +139,11 @@ fn deps_rejects_unknown_flag_with_a_valid_flags_hint() {
 
 #[test]
 fn deps_acyclic_and_layers_over_this_workspace() {
-    assert_eq!(
-        deps_check(&["--acyclic", "--edges", "normal"]).0,
-        ProbeOutcome::Holds
-    );
+    let (outcome, reason, _) = deps_check(&["--acyclic", "--edges", "normal"]);
+    // A BROKEN probe is a defect in the check itself; say what it said, or the
+    // failure reads as "the crate graph has a cycle" when it means "cargo
+    // metadata would not run here".
+    assert_eq!(outcome, ProbeOutcome::Holds, "{reason}");
     // Member-scoped: this single-crate workspace has no member-to-member cycle.
     assert_eq!(
         deps_check(&["--acyclic", "--members"]).0,
