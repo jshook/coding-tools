@@ -22,6 +22,7 @@ allowed silently. It runs ahead of *every* shell call, so a miss costs nothing.
 | `grep -r`, `rg`, `ag` | `ct search` |
 | `find … -name` (no grep) | `ct search` |
 | `grep -c PATTERN file` (count matches) | `ct search --summary` (`--expect` to assert) |
+| `cat > f <<EOF`, `echo … > f`, `printf … > f`, `touch f` | `ct new` (refuses to clobber; `>` truncates silently) |
 | `sed -i`, `perl -i` | `ct edit` (preview + `--expect` gate) |
 | `head`/`tail`/`sed -n 'A,Bp'` on a file | `ct view --range` |
 | `python -c`/`node -e`/`perl -e`/`ruby -e`/`jq` reading a file | `ct view` / `ct search` |

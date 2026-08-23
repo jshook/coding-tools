@@ -24,7 +24,7 @@ use crate::pulse::HeartbeatOpts;
     version,
     about = "Steer ad-hoc shell commands to the ct tool that serves them; install the PreToolUse hook.",
     long_about = "ct-steer recognises the shell idioms a ct tool serves better (find | xargs grep, \
-                  sed -i, cat | head, for-loops, && / || chains) and, as a Claude Code PreToolUse \
+                  sed -i, cat > f, touch, cat | head, for-loops, && / || chains) and, as a Claude Code PreToolUse \
                   hook, steers the agent to the ct equivalent instead. Also reachable as `ct steer`. \
                   Subcommands: `hook` is the runtime hook (reads a PreToolUse envelope on stdin); \
                   `install`/`uninstall` wire it into .claude/settings.json; `check` shows what the \

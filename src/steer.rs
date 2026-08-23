@@ -647,9 +647,13 @@ fn analyze_one(command: &str) -> Option<Steer> {
         });
     }
 
-    // A single command (possibly with pipes): the common, high-value case.
+    // A single command (possibly with pipes): the common, high-value case. The
+    // create rule is consulted first because it is the only one that reads the
+    // raw statement — the lexer drops `>` along with the rest of the
+    // redirection syntax, and a write redirect is exactly what it keys on.
     if segs.len() == 1 {
-        return analyze_segment(&seg_stages[0]);
+        return rule_write_redirect(command, &seg_stages[0])
+            .or_else(|| analyze_segment(&seg_stages[0]));
     }
 
     // A chain (`&&` / `||`): only steer when *every* segment is itself
@@ -701,7 +705,8 @@ fn chain_steer(head: &'static str, parts: &[Steer]) -> Steer {
 /// Classify a single control segment (its pipeline stages). Rule order encodes
 /// priority: the most specific idiom wins.
 fn analyze_segment(stages: &[Vec<String>]) -> Option<Steer> {
-    rule_find_grep(stages)
+    rule_touch(stages)
+        .or_else(|| rule_find_grep(stages))
         .or_else(|| rule_grep_recursive(stages))
         .or_else(|| rule_grep_count(stages))
         .or_else(|| rule_sed_inplace(stages))
@@ -845,6 +850,88 @@ fn rule_sed_inplace(stages: &[Vec<String>]) -> Option<Steer> {
         tool: "ct edit",
         suggestion,
         note: "ct edit previews the diff (--dry-run) and writes only when the match count matches --expect, so a wrong-sized in-place edit fails loudly instead of applying silently",
+    })
+}
+
+/// The file a statement redirects its standard output into (`> FILE`), if any.
+///
+/// Quote-aware and deliberately narrow: `>>` (an append, which is not a create)
+/// and descriptor plumbing (`2>`, `>&2`) return nothing, and a `>` inside quotes
+/// is not a redirect at all. The last redirect wins, as the shell's would.
+fn write_redirect(command: &str) -> Option<String> {
+    let bytes = command.as_bytes();
+    let mut quote: Option<char> = None;
+    let mut target = None;
+    for (i, c) in command.char_indices() {
+        match c {
+            '\'' | '"' if quote == Some(c) => quote = None,
+            '\'' | '"' if quote.is_none() => quote = Some(c),
+            '>' if quote.is_none() => {
+                // `>>` appends to a file; ct-new creates one, so leave it alone.
+                if command[i + 1..].starts_with('>') || i > 0 && bytes[i - 1] == b'>' {
+                    return None;
+                }
+                // `2> log` / `>&2`: descriptor plumbing, not a file being made.
+                if i > 0 && bytes[i - 1].is_ascii_digit() {
+                    continue;
+                }
+                let rest = command[i + 1..].trim_start();
+                if rest.starts_with('&') {
+                    continue;
+                }
+                let word: String = rest
+                    .chars()
+                    .take_while(|c| !c.is_whitespace() && !matches!(c, ';' | '&' | '|' | '<'))
+                    .collect();
+                let word = word.trim_matches(['\'', '"']).to_string();
+                if !word.is_empty() {
+                    target = Some(word);
+                }
+            }
+            _ => {}
+        }
+    }
+    target
+}
+
+/// `cat > f <<EOF`, `echo … > f`, `printf … > f` → `ct new`.
+///
+/// The shell's `>` is the suite's one remaining silent write: it truncates an
+/// existing file without a word, writes happily to a mistyped path, and reports
+/// nothing about what landed.
+fn rule_write_redirect(command: &str, stages: &[Vec<String>]) -> Option<Steer> {
+    let head = stages.first().and_then(|s| cmd_of(s))?;
+    if !matches!(head, "cat" | "echo" | "printf") {
+        return None;
+    }
+    let file = write_redirect(command)?;
+    // A heredoc (or a `cat` with no operand) already has the body on stdin;
+    // `ct new --content stdin:` takes it unchanged, with no escaping.
+    let from_stdin = command.contains("<<") || head == "cat";
+    Some(Steer {
+        rule_id: "write-redirect",
+        tool: "ct new",
+        suggestion: format!(
+            "ct new {} --content {} --expect =1",
+            q(&file),
+            if from_stdin { "stdin:" } else { "<text>" }
+        ),
+        note: "ct new says what it will do before it does it: an existing target is refused unless --on-exists says otherwise (a shell > truncates it silently), a missing parent directory is an error unless --parents, and --dry-run previews the bytes",
+    })
+}
+
+/// `touch f` → `ct new f --empty`.
+fn rule_touch(stages: &[Vec<String>]) -> Option<Steer> {
+    let stage = stages.iter().find(|s| cmd_of(s) == Some("touch"))?;
+    let file = positionals(stage).into_iter().next();
+    Some(Steer {
+        rule_id: "touch-create",
+        tool: "ct new",
+        suggestion: match file {
+            Some(f) => format!("ct new {} --empty --expect =1", q(f)),
+            None => "ct new <path> --empty --expect =1".to_string(),
+        },
+        note: "ct new --empty creates the file as a checked step (exit 1 if it was already there, --on-exists skip when that is fine); touch reports nothing and silently restamps an existing file",
     })
 }
 
@@ -2019,6 +2106,49 @@ mod tests {
             rule("for f in a b; do grep -r x $f; done"),
             Some("shell-loop")
         );
+    }
+
+    /// The create idioms — the shell's one remaining silent write — and, just
+    /// as important, the shapes next to them that must stay alone: an append,
+    /// descriptor plumbing, a `>` inside quotes, and a plain read.
+    #[test]
+    fn steers_file_creation_to_ct_new() {
+        for cmd in [
+            "cat > src/foo.rs <<EOF",
+            "echo hello > notes.txt",
+            "printf 'x' > a.txt",
+        ] {
+            assert_eq!(tool(cmd), Some("ct new"), "{cmd}");
+            assert_eq!(rule(cmd), Some("write-redirect"), "{cmd}");
+        }
+        // A heredoc body is already on stdin; the suggestion takes it verbatim.
+        let s = analyze("cat > src/foo.rs <<EOF").unwrap();
+        assert!(s.suggestion.contains("--content stdin:"), "{s:?}");
+        assert!(s.suggestion.contains("'src/foo.rs'"), "{s:?}");
+
+        assert_eq!(tool("touch .keep"), Some("ct new"));
+        assert_eq!(rule("touch .keep"), Some("touch-create"));
+        assert!(
+            analyze("touch .keep")
+                .unwrap()
+                .suggestion
+                .contains("--empty"),
+            "an empty create is what touch actually asks for"
+        );
+
+        // Not creates: an append, stderr plumbing, a quoted '>', and a read.
+        for cmd in [
+            "echo x >> log.txt",
+            "cargo test 2> errors.log",
+            "echo \"a > b\"",
+            "cat src/foo.rs",
+            "echo hi",
+        ] {
+            assert_eq!(rule(cmd), None, "{cmd} must not steer to ct new");
+        }
+        // A redirected search is still a search: the create rule only fires for
+        // the commands whose whole purpose is writing the file.
+        assert_eq!(rule("grep -rn foo src > out.txt"), Some("grep-recursive"));
     }
 
     #[test]
