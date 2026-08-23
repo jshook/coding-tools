@@ -1,6 +1,10 @@
 # Continuous checks on every push to main and every pull request: formatting,
 # lints, and the full test suite (unit + integration + doctests).
 #
+# Every job carries a `timeout-minutes`: a job that hangs is a bug, and without
+# a bound it burns the workflow's whole 6-hour budget before reporting it —
+# which is how a hung test once kept `main` red for a month at six hours a run.
+#
 # The dispatching tools (ct-test/ct-each/ct-await) launch read-only commands per
 # platform, so the test suite is run in BOTH supported runtime environments:
 # native Windows (no MSYS2, the suite's cross-platform ct-* tools + stock Windows
@@ -22,6 +26,7 @@ jobs:
   check:
     name: fmt · clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -44,6 +49,7 @@ jobs:
   audit:
     name: audit
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -63,6 +69,7 @@ jobs:
   test:
     name: test · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -88,6 +95,7 @@ jobs:
   test-windows-msys2:
     name: test · windows-msys2
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
 
