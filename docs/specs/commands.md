@@ -29,6 +29,7 @@ can call by its full name.
 | `ct-search` | Recursively find files by name, type, size, and content from a chosen root — replaces `find … \| xargs grep …`. | [explain/ct-search.md](../explain/ct-search.md) |
 | `ct-view`   | Show one file's lines by range, or the regions around a pattern with context — a bounded read. | [explain/ct-view.md](../explain/ct-view.md) |
 | `ct-tree`   | Report a file tree with per-file line/word/char counts; filter, sort, and summarise. | [explain/ct-tree.md](../explain/ct-tree.md) |
+| `ct-new`    | Create a file with the content you give it — an existing target is refused unless `--on-exists` says otherwise; `--script` creates a batch atomically. | [explain/ct-new.md](../explain/ct-new.md) |
 | `ct-edit`   | Find/replace across selected files, gated by an `--expect` verdict and previewable with `--dry-run`. | [explain/ct-edit.md](../explain/ct-edit.md) |
 | `ct-patch`  | Set/delete nodes by path in JSON/JSONC/JSONL, preserving comments and formatting. | [explain/ct-patch.md](../explain/ct-patch.md) |
 | `ct-test`   | Run a command as a framed experiment — pose a question, classify the result from output, emit a templated verdict. | [explain/ct-test.md](../explain/ct-test.md) |
@@ -80,7 +81,8 @@ These hold for every tool; each tool's page documents them in full.
   byte-for-byte) in `ct-search`/`ct-view`/`ct-edit`, with a *nearest-miss*
   diagnostic when a block matches nothing.
 * **Prepare/confirm/write.** Every block operation spanning multiple edit
-  sites or files (`ct-edit --script`) is validated *in full, in memory* —
+  sites or files (`ct-edit --script`, `ct-new --script`) is validated *in full,
+  in memory* —
   matching, expectations, and write pre-flight — before any file changes;
   nothing is written unless the whole operation is confirmed. There is no
   flag that permits a partial write. See `docs/specs/blocks.md`.

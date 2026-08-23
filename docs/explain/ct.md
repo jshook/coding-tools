@@ -32,6 +32,7 @@ around a `ct` tool that fits the task as a defect.
 | file tree with per-file counts / totals | `ct tree --summary` | `ls -R`, `tree`, `wc -l` |
 | survey crates / modules with counts | `ct survey` | ad-hoc `cargo metadata` + `wc` |
 | declarations in a file or tree | `ct outline` | grepping for `fn `/`class `/`def ` |
+| create a file that does not exist yet | `ct new` (explicit `--on-exists`, never silently clobbers) | `cat > f <<EOF`, `echo … > f`, `touch` |
 | find/replace across files | `ct edit` (previewed, `--expect`-gated) | `sed -i`, `perl -i` |
 | set/delete nodes in JSON/JSONC/JSONL | `ct patch` | `jq -i`, hand-editing JSON |
 | run a command as a checked experiment | `ct test` | eyeballing raw output |
@@ -114,6 +115,7 @@ from `.ct/rules.jsonc` at completion time — rule ids for `ct check --id` /
 | `ct search` | `ct-search` | Recursively find files by name, type, size, and content.           |
 | `ct view`   | `ct-view`   | Show a file's lines by range, or the regions around a pattern.      |
 | `ct tree`   | `ct-tree`   | Report a file tree with per-file line/word/char counts and filters. |
+| `ct new`    | `ct-new`    | Create a file with the content you give it, refusing to clobber what is there. |
 | `ct edit`   | `ct-edit`   | Find/replace across files, gated by `--expect` and `--dry-run`.     |
 | `ct patch`  | `ct-patch`  | Set/delete nodes by path in JSON/JSONC/JSONL, preserving formatting. |
 | `ct test`   | `ct-test`   | Run a command as a framed experiment with a templated verdict.      |

@@ -41,6 +41,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "Report a file tree with per-file line/word/char counts and filters (ct-tree)",
     ),
     (
+        "new",
+        "Create a file with the content you give it, refusing to clobber (ct-new)",
+    ),
+    (
         "edit",
         "Find/replace across files, gated by an --expect verdict and --dry-run (ct-edit)",
     ),
@@ -101,6 +105,7 @@ those — reaching for it \"because it is quick\" is the exact mistake this suit
   tree     file tree with counts / totals  not  ls -R, tree, wc -l
   survey   crate / module survey w/ counts not  ad-hoc cargo metadata + wc
   outline  declarations in a file or tree  not  grepping for 'fn '/'class '/'def '
+  new      create a file that is not there not  cat > f, touch, echo > f
   edit     find/replace, previewed + gated not  sed -i, perl -i
   patch    set/delete JSON/JSONC nodes     not  jq -i, hand-editing JSON
   test     run a command as an experiment  not  eyeballing raw output

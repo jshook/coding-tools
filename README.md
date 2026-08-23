@@ -19,6 +19,7 @@ full name.
 | `ct search` | `ct-search` | Recursively find files by name, type, size, and content (`find \| xargs grep`). |
 | `ct view`   | `ct-view`   | Show a file's lines by range, or the regions around a pattern with context.   |
 | `ct tree`   | `ct-tree`   | Report a file tree with per-file line/word/char counts; filter, sort, summarise. |
+| `ct new`    | `ct-new`    | Create a file with the content you give it, refusing to clobber (`cat > f`).  |
 | `ct edit`   | `ct-edit`   | Find/replace across files, gated by an `--expect` verdict and `--dry-run`.    |
 | `ct patch`  | `ct-patch`  | Set/delete nodes by path in JSON/JSONC/JSONL, preserving comments and layout. |
 | `ct test`   | `ct-test`   | Run a command as a framed experiment; classify the result from its output.    |
