@@ -51,7 +51,9 @@ fn install_shutdown_handlers() -> Result<(), String> {
     // copies the action before this stack frame ends.
     unsafe {
         let mut action: libc::sigaction = std::mem::zeroed();
-        action.sa_sigaction = shutdown_signal as usize;
+        // Through a pointer, not straight to an integer: a direct function-item
+        // cast is what `clippy::function_casts_as_integer` refuses.
+        action.sa_sigaction = shutdown_signal as *const () as usize;
         libc::sigemptyset(&mut action.sa_mask);
         for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
