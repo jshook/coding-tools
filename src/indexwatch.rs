@@ -573,6 +573,30 @@ impl MemoryMonitor {
     }
 }
 
+/// Whether a watch event reports that something *changed*, as opposed to
+/// something merely being read.
+///
+/// This is where the two backends disagree, and the disagreement is a trap.
+/// Linux inotify reports reads — `IN_OPEN`, `IN_ACCESS`, `IN_CLOSE_NOWRITE`,
+/// on directories as well as files — while Windows' `ReadDirectoryChangesW`
+/// reports only modifications. The daemon *reads the very directories it
+/// watches* on every reconciliation, so counting a read as a change makes the
+/// watcher feed itself: scan → access events → dirty → reconcile → scan, at
+/// loop speed, forever. The daemon then never goes idle, because idleness is
+/// measured from the last batch.
+///
+/// A completed write (`IN_CLOSE_WRITE`) is the one access-class event that
+/// does report a change, so it is kept.
+fn reports_change(kind: &notify::EventKind) -> bool {
+    use notify::event::{AccessKind, AccessMode};
+
+    match kind {
+        notify::EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        notify::EventKind::Access(_) => false,
+        _ => true,
+    }
+}
+
 /// Ask a healthy daemon to drain observed events. Returns false quickly when no
 /// trustworthy daemon is present so the caller can reconcile synchronously.
 pub fn barrier(project: &Path) -> bool {
@@ -843,6 +867,9 @@ fn run_daemon_body(project: &Path, plan: Plan) -> Result<String, String> {
             break "signal".to_string();
         }
         match rx.recv_timeout(Duration::from_millis(25)) {
+            // A read is not a change. Dropped before the path filter, because
+            // the paths a read touches are exactly the ones being watched.
+            Ok(Ok(event)) if !reports_change(&event.kind) => {}
             Ok(Ok(event)) => {
                 for path in event.paths {
                     if path == plan.config_path || path == project.join(".ct/okf.jsonc") {
@@ -960,6 +987,68 @@ mod tests {
     use super::*;
 
     static DAEMON_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Run the daemon on its own thread and require it to stop within `bound`.
+    ///
+    /// Every daemon test asserts that the loop *ends* — on idle, on a memory
+    /// limit, on a signal. Calling it inline means a daemon that will not stop
+    /// does not fail those assertions, it hangs the whole suite behind this
+    /// module's serial lock; that is exactly how a watcher that fed itself on
+    /// Linux (see [`reports_change`]) kept CI running for six hours a build
+    /// instead of reporting a failure in seconds. The stop file is written on
+    /// the way out so the orphaned thread winds down rather than spinning
+    /// through the rest of the run.
+    fn run_daemon_bounded(project: &Path, plan: Plan, bound: Duration) -> Result<(), String> {
+        let done = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = done.clone();
+        let owned = project.to_path_buf();
+        let daemon = std::thread::spawn(move || {
+            let outcome = run_daemon_logged(&owned, plan);
+            flag.store(true, Ordering::SeqCst);
+            outcome
+        });
+        let start = Instant::now();
+        while !done.load(Ordering::SeqCst) {
+            if start.elapsed() >= bound {
+                let _ = request_stop(project);
+                panic!("daemon did not stop within {bound:?}");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        daemon.join().unwrap()
+    }
+
+    /// The watcher must never treat its own reads as work to do. inotify
+    /// reports them and `ReadDirectoryChangesW` does not, so this policy is the
+    /// only thing standing between the two backends and a daemon that
+    /// reconciles forever on Linux.
+    #[test]
+    fn a_read_is_not_a_change() {
+        use notify::EventKind;
+        use notify::event::{AccessKind, AccessMode, CreateKind, ModifyKind, RemoveKind};
+
+        // What the daemon's own scan of a watched directory produces.
+        assert!(!reports_change(&EventKind::Access(AccessKind::Open(
+            AccessMode::Read
+        ))));
+        assert!(!reports_change(&EventKind::Access(AccessKind::Read)));
+        assert!(!reports_change(&EventKind::Access(AccessKind::Close(
+            AccessMode::Read
+        ))));
+
+        // A finished write is an access event that does mean something changed.
+        assert!(reports_change(&EventKind::Access(AccessKind::Close(
+            AccessMode::Write
+        ))));
+
+        // Everything else is a change until proven otherwise: an unknown event
+        // must reconcile rather than be silently dropped.
+        assert!(reports_change(&EventKind::Create(CreateKind::File)));
+        assert!(reports_change(&EventKind::Modify(ModifyKind::Any)));
+        assert!(reports_change(&EventKind::Remove(RemoveKind::File)));
+        assert!(reports_change(&EventKind::Any));
+        assert!(reports_change(&EventKind::Other));
+    }
 
     #[test]
     fn stale_status_is_not_healthy() {
@@ -1098,7 +1187,7 @@ mod tests {
             config_path: project.join(".ct/index.jsonc"),
         };
         let started = Instant::now();
-        run_daemon_logged(&project, plan).unwrap();
+        run_daemon_bounded(&project, plan, Duration::from_secs(15)).unwrap();
         assert!(started.elapsed() >= Duration::from_secs(1));
         assert!(started.elapsed() < Duration::from_secs(5));
         let log = std::fs::read_to_string(runtime_dir(&project).join(LIFECYCLE_LOG)).unwrap();
@@ -1136,7 +1225,7 @@ mod tests {
             daemon_memory_limit_automatic: false,
             config_path: project.join(".ct/index.jsonc"),
         };
-        run_daemon_logged(&project, plan).unwrap();
+        run_daemon_bounded(&project, plan, Duration::from_secs(15)).unwrap();
         let status = read_status(&project).unwrap();
         assert_eq!(status.lane, "unavailable");
         assert!(status.memory_rss_bytes > status.memory_limit_bytes);
@@ -1168,7 +1257,7 @@ mod tests {
             config_path: project.join(".ct/index.jsonc"),
         };
         SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
-        run_daemon_logged(&project, plan).unwrap();
+        run_daemon_bounded(&project, plan, Duration::from_secs(15)).unwrap();
         SHUTDOWN_REQUESTED.store(false, Ordering::SeqCst);
         assert_eq!(read_status(&project).unwrap().lane, "unavailable");
         assert!(!daemon_running(&project).unwrap());
