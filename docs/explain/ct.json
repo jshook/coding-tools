@@ -1,16 +1,17 @@
 {
   "name": "ct",
-  "description": "USE ct — DO NOT ROUTE AROUND IT. When a task has a ct tool, call that tool instead of raw shell or the harness's generic search/read tools; each ct tool is bounded (it will not flood context), deterministic, and self-verifying (a framed --expect/--question verdict, exit 0/1/2), and the ad-hoc equivalent is none of those even when it appears to work. Map: search = find files / search content (not find, grep -r, rg, ag, Grep, Glob); view --range = read a line range or regions (not sed -n, head, tail, Read offset/limit); tree --summary = file tree with counts/totals and survey = crate/module survey (not ls -R, wc -l, ad-hoc cargo metadata); outline = declarations in a file/tree (not grepping for 'fn '/'class '/'def '); edit = previewed, --expect-gated find/replace (not sed -i, perl -i); patch = set/delete JSON/JSONC/JSONL nodes (not jq -i or hand-editing); test = run a command as a checked experiment (not eyeballing output); each = one command template per item (not for/while loops); await = poll until a probe passes, including --tcp-port/--http for 'a local service is listening now' (not sleep/retry loops, nc -z, or curl polling). ONE CALL, NOT A PIPELINE: do not cobble commands with pipes, xargs, and command substitution — combine steps with `ct and`/`ct or` (shell-less &&/||), fan out with `ct each`, and get totals/verdicts with --summary and --expect/--question instead of piping into wc, grep, or test. A hand-built pipeline is unbounded and silent on failure; a ct call is bounded and reports its verdict. --- Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, ct okf runs ct-okf, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). Two built-in boolean chains sequence several sub-commands in a single argv without a shell, using the separator ::: between segments: `ct and A ::: B ::: C` runs each in turn and stops at the first non-zero exit (shell-less &&, returning that code; 0 if all succeed); `ct or A ::: B` runs each in turn and stops at the first zero exit (shell-less ||, returning 0; the last segment's code if all fail). A blank segment is a usage error (exit 2), and chains do not nest. To invoke a chain through this schema set command to 'and' or 'or' and put the segments (with ::: separators) in args. This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
+  "description": "USE ct — DO NOT ROUTE AROUND IT. When a task has a ct tool, call that tool instead of raw shell or the harness's generic search/read tools; each ct tool is bounded (it will not flood context), deterministic, and self-verifying (a framed --expect/--question verdict, exit 0/1/2), and the ad-hoc equivalent is none of those even when it appears to work. Map: search = find files / search content (not find, grep -r, rg, ag, Grep, Glob); view --range = read a line range or regions (not sed -n, head, tail, Read offset/limit); tree --summary = file tree with counts/totals and survey = crate/module survey (not ls -R, wc -l, ad-hoc cargo metadata); outline = declarations in a file/tree (not grepping for 'fn '/'class '/'def '); new = create a file that does not exist yet, with an explicit --on-exists policy so it never silently clobbers (not cat > f, echo > f, touch); edit = previewed, --expect-gated find/replace (not sed -i, perl -i); patch = set/delete JSON/JSONC/JSONL nodes (not jq -i or hand-editing); test = run a command as a checked experiment (not eyeballing output); each = one command template per item (not for/while loops); await = poll until a probe passes, including --tcp-port/--http for 'a local service is listening now' (not sleep/retry loops, nc -z, or curl polling). ONE CALL, NOT A PIPELINE: do not cobble commands with pipes, xargs, and command substitution — combine steps with `ct and`/`ct or` (shell-less &&/||), fan out with `ct each`, and get totals/verdicts with --summary and --expect/--question instead of piping into wc, grep, or test. A hand-built pipeline is unbounded and silent on failure; a ct call is bounded and reports its verdict. --- Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, ct okf runs ct-okf, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). Two built-in boolean chains sequence several sub-commands in a single argv without a shell, using the separator ::: between segments: `ct and A ::: B ::: C` runs each in turn and stops at the first non-zero exit (shell-less &&, returning that code; 0 if all succeed); `ct or A ::: B` runs each in turn and stops at the first zero exit (shell-less ||, returning 0; the last segment's code if all fail). A blank segment is a usage error (exit 2), and chains do not nest. To invoke a chain through this schema set command to 'and' or 'or' and put the segments (with ::: separators) in args. This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
   "input_schema": {
     "type": "object",
     "properties": {
       "command": {
         "type": "string",
-        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), edit (ct-edit), patch (ct-patch), test (ct-test), each (ct-each), outline (ct-outline), rules (ct-rules), check (ct-check), await (ct-await). Any other ct-* tool on PATH also works. The reserved words 'and' and 'or' run a shell-less boolean chain over the segments in args (separated by ':::') instead of a single tool.",
+        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), new (ct-new), edit (ct-edit), patch (ct-patch), test (ct-test), each (ct-each), outline (ct-outline), rules (ct-rules), check (ct-check), await (ct-await). Any other ct-* tool on PATH also works. The reserved words 'and' and 'or' run a shell-less boolean chain over the segments in args (separated by ':::') instead of a single tool.",
         "enum": [
           "search",
           "view",
           "tree",
+          "new",
           "edit",
           "patch",
           "test",
@@ -417,6 +418,95 @@
           "json-pretty": {
             "type": "boolean",
             "description": "Like --json, but pretty-printed (indented)."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ct-new",
+      "description": "Create a file with the content you give it, without clobbering what is already there — the suite's first move on a path that does not exist yet, replacing `cat > f <<EOF` / `echo … > f` / `touch f`. Two forms: `ct new PATH --content PAYLOAD` for one file, and `ct new --script FILE.ctb` for a batch. --content is payload-typed: literal TEXT, file:PATH (a template, verbatim), stdin: (all of standard input, verbatim — the shell-safe way to pass a body containing quotes, $ or backticks), text:VALUE to escape the prefix; --empty is the explicit zero-byte case (a missing --content is a usage error, never a silently empty file). A non-empty body gains the terminating newline a text file should end with unless --no-final-newline. An existing target is refused by default: --on-exists fail (nothing written, reported `blocked`, verdict ERROR), skip (accept it as-is, counted as ensured — an idempotent create), or overwrite (replace its contents). A missing parent directory is an error naming it until --parents is passed, so a mistyped path fails loudly instead of scattering directories; a path that is already a directory is an error. Each file is published atomically, so a reader never sees a half-written create. --script runs a .ctb document of `new` items (file= attribute, optional on-exists=, verbatim `content` section) under prepare/confirm/write: every target is decided in memory and one blocked target means zero writes; two items naming the same target is a usage error. The verdict is --expect applied to the number of files ensured (created + overwritten + already-present-under-skip), default any; a blocked target forces ERROR whatever --expect says. Files are written only when the verdict is SUCCESS and --dry-run is not set; --dry-run previews each body as path:N:+ rows, capped at 12 lines per file. Not subject to the ct-test allowlist (it runs no programs), and dispatchable by `ct each --mutating`. With --json emits {tool, verdict, dry_run, applied, ensured, created, overwritten, skipped, blocked, files:[{path,action,lines,bytes}]}. Exit: 0 SUCCESS, 1 ERROR (blocked target, or the count missed --expect; nothing written), 2 usage/runtime error. Invoke as `ct new ...` or `ct-new ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Positional: the file to create. Required unless --script is given."
+          },
+          "content": {
+            "type": "string",
+            "description": "The file's body. Payload-typed: literal TEXT, file:PATH (contents verbatim), stdin: (all of standard input, verbatim — no shell escaping needed for quotes, $ or backticks), text:VALUE to escape the prefix. Omit it only with --empty."
+          },
+          "empty": {
+            "type": "boolean",
+            "description": "Create a zero-byte file. The explicit form of 'no content': without it, a missing --content is a usage error."
+          },
+          "on-exists": {
+            "type": "string",
+            "enum": [
+              "fail",
+              "skip",
+              "overwrite"
+            ],
+            "description": "What an existing target means. fail (default): nothing written, the file is reported blocked and the verdict is ERROR. skip: accept the existing file as-is, counted as ensured (idempotent). overwrite: replace its contents.",
+            "default": "fail"
+          },
+          "parents": {
+            "type": "boolean",
+            "description": "Create missing parent directories. Without it, a missing parent is an error (exit 2) naming the directory, so a mistyped path fails loudly."
+          },
+          "no-final-newline": {
+            "type": "boolean",
+            "description": "Write the bytes exactly as given, without adding the terminating newline a text file normally ends with."
+          },
+          "script": {
+            "type": "string",
+            "description": "Path to a .ctb document of `new` items (file= attribute, optional on-exists=, verbatim `content` section) creating a whole batch atomically: every target is decided in memory and one blocked target means zero writes."
+          },
+          "fence": {
+            "type": "string",
+            "description": "Fence string opening script directive lines. Default '#%'; change it for a body that itself starts lines with the default.",
+            "default": "#%"
+          },
+          "expect": {
+            "type": "string",
+            "description": "Verdict expectation over the number of files ensured — created, overwritten, or already present under --on-exists skip; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). A blocked target is ERROR whatever this says."
+          },
+          "dry-run": {
+            "type": "boolean",
+            "description": "Decide and report everything, with a bounded preview of each body (path:N:+ rows, 12 lines per file), but write nothing."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress the per-file lines; print only the summary."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result instead of text."
+          },
+          "json-pretty": {
+            "type": "boolean",
+            "description": "Like --json, but pretty-printed (indented)."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if planning exceeds SECS seconds (fractional allowed). Never interrupts the write phase: once a SUCCESS verdict starts writing, every write completes."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
           }
         },
         "required": []

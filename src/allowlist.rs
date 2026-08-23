@@ -33,7 +33,7 @@ use std::path::Path;
 /// The suite's own read-only tools — the cross-platform core of the allowlist,
 /// present and resolvable on every OS.
 ///
-/// The mutating/dispatching tools (`ct-edit`/`ct-patch`/`ct-rules`/`ct-test`/
+/// The mutating/dispatching tools (`ct-edit`/`ct-new`/`ct-patch`/`ct-rules`/`ct-test`/
 /// `ct-each`) and the umbrella `ct` are excluded because they change state or
 /// dispatch; `ct-await` is included as a read-only **observer** (it only polls
 /// other read-only probes), which also lets it serve as a portable, bounded
@@ -75,7 +75,7 @@ pub fn builtin() -> Vec<&'static str> {
 /// The suite's mutating tools, runnable by `ct-each` only behind its explicit
 /// `--mutating` flag. Each carries its own `--expect`/`--dry-run` gates, so a
 /// dispatched edit still has to assert its own effect before writing.
-pub const MUTATING_SUITE: &[&str] = &["ct-edit", "ct-patch"];
+pub const MUTATING_SUITE: &[&str] = &["ct-edit", "ct-new", "ct-patch"];
 
 /// Which tool's gate a [`listing`] describes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

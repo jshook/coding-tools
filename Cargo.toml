@@ -46,6 +46,10 @@ name = "ct-edit"
 path = "src/bin/ct-edit.rs"
 
 [[bin]]
+name = "ct-new"
+path = "src/bin/ct-new.rs"
+
+[[bin]]
 name = "ct-patch"
 path = "src/bin/ct-patch.rs"
 

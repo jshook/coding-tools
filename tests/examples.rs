@@ -20,6 +20,7 @@ const TOOLS: &[&str] = &[
     "ct-view",
     "ct-tree",
     "ct-edit",
+    "ct-new",
     "ct-patch",
     "ct-test",
     "ct-each",

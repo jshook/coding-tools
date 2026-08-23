@@ -58,6 +58,8 @@
 //!   index files, `.ct/okf.jsonc` config) and the concept-file feed for the index.
 //! * [`okfscript`] — the `ct-okf --script` batch engine: `.ctb` OKF mutations
 //!   simulated over an in-memory overlay under the prepare/confirm/write standard.
+//! * [`newfile`] — `ct-new`'s creation planning: collision policy, the exact
+//!   bytes written, and the `.ctb` batch vocabulary.
 //! * [`outline`] — `ct-outline`'s heuristic per-language declaration
 //!   detection.
 //! * [`view`] — `ct-view`'s range parsing and context-window merging.
@@ -84,6 +86,7 @@ pub mod indexing;
 pub mod indexwatch;
 pub mod jsonout;
 pub mod modgraph;
+pub mod newfile;
 pub mod okf;
 pub mod okfindex;
 pub mod okfroots;
