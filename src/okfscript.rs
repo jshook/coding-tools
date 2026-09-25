@@ -4,8 +4,8 @@
 //! The `ct-okf --script` engine: a batch of OKF mutations applied under the
 //! prepare/confirm/write standard.
 //!
-//! A `.ctb` block document (parsed by [`crate::blockdoc`]) lists `new`/`set`/
-//! `log`/`index`/`init` items. [`simulate`] runs the whole batch in memory over
+//! A `.ctb` block document (parsed by [`crate::blockdoc`]) lists `new`/`adopt`/
+//! `set`/`log`/`index`/`init` items. [`simulate`] runs the whole batch in memory over
 //! a [`Vfs`] overlay — in script order, under cascade, so a later `index` sees a
 //! concept an earlier `new` created and a later `set` edits an earlier one — and
 //! returns the complete set of pending writes. The caller writes them only when
@@ -22,7 +22,7 @@ use crate::blockdoc::Item;
 use crate::okf;
 
 /// The directives that open an item in an okf script.
-pub const ITEM_NAMES: &[&str] = &["new", "set", "log", "index", "init"];
+pub const ITEM_NAMES: &[&str] = &["new", "adopt", "set", "log", "index", "init"];
 
 /// The read surface the [`Vfs`] overlays writes on top of.
 pub trait Disk {
@@ -32,6 +32,8 @@ pub trait Disk {
     fn exists(&self, path: &Path) -> bool;
     /// The `.md` files directly inside `dir` (non-recursive).
     fn list_md(&self, dir: &Path) -> Vec<PathBuf>;
+    /// The subdirectories directly inside `dir`, dot-directories excluded.
+    fn list_dirs(&self, dir: &Path) -> Vec<PathBuf>;
 }
 
 /// A real filesystem [`Disk`].
@@ -50,6 +52,19 @@ impl Disk for FsDisk {
             for entry in rd.flatten() {
                 let p = entry.path();
                 if p.is_file() && p.extension().and_then(|x| x.to_str()) == Some("md") {
+                    out.push(p);
+                }
+            }
+        }
+        out
+    }
+    fn list_dirs(&self, dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for entry in rd.flatten() {
+                let p = entry.path();
+                let dot = entry.file_name().to_string_lossy().starts_with('.');
+                if p.is_dir() && !dot {
                     out.push(p);
                 }
             }
@@ -94,6 +109,21 @@ impl<'a> Vfs<'a> {
         }
         set.into_iter().collect()
     }
+    /// Subdirectories directly in `dir`, including those that exist only
+    /// because the overlay holds a file beneath them.
+    fn list_dirs(&self, dir: &Path) -> Vec<PathBuf> {
+        let mut set: BTreeSet<PathBuf> = self.disk.list_dirs(dir).into_iter().collect();
+        for key in self.overlay.keys() {
+            let Ok(rest) = key.strip_prefix(dir) else {
+                continue;
+            };
+            let mut comps = rest.components();
+            if let (Some(first), Some(_)) = (comps.next(), comps.next()) {
+                set.insert(dir.join(first));
+            }
+        }
+        set.into_iter().collect()
+    }
 }
 
 /// One compiled okf mutation.
@@ -107,6 +137,10 @@ pub enum OkfOp {
         tags: Vec<String>,
         body: Option<String>,
     },
+    Adopt {
+        file: String,
+        type_: String,
+    },
     Set {
         file: String,
         field: String,
@@ -119,6 +153,7 @@ pub enum OkfOp {
     },
     Index {
         base: Option<String>,
+        recursive: bool,
     },
     Init {
         base: Option<String>,
@@ -226,6 +261,13 @@ pub fn compile(items: &[Item]) -> Result<Vec<OpSpec>, String> {
                     body: item.section("body").map(str::to_string),
                 }
             }
+            "adopt" => {
+                check_vocab(item, ordinal, &["file", "type"], &[])?;
+                OkfOp::Adopt {
+                    file: req_attr("file")?,
+                    type_: req_attr("type")?,
+                }
+            }
             "set" => {
                 check_vocab(item, ordinal, &["file", "field", "value"], &[])?;
                 OkfOp::Set {
@@ -248,9 +290,19 @@ pub fn compile(items: &[Item]) -> Result<Vec<OpSpec>, String> {
                 }
             }
             "index" => {
-                check_vocab(item, ordinal, &["base"], &[])?;
+                check_vocab(item, ordinal, &["base", "recursive"], &[])?;
+                let recursive = match item.attr("recursive") {
+                    None | Some("false") => false,
+                    Some("true") => true,
+                    Some(other) => {
+                        return Err(at(format!(
+                            "recursive= must be true or false, got '{other}'"
+                        )));
+                    }
+                };
                 OkfOp::Index {
                     base: item.attr("base").map(str::to_string),
+                    recursive,
                 }
             }
             "init" => {
@@ -276,6 +328,80 @@ fn rel(base: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .display()
         .to_string()
+}
+
+/// Every directory beneath `dir`, deepest first (post-order), `dir` excluded.
+fn descendants(vfs: &Vfs, dir: &Path, out: &mut Vec<PathBuf>) {
+    for sub in vfs.list_dirs(dir) {
+        descendants(vfs, &sub, out);
+        out.push(sub);
+    }
+}
+
+/// The `index.md` entries for `dir` and how many are concepts: its concepts,
+/// then each immediate subdirectory holding an `index.md`, linked as
+/// `sub/index.md`. A concept is titled by [`okf::display_title`]; a
+/// subdirectory by its index's `title`, else its index's heading unless that
+/// is the generated default `Index`, else the directory name.
+fn index_entries(vfs: &Vfs, dir: &Path) -> (Vec<(String, String, String)>, usize) {
+    let mut entries: Vec<(String, String, String)> = Vec::new();
+    for p in vfs.list_md(dir) {
+        let name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if okf::is_reserved(&name) {
+            continue;
+        }
+        let text = vfs.read(&p).unwrap_or_default();
+        let title = okf::display_title(&text, name.trim_end_matches(".md"));
+        let desc = okf::parse(&text)
+            .and_then(|x| x.fm.description)
+            .unwrap_or_default();
+        entries.push((name, title, desc));
+    }
+    let concepts = entries.len();
+    for sub in vfs.list_dirs(dir) {
+        let Some(text) = vfs.read(&sub.join("index.md")) else {
+            continue;
+        };
+        let dname = sub
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let fm = okf::parse(&text).map(|p| p.fm).unwrap_or_default();
+        let title = fm
+            .title
+            .filter(|t| !t.trim().is_empty())
+            .or_else(|| okf::first_heading(&text).filter(|h| h != "Index"))
+            .unwrap_or_else(|| dname.clone());
+        entries.push((
+            format!("{dname}/index.md"),
+            title,
+            fm.description.unwrap_or_default(),
+        ));
+    }
+    (entries, concepts)
+}
+
+/// Regenerate `dir`'s `index.md` into the overlay, keeping the existing
+/// index's frontmatter and heading (see [`okf::render_index`]).
+fn write_index(vfs: &mut Vfs, base: &Path, dir: &Path, ordinal: usize, actions: &mut Vec<Action>) {
+    let (entries, concepts) = index_entries(vfs, dir);
+    let target = dir.join("index.md");
+    let existing = vfs.read(&target);
+    let mut effect = format!("{concepts} concept(s)");
+    if entries.len() > concepts {
+        effect.push_str(&format!(", {} section(s)", entries.len() - concepts));
+    }
+    actions.push(Action {
+        ordinal,
+        verb: "index".into(),
+        path: rel(base, &target),
+        effect,
+    });
+    vfs.write(target, okf::render_index(existing.as_deref(), &entries));
 }
 
 /// Simulate the whole batch over `disk`, rooted at `base`, stamping `today` into
@@ -326,6 +452,32 @@ pub fn simulate(
                 });
                 vfs.write(target, content);
             }
+            OkfOp::Adopt { file, type_ } => {
+                let target = base.join(file);
+                let name = target
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
+                if okf::is_reserved(name) {
+                    return Err(at(format!("{file} is a reserved file, not a concept")));
+                }
+                let text = vfs
+                    .read(&target)
+                    .ok_or_else(|| at(format!("no such file: {file}")))?;
+                let stem = target
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let (new_text, title) = okf::adopt(&text, type_, &stem, today)
+                    .map_err(|e| at(format!("{file}: {e}")))?;
+                actions.push(Action {
+                    ordinal: spec.ordinal,
+                    verb: "adopt".into(),
+                    path: rel(base, &target),
+                    effect: format!("title {title:?}"),
+                });
+                vfs.write(target, new_text);
+            }
             OkfOp::Set { file, field, value } => {
                 let target = base.join(file);
                 let text = vfs
@@ -341,37 +493,26 @@ pub fn simulate(
                 });
                 vfs.write(target, new_text);
             }
-            OkfOp::Index { base: sub } => {
+            OkfOp::Index {
+                base: sub,
+                recursive,
+            } => {
                 let dir = sub
                     .as_ref()
                     .map(|s| base.join(s))
                     .unwrap_or(base.to_path_buf());
-                let mut entries: Vec<(String, String, String)> = Vec::new();
-                for p in vfs.list_md(&dir) {
-                    let name = p
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or_default()
-                        .to_string();
-                    if okf::is_reserved(&name) {
-                        continue;
-                    }
-                    let fm = vfs.read(&p).and_then(|t| okf::parse(&t)).map(|x| x.fm);
-                    let title = fm
-                        .as_ref()
-                        .and_then(|f| f.title.clone())
-                        .unwrap_or_else(|| name.trim_end_matches(".md").to_string());
-                    let desc = fm.and_then(|f| f.description).unwrap_or_default();
-                    entries.push((name, title, desc));
+                // Children before parents, so a parent lists the index a
+                // child gained earlier in this same op.
+                let mut dirs = Vec::new();
+                if *recursive {
+                    descendants(&vfs, &dir, &mut dirs);
                 }
-                let target = dir.join("index.md");
-                actions.push(Action {
-                    ordinal: spec.ordinal,
-                    verb: "index".into(),
-                    path: rel(base, &target),
-                    effect: format!("{} concept(s)", entries.len()),
-                });
-                vfs.write(target, okf::render_index(&entries));
+                for d in dirs {
+                    if !index_entries(&vfs, &d).0.is_empty() {
+                        write_index(&mut vfs, base, &d, spec.ordinal, &mut actions);
+                    }
+                }
+                write_index(&mut vfs, base, &dir, spec.ordinal, &mut actions);
             }
             OkfOp::Log {
                 base: sub,
@@ -459,6 +600,19 @@ mod tests {
                 .cloned()
                 .collect()
         }
+        fn list_dirs(&self, dir: &Path) -> Vec<PathBuf> {
+            let mut set = BTreeSet::new();
+            for key in self.files.borrow().keys() {
+                let Ok(rest) = key.strip_prefix(dir) else {
+                    continue;
+                };
+                let mut comps = rest.components();
+                if let (Some(first), Some(_)) = (comps.next(), comps.next()) {
+                    set.insert(dir.join(first));
+                }
+            }
+            set.into_iter().collect()
+        }
     }
 
     fn plan(base: &str, doc: &str, disk: &dyn Disk) -> Result<Plan, String> {
@@ -508,6 +662,96 @@ added a and b
                 .unwrap_err()
                 .contains("already exists")
         );
+    }
+
+    #[test]
+    fn index_lists_sections_and_recurses_deepest_first() {
+        let disk = MemDisk::with(&[
+            ("/b/a.md", "# Alpha\n\nNo frontmatter.\n"),
+            ("/b/design/d.md", "---\ntype: design\ntitle: D\n---\n"),
+            ("/b/design/deep/e.md", "---\ntype: design\n---\n# Echo\n"),
+            ("/b/empty/notes.txt", "not markdown"),
+        ]);
+        let p = plan("/b", "#% index recursive=true\n", &disk).unwrap();
+        let order: Vec<&str> = p.actions.iter().map(|a| a.path.as_str()).collect();
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(
+            order,
+            [
+                format!("design{sep}deep{sep}index.md"),
+                format!("design{sep}index.md"),
+                "index.md".to_string(),
+            ],
+            "a directory without Markdown gets no index"
+        );
+        let writes: BTreeMap<_, _> = p.writes.into_iter().collect();
+        let design = &writes[&PathBuf::from("/b/design/index.md")];
+        assert!(design.contains("* [D](d.md)"), "{design}");
+        assert!(design.contains("* [deep](deep/index.md)"), "{design}");
+        let deep = &writes[&PathBuf::from("/b/design/deep/index.md")];
+        assert!(deep.contains("* [Echo](e.md)"), "heading fallback: {deep}");
+        let root = &writes[&PathBuf::from("/b/index.md")];
+        assert_eq!(
+            root,
+            "# Index\n\n* [Alpha](a.md)\n* [design](design/index.md)\n"
+        );
+    }
+
+    #[test]
+    fn index_keeps_frontmatter_and_titles_sections_by_their_index() {
+        let disk = MemDisk::with(&[
+            ("/b/index.md", "---\nokf_version: \"0.1\"\n---\n\n# Index\n"),
+            (
+                "/b/guides/index.md",
+                "---\ntitle: User guides\ndescription: How to.\n---\n# Index\n",
+            ),
+            ("/b/tutorials/index.md", "# Tutorials\n"),
+        ]);
+        let p = plan("/b", "#% index\n", &disk).unwrap();
+        let writes: BTreeMap<_, _> = p.writes.into_iter().collect();
+        assert_eq!(
+            writes[&PathBuf::from("/b/index.md")],
+            "---\nokf_version: \"0.1\"\n---\n\n# Index\n\n\
+             * [User guides](guides/index.md) - How to.\n\
+             * [Tutorials](tutorials/index.md)\n"
+        );
+    }
+
+    #[test]
+    fn adopt_then_tag_then_index_in_one_batch() {
+        let disk = MemDisk::with(&[("/b/g.md", "# Guide one\nBody.\n")]);
+        let doc = "\
+#% adopt file=g.md type=guide
+#% set file=g.md field=tags value=intro,core
+#% index
+";
+        let p = plan("/b", doc, &disk).unwrap();
+        let writes: BTreeMap<_, _> = p.writes.into_iter().collect();
+        let g = &writes[&PathBuf::from("/b/g.md")];
+        assert_eq!(
+            g,
+            "---\ntype: guide\ntitle: Guide one\ntimestamp: 2026-06-27\ntags: [intro, core]\n---\n\n# Guide one\nBody.\n"
+        );
+        assert!(writes[&PathBuf::from("/b/index.md")].contains("[Guide one](g.md)"));
+    }
+
+    #[test]
+    fn adopt_refuses_frontmatter_reserved_and_missing_files() {
+        let disk = MemDisk::with(&[
+            ("/b/has.md", "---\ntype: x\n---\n"),
+            ("/b/README.md", "# Landing\n"),
+        ]);
+        for (doc, want) in [
+            (
+                "#% adopt file=has.md type=guide\n",
+                "already has frontmatter",
+            ),
+            ("#% adopt file=README.md type=guide\n", "reserved file"),
+            ("#% adopt file=ghost.md type=guide\n", "no such file"),
+        ] {
+            let err = plan("/b", doc, &disk).unwrap_err();
+            assert!(err.contains(want), "{doc}: {err}");
+        }
     }
 
     #[test]

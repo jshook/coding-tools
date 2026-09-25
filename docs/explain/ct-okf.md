@@ -5,7 +5,10 @@ OKF *bundle* is a directory tree of Markdown *concept* files; each concept opens
 with a YAML **frontmatter** block (fenced by `---`) carrying a required `type`
 plus optional `title`, `description`, `resource`, `tags`, and `timestamp`.
 Reserved `index.md` (a directory listing) and `log.md` (a change history) have
-defined roles and are never concepts. Cross-links are ordinary Markdown links,
+defined roles and are never concepts. `README.md` is reserved too, as a
+landing-page alias of `index.md` (not part of the OKF spec): repository hosts
+render it when a directory is browsed, so a converted documentation tree keeps
+it without frontmatter. Cross-links are ordinary Markdown links,
 either bundle-relative (`/tables/customers.md`) or document-relative.
 
 Reachable as `ct okf <verb> …` or `ct-okf <verb> …`. Unlike the other suite
@@ -119,17 +122,33 @@ usage/runtime error.
 - `show PATH` — print one concept's frontmatter (text, or `--json`).
 - `add PATH --type TYPE [--title T] [--description D] [--tag T,…]` — scaffold a
   concept (stamps a `timestamp`, refuses to overwrite). Alias: `new`.
+- `adopt PATH… --type TYPE` — turn existing Markdown files into concepts by
+  prepending a frontmatter block of `type`, a `title` taken from the file's
+  first `# ` heading (else its file stem), and a `timestamp`; the body is kept
+  byte for byte. All or nothing: a file that already has frontmatter, is
+  reserved, or cannot be read fails the run before any file is written.
 - `mv SRC DST` — move/rename a concept, rewriting every bundle cross-link
   (absolute and document-relative) that pointed at it. Alias: `rename`.
-- `set FIELD=VALUE --file PATH` — set or update a scalar frontmatter field,
-  preserving the rest of the file byte-for-byte.
+- `set FIELD=VALUE --file PATH` — set or update a frontmatter field,
+  preserving the rest of the file byte-for-byte. `tags` is a list:
+  `tags=a,b` writes `tags: [a, b]`, replacing a flow- or block-form list whole.
+  Any other field is a scalar.
 - `log MESSAGE [--kind LABEL]` — prepend a dated entry to the bundle's `log.md`
   (default label `Update`; same-day entries merge under one heading).
-- `gen-index [--scaffold]` — (re)generate `--base`'s `index.md` from the
-  immediate concepts' `title`/`description`; `--scaffold` instead writes an
-  absent `index.md` declaring `okf_version: "0.1"`.
+- `gen-index [--scaffold | --recursive]` — (re)generate `--base`'s `index.md`:
+  one entry per immediate concept (titled by its `title`, else its first `# `
+  heading, else its file stem, with its `description`), then one per immediate
+  subdirectory holding an `index.md`, linked as `sub/index.md` and titled by
+  that index's `title`, else its heading unless it is the default `Index`,
+  else the directory name. An existing index keeps its frontmatter byte for
+  byte (so a root's `okf_version` survives) and its first heading; only the
+  listing is regenerated. `--recursive` regenerates every directory beneath
+  `--base` too, deepest first, skipping directories with nothing to list.
+  `--scaffold` instead writes an absent `index.md` declaring
+  `okf_version: "0.1"`.
 - `script PATH [--dry-run] [--fence STR]` — run a `.ctb` block document of
-  `new`/`set`/`log`/`index`/`init` items as one **atomic** batch: the whole
+  `new`/`adopt`/`set`/`log`/`index`/`init` items (`adopt file= type=`, and
+  `index [base=] [recursive=true]`, match their verbs) as one **atomic** batch: the whole
   script is simulated in memory (*cascading*, so a later op sees an earlier op's
   writes) and **nothing is written unless every op succeeds**. `--dry-run`
   prints the plan and writes nothing; `--fence STR` changes the directive prefix
@@ -160,6 +179,12 @@ ct okf --base bundle validate --question "OKF-conformant?"
 ct okf add bundle/tables/orders.md --type "BigQuery Table" --title Orders --tag core
 ct okf mv bundle/tables/orders.md bundle/facts/orders.md
 ct okf --base bundle log "Moved orders to facts/" --kind Update
+
+# Adopt an existing Markdown tree, tag a file, and index every directory.
+ct okf adopt docs/guides/*.md docs/design/*.md --type guide
+ct okf set tags=intro,core --file docs/guides/start.md
+ct okf --base docs gen-index --scaffold    # root index declaring okf_version
+ct okf --base docs gen-index --recursive   # keeps it; links guides/, design/
 
 # Atomic batch.
 ct okf --base bundle script batch.ctb --dry-run   # preview

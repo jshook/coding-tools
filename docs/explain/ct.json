@@ -1034,7 +1034,7 @@
     },
     {
       "name": "ct-okf",
-      "description": "Author, query, and index Open Knowledge Format (OKF v0.1) bundles — directory trees of Markdown concepts whose leading YAML frontmatter carries a required `type` plus optional title/description/resource/tags/timestamp, alongside reserved index.md / log.md files and Markdown cross-links. ct-okf is SUBCOMMAND-shaped (`ct okf <verb>`); the `commands` array lists every verb and its arguments. It works over the project's configured OKF content roots and keeps a lazily-maintained full-text index, so `search` is always current. Roots are discovered three ways (any suffices, all converge on the .ct/okf.jsonc config): a `.okf` marker file, a bundle-root index.md declaring okf_version, or a config entry managed by `roots`/`init`. The index lives under .ct/okf/ as immutable fst segments (new content layers a segment; `index condense` merges and drops tombstones). Query verbs: `search QUERY...` (full-text across roots, auto-updates the index first; supports term, term* prefix, term~/term~N fuzzy, /regex/; filter --type/--tag, cap --limit) and `find` (list concepts by --type/--tag in the --base bundle). Configure: `roots list|add|rm|scan`, `index status|update|condense|rebuild`, `init` (discover roots, record them, build the index). Check (framed verdict): `validate` (conformance; --strict also fails on broken links) and `links` (broken bundle cross-links) — both take --question, --expect (any|none|N|=N|+N|-N, default none), --emit/--emit-stderr ({RESULT} {QUESTION} {COUNT} {TOTAL} {BASE} {MATCHES}). Author (these write): `show PATH`, `add PATH --type ...` (alias new), `mv SRC DST` (alias rename; fixes bundle cross-links), `set FIELD=VALUE --file`, `log MESSAGE --kind`, `gen-index` ((re)generate index.md, --scaffold for an okf_version stub), `script PATH` (atomic .ctb batch). Global flags (`base`/`name`/`hidden`/`follow`/`no-ignore`/`json`/`json-pretty`/`quiet`/`timeout`/heartbeat) apply across verbs. Exit 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Because the authoring verbs write, ct-okf is not on the read-only allowlist (read-only OKF composition is provided by the OKF-aware ct-search/ct-tree/ct-view/ct-outline and the `okf` built-in check). Invoke as `ct okf <verb> ...` or `ct-okf <verb> ...`.",
+      "description": "Author, query, and index Open Knowledge Format (OKF v0.1) bundles — directory trees of Markdown concepts whose leading YAML frontmatter carries a required `type` plus optional title/description/resource/tags/timestamp, alongside reserved index.md / log.md / README.md files and Markdown cross-links. ct-okf is SUBCOMMAND-shaped (`ct okf <verb>`); the `commands` array lists every verb and its arguments. It works over the project's configured OKF content roots and keeps a lazily-maintained full-text index, so `search` is always current. Roots are discovered three ways (any suffices, all converge on the .ct/okf.jsonc config): a `.okf` marker file, a bundle-root index.md declaring okf_version, or a config entry managed by `roots`/`init`. The index lives under .ct/okf/ as immutable fst segments (new content layers a segment; `index condense` merges and drops tombstones). Query verbs: `search QUERY...` (full-text across roots, auto-updates the index first; supports term, term* prefix, term~/term~N fuzzy, /regex/; filter --type/--tag, cap --limit) and `find` (list concepts by --type/--tag in the --base bundle). Configure: `roots list|add|rm|scan`, `index status|update|condense|rebuild`, `init` (discover roots, record them, build the index). Check (framed verdict): `validate` (conformance; --strict also fails on broken links) and `links` (broken bundle cross-links) — both take --question, --expect (any|none|N|=N|+N|-N, default none), --emit/--emit-stderr ({RESULT} {QUESTION} {COUNT} {TOTAL} {BASE} {MATCHES}). Author (these write): `show PATH`, `add PATH --type ...` (alias new), `adopt PATH... --type` (prepend frontmatter to existing Markdown; title from the first heading; all or nothing), `mv SRC DST` (alias rename; fixes bundle cross-links), `set FIELD=VALUE --file` (tags=a,b writes a list), `log MESSAGE --kind`, `gen-index` ((re)generate index.md keeping its frontmatter, listing concepts and subdirectory indexes; --recursive for every directory, --scaffold for an okf_version stub), `script PATH` (atomic .ctb batch). Global flags (`base`/`name`/`hidden`/`follow`/`no-ignore`/`json`/`json-pretty`/`quiet`/`timeout`/heartbeat) apply across verbs. Exit 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Because the authoring verbs write, ct-okf is not on the read-only allowlist (read-only OKF composition is provided by the OKF-aware ct-search/ct-tree/ct-view/ct-outline and the `okf` built-in check). Invoke as `ct okf <verb> ...` or `ct-okf <verb> ...`.",
       "commands": [
         {
           "name": "search",
@@ -1082,13 +1082,18 @@
           "args": "PATH --type TYPE [--title T] [--description D] [--tag T,...]"
         },
         {
+          "name": "adopt",
+          "summary": "Turn existing Markdown files into concepts by prepending frontmatter (all or nothing).",
+          "args": "PATH... --type TYPE"
+        },
+        {
           "name": "mv",
           "summary": "Move/rename a concept, fixing bundle cross-links (alias: rename).",
           "args": "SRC DST"
         },
         {
           "name": "set",
-          "summary": "Set or update a scalar frontmatter field.",
+          "summary": "Set or update a frontmatter field (tags=a,b writes a list).",
           "args": "FIELD=VALUE --file PATH"
         },
         {
@@ -1099,7 +1104,7 @@
         {
           "name": "gen-index",
           "summary": "(Re)generate a bundle's index.md from its concepts.",
-          "args": "[--scaffold]"
+          "args": "[--scaffold | --recursive]"
         },
         {
           "name": "script",

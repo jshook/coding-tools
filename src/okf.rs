@@ -33,9 +33,12 @@ use crate::rules::ProbeOutcome;
 use crate::walk::{self, EntryType};
 
 /// Reserved file names with defined structural roles; never concept documents.
-pub const RESERVED: &[&str] = &["index.md", "log.md"];
+/// `README.md` is not in the OKF spec: it is recognized as a landing-page alias
+/// of `index.md`, because repository hosts render it when a directory is
+/// browsed, and an adopted documentation tree keeps it for that role.
+pub const RESERVED: &[&str] = &["index.md", "log.md", "README.md"];
 
-/// Whether `file_name` is an OKF reserved file (`index.md` / `log.md`).
+/// Whether `file_name` is a reserved file (`index.md` / `log.md` / `README.md`).
 ///
 /// # Examples
 ///
@@ -44,6 +47,7 @@ pub const RESERVED: &[&str] = &["index.md", "log.md"];
 ///
 /// assert!(is_reserved("index.md"));
 /// assert!(is_reserved("log.md"));
+/// assert!(is_reserved("README.md"));
 /// assert!(!is_reserved("customers.md"));
 /// ```
 pub fn is_reserved(file_name: &str) -> bool {
@@ -330,7 +334,7 @@ pub struct Finding {
 /// Walk a bundle and judge each `.md` file's conformance.
 ///
 /// Concepts (non-reserved `.md`) must have parseable frontmatter with a
-/// non-empty `type`. Reserved files (`index.md`/`log.md`) need no `type` (and the
+/// non-empty `type`. Reserved files ([`RESERVED`]) need no `type` (and the
 /// bundle-root `index.md` may carry `okf_version` frontmatter); their only rule
 /// here is that any frontmatter present is parseable. The walk honors the
 /// [`walk::Selector`] it is handed, so callers control root, filter, and flags.
@@ -440,6 +444,58 @@ pub fn broken_links(selector: &walk::Selector) -> Result<Vec<(PathBuf, Link)>, S
     Ok(broken)
 }
 
+/// The text of the first level-one ATX heading (`# Title`) in the Markdown body
+/// of `text` — after any frontmatter, outside fenced code blocks — with an
+/// optional closing run of `#` removed. `None` when there is no such heading.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::okf::first_heading;
+///
+/// let doc = "---\ntype: x\n---\n## Sub\n# Title #\n";
+/// assert_eq!(first_heading(doc).as_deref(), Some("Title"));
+/// assert_eq!(first_heading("```\n# not a heading\n```\n"), None);
+/// ```
+pub fn first_heading(text: &str) -> Option<String> {
+    let skip = parse(text).map_or(0, |p| p.body_start_line - 1);
+    let mut fence: Option<&str> = None;
+    for line in text.lines().skip(skip) {
+        let t = line.trim_start();
+        if let Some(open) = fence {
+            if t.starts_with(open) {
+                fence = None;
+            }
+            continue;
+        }
+        if t.starts_with("```") || t.starts_with("~~~") {
+            fence = Some(&t[..3]);
+            continue;
+        }
+        // An ATX heading allows at most three spaces of indentation.
+        if line.len() - t.len() > 3 {
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("# ") {
+            let title = rest.trim().trim_end_matches('#').trim_end();
+            if !title.is_empty() {
+                return Some(title.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// The name a concept is listed under: its frontmatter `title`, else its first
+/// `# ` heading, else `stem` (the file name without `.md`).
+pub fn display_title(text: &str, stem: &str) -> String {
+    parse(text)
+        .and_then(|p| p.fm.title)
+        .filter(|t| !t.trim().is_empty())
+        .or_else(|| first_heading(text))
+        .unwrap_or_else(|| stem.to_string())
+}
+
 /// Today's date as `YYYY-MM-DD` (UTC), via Howard Hinnant's civil-from-days.
 /// Shared so `log.md` entries and timestamps are stamped consistently.
 pub fn today_utc() -> String {
@@ -519,25 +575,113 @@ pub fn build_concept(
     s
 }
 
-/// Set or update a top-level scalar frontmatter `field` on a concept's `text`,
-/// preserving every other byte. Returns the new text and whether an existing key
-/// was replaced (`false` means a new key was appended before the closing fence).
-/// Errors when the text has no frontmatter to edit.
+/// Turn a plain Markdown file's `text` into a concept by prepending a
+/// frontmatter block holding `type`, a `title` (the first `# ` heading, else
+/// `stem`), and `timestamp`. The body is kept byte for byte, except that a
+/// leading BOM is dropped because the fence must open the file; the block uses
+/// the file's own line ending. Errors when `text` already has frontmatter,
+/// which is [`set_field`]'s to edit. Returns the new text and the chosen title.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::okf::{adopt, parse};
+///
+/// let (out, title) = adopt("# Getting started\nBody.\n", "guide", "start", "2026-09-24").unwrap();
+/// assert_eq!(title, "Getting started");
+/// assert!(out.ends_with("---\n\n# Getting started\nBody.\n"));
+/// assert_eq!(parse(&out).unwrap().fm.type_.as_deref(), Some("guide"));
+/// assert!(adopt(&out, "guide", "start", "2026-09-24").is_err());
+/// ```
+pub fn adopt(
+    text: &str,
+    type_: &str,
+    stem: &str,
+    timestamp: &str,
+) -> Result<(String, String), String> {
+    if type_.trim().is_empty() {
+        return Err("adopt needs a non-empty type".into());
+    }
+    if parse(text).is_some() {
+        return Err("already has frontmatter; edit it with `set`".into());
+    }
+    let body = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let title = first_heading(body).unwrap_or_else(|| stem.to_string());
+    let nl = if body.contains("\r\n") { "\r\n" } else { "\n" };
+    let lines = [
+        "---".to_string(),
+        format!("type: {}", yaml_scalar(type_)),
+        format!("title: {}", yaml_scalar(&title)),
+        format!("timestamp: {timestamp}"),
+        "---".to_string(),
+        String::new(),
+    ];
+    let mut out = String::with_capacity(body.len() + 96);
+    for line in &lines {
+        out.push_str(line);
+        out.push_str(nl);
+    }
+    out.push_str(body);
+    Ok((out, title))
+}
+
+/// Frontmatter fields that hold a list: [`set_field`] reads their value as
+/// comma-separated items and writes a flow sequence.
+pub const LIST_FIELDS: &[&str] = &["tags"];
+
+/// Set or update a top-level frontmatter `field` on a concept's `text`,
+/// preserving every other byte. A field in [`LIST_FIELDS`] takes a
+/// comma-separated `value` and is written as `field: [a, b]`; any other value
+/// is written as a scalar. Replacing a key also drops its continuation lines
+/// (a block sequence or nested mapping), so a block-form list is replaced
+/// whole. Returns the new text and whether an existing key was replaced
+/// (`false` means a new key was appended before the closing fence). Errors
+/// when the text has no frontmatter to edit.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::okf::set_field;
+///
+/// let doc = "---\ntype: guide\ntags:\n  - old\n---\nBody\n";
+/// let (out, replaced) = set_field(doc, "tags", "a, b").unwrap();
+/// assert!(replaced);
+/// assert_eq!(out, "---\ntype: guide\ntags: [a, b]\n---\nBody\n");
+/// ```
 pub fn set_field(text: &str, field: &str, value: &str) -> Result<(String, bool), String> {
     let parsed = parse(text).ok_or("no frontmatter to edit")?;
     let (start, end) = parsed.fm_span; // 1-based, fences included
     let all: Vec<&str> = text.split_inclusive('\n').collect();
     let inner = &all[start..end - 1];
-    let new_line = format!("{field}: {}\n", yaml_scalar(value));
+    let rendered = if LIST_FIELDS.contains(&field) {
+        let items: Vec<String> = flow_items(value).iter().map(|t| yaml_scalar(t)).collect();
+        format!("[{}]", items.join(", "))
+    } else {
+        yaml_scalar(value)
+    };
+    let eol = if inner.first().is_some_and(|l| l.ends_with("\r\n")) {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let new_line = format!("{field}: {rendered}{eol}");
     let mut replaced = false;
+    let mut skipping = false;
     let mut new_inner: Vec<String> = Vec::with_capacity(inner.len() + 1);
     for line in inner {
+        // The replaced key's continuation: indented lines, or compact
+        // block-sequence items at column 0.
+        if skipping && (line.starts_with([' ', '\t']) || line.starts_with('-')) {
+            continue;
+        }
+        skipping = false;
         let is_target = line
             .split_once(':')
             .is_some_and(|(k, _)| k.trim() == field && !line.starts_with([' ', '\t']));
         if is_target && !replaced {
             new_inner.push(new_line.clone());
             replaced = true;
+            skipping = true;
         } else {
             new_inner.push((*line).to_string());
         }
@@ -566,9 +710,37 @@ pub fn log_entry(existing: &str, today: &str, kind: &str, message: &str) -> Stri
     }
 }
 
-/// Render an `index.md` body from `(file, title, description)` entries.
-pub fn render_index(entries: &[(String, String, String)]) -> String {
-    let mut out = String::from("# Index\n\n");
+/// Render an `index.md` from `(link, title, description)` entries, keeping
+/// what a regeneration must not lose from the `existing` index: its
+/// frontmatter block byte for byte (a bundle root declares `okf_version`
+/// there) and its first `# ` heading. With no existing heading it is `# Index`.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::okf::render_index;
+///
+/// let old = "---\nokf_version: \"0.1\"\n---\n\n# Design\n\n* [gone](gone.md)\n";
+/// let entries = [("a.md".to_string(), "A".to_string(), String::new())];
+/// assert_eq!(
+///     render_index(Some(old), &entries),
+///     "---\nokf_version: \"0.1\"\n---\n\n# Design\n\n* [A](a.md)\n"
+/// );
+/// ```
+pub fn render_index(existing: Option<&str>, entries: &[(String, String, String)]) -> String {
+    let mut out = String::new();
+    if let Some(text) = existing
+        && let Some(p) = parse(text)
+    {
+        let block: String = text.split_inclusive('\n').take(p.fm_span.1).collect();
+        out.push_str(&block);
+        if !block.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    let heading = existing.and_then(first_heading);
+    out.push_str(&format!("# {}\n\n", heading.as_deref().unwrap_or("Index")));
     for (file, title, desc) in entries {
         if desc.is_empty() {
             out.push_str(&format!("* [{title}]({file})\n"));
@@ -776,6 +948,63 @@ mod tests {
         assert!(is_reserved("index.md"));
         assert!(is_reserved("log.md"));
         assert!(!is_reserved("concept.md"));
+    }
+
+    #[test]
+    fn first_heading_skips_frontmatter_code_and_deeper_levels() {
+        assert_eq!(first_heading("no heading\n"), None);
+        assert_eq!(first_heading("#hashtag\n# Real\n").as_deref(), Some("Real"));
+        assert_eq!(
+            first_heading("~~~\n# code\n~~~\n# After\n").as_deref(),
+            Some("After")
+        );
+        assert_eq!(first_heading("    # indented code\n"), None);
+        // A heading inside the frontmatter block is YAML, not Markdown.
+        assert_eq!(first_heading("---\n# comment: x\n---\nbody\n"), None);
+    }
+
+    #[test]
+    fn display_title_prefers_title_then_heading_then_stem() {
+        assert_eq!(display_title("---\ntitle: T\n---\n# H\n", "s"), "T");
+        assert_eq!(display_title("---\ntype: x\n---\n# H\n", "s"), "H");
+        assert_eq!(display_title("plain\n", "s"), "s");
+    }
+
+    #[test]
+    fn adopt_keeps_crlf_and_drops_a_bom() {
+        let (out, title) = adopt("\u{feff}Intro\r\n", "note", "intro", "2026-09-24").unwrap();
+        assert_eq!(title, "intro", "no heading: the stem");
+        assert_eq!(
+            out,
+            "---\r\ntype: note\r\ntitle: intro\r\ntimestamp: 2026-09-24\r\n---\r\n\r\nIntro\r\n"
+        );
+        assert!(adopt("x\n", " ", "x", "d").is_err());
+    }
+
+    #[test]
+    fn set_field_writes_lists_and_replaces_continuations() {
+        // A new list field is appended as a flow sequence.
+        let (out, replaced) = set_field("---\ntype: g\n---\n", "tags", "a,b").unwrap();
+        assert!(!replaced);
+        assert_eq!(out, "---\ntype: g\ntags: [a, b]\n---\n");
+        // A compact block sequence and a nested mapping are replaced whole.
+        let doc = "---\ntags:\n- x\n- y\nmeta:\n  k: v\ntitle: T\n---\n";
+        let (out, _) = set_field(doc, "tags", "").unwrap();
+        let (out, _) = set_field(&out, "meta", "flat").unwrap();
+        assert_eq!(out, "---\ntags: []\nmeta: flat\ntitle: T\n---\n");
+        // A scalar field keeps a comma as part of its value.
+        let (out, _) = set_field("---\ntype: g\n---\n", "title", "a,b").unwrap();
+        assert!(out.contains("title: a,b\n"), "{out}");
+    }
+
+    #[test]
+    fn render_index_without_an_existing_file() {
+        let entries = [("a.md".into(), "A".into(), "About a.".into())];
+        assert_eq!(
+            render_index(None, &entries),
+            "# Index\n\n* [A](a.md) - About a.\n"
+        );
+        assert_eq!(render_index(Some("stale body\n"), &[]), "# Index\n\n");
     }
 
     #[test]

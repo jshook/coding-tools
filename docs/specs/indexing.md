@@ -66,7 +66,7 @@ The initial registry contains only:
 
 | Provider | Eligible input | Index |
 | --- | --- | --- |
-| `okf-markdown` v1 | regular UTF-8 `.md` concept documents under detected/configured OKF roots (frontmatter is optional); reserved `index.md` and `log.md` are excluded | `.ct/okf/` |
+| `okf-markdown` v1 | regular UTF-8 `.md` concept documents under detected/configured OKF roots (frontmatter is optional); reserved `index.md`, `log.md`, and `README.md` are excluded | `.ct/okf/` |
 
 Databases, binary state, archives, images, executables, object files, index
 segments, and every unknown extension are therefore ineligible by default.

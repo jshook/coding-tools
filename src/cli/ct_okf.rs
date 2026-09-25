@@ -27,7 +27,7 @@ use crate::pulse::HeartbeatOpts;
                   as `ct okf`). It works over the project's configured content roots and keeps a \
                   lazily-maintained full-text index so `ct okf search` is always current. Pick a \
                   subcommand: search/find query, roots/index/init configure, validate/links check, \
-                  show/add/mv/set/log/gen-index/script author. See `ct-okf --explain` for \
+                  show/add/adopt/mv/set/log/gen-index/script author. See `ct-okf --explain` for \
                   agent-oriented documentation."
 )]
 pub struct Cli {
@@ -101,10 +101,12 @@ pub enum Command {
     /// Scaffold a new concept file (alias: new).
     #[command(alias = "new")]
     Add(AddArgs),
+    /// Turn existing Markdown files into concepts by prepending frontmatter.
+    Adopt(AdoptArgs),
     /// Move/rename a concept, fixing bundle cross-links (alias: rename).
     #[command(alias = "rename")]
     Mv(MvArgs),
-    /// Set or update a scalar frontmatter field on a concept.
+    /// Set or update a frontmatter field on a concept (tags take a list).
     Set(SetArgs),
     /// Prepend a dated entry to a bundle's log.md.
     Log(LogArgs),
@@ -285,6 +287,16 @@ pub struct AddArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct AdoptArgs {
+    /// The Markdown files to adopt (each must exist and lack frontmatter).
+    #[arg(value_name = "PATH", required = true)]
+    pub paths: Vec<PathBuf>,
+    /// The OKF type given to every adopted file (required).
+    #[arg(long = "type", value_name = "TYPE")]
+    pub type_: String,
+}
+
+#[derive(Args, Debug)]
 pub struct MvArgs {
     /// The concept file to move.
     pub src: PathBuf,
@@ -294,7 +306,7 @@ pub struct MvArgs {
 
 #[derive(Args, Debug)]
 pub struct SetArgs {
-    /// FIELD=VALUE to set on the concept's frontmatter.
+    /// FIELD=VALUE to set on the concept's frontmatter (`tags=a,b` writes a list).
     #[arg(value_name = "FIELD=VALUE")]
     pub spec: String,
     /// The concept file to edit.
@@ -317,11 +329,14 @@ pub struct GenIndexArgs {
     /// Scaffold an absent index.md declaring okf_version instead of listing concepts.
     #[arg(long)]
     pub scaffold: bool,
+    /// Regenerate the index of every directory beneath --base too, deepest first.
+    #[arg(long, conflicts_with = "scaffold")]
+    pub recursive: bool,
 }
 
 #[derive(Args, Debug)]
 pub struct ScriptArgs {
-    /// The .ctb script of new/set/log/index/init items.
+    /// The .ctb script of new/adopt/set/log/index/init items.
     pub path: PathBuf,
     /// Print the plan and write nothing.
     #[arg(long)]

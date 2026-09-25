@@ -7,8 +7,8 @@
 //! frontmatter carries a required `type` plus optional metadata. `ct-okf` is
 //! **subcommand**-shaped (reachable as `ct okf <verb>`): `search`/`find` query,
 //! `roots`/`index`/`init` configure the project's content roots and the lazily
-//! maintained full-text index, `validate`/`links` check, and `show`/`add`/`mv`/
-//! `set`/`log`/`gen-index`/`script` author. The canonical reference is
+//! maintained full-text index, `validate`/`links` check, and `show`/`add`/
+//! `adopt`/`mv`/`set`/`log`/`gen-index`/`script` author. The canonical reference is
 //! `docs/explain/ct-okf.md`; the MCP tool-use definition is
 //! `docs/explain/ct-okf.json`. Both are embedded below.
 //!
@@ -21,9 +21,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use coding_tools::cli::ct_okf::{
-    AddArgs, CheckArgs, Cli, Command, FindArgs, Framing, GenIndexArgs, IndexArgs, IndexCmd,
-    InitArgs, LogArgs, MvArgs, RootsArgs, RootsCmd, ScriptArgs, SearchArgs, SetArgs, ShowArgs,
-    WatchCmd,
+    AddArgs, AdoptArgs, CheckArgs, Cli, Command, FindArgs, Framing, GenIndexArgs, IndexArgs,
+    IndexCmd, InitArgs, LogArgs, MvArgs, RootsArgs, RootsCmd, ScriptArgs, SearchArgs, SetArgs,
+    ShowArgs, WatchCmd,
 };
 use coding_tools::explain::Format;
 use coding_tools::okf::{self, Frontmatter};
@@ -879,6 +879,43 @@ fn cmd_add(cli: &Cli, args: &AddArgs) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// Adopt every file or none: each is read and converted in memory first, and
+/// the files are written only once all of them converted cleanly.
+fn cmd_adopt(cli: &Cli, args: &AdoptArgs) -> Result<ExitCode, String> {
+    let today = okf::today_utc();
+    let mut writes: Vec<(&PathBuf, String, String)> = Vec::with_capacity(args.paths.len());
+    for path in &args.paths {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if okf::is_reserved(name) {
+            return Err(format!(
+                "{} is a reserved file, not a concept",
+                path.display()
+            ));
+        }
+        let text =
+            std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let (out, title) = okf::adopt(&text, &args.type_, &stem, &today)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        writes.push((path, out, title));
+    }
+    for (path, out, _) in &writes {
+        std::fs::write(path, out).map_err(|e| format!("write {}: {e}", path.display()))?;
+    }
+    if !cli.quiet {
+        for (path, _, title) in &writes {
+            println!("adopted {} (title {title:?})", path.display());
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 fn cmd_mv(cli: &Cli, args: &MvArgs) -> Result<ExitCode, String> {
     let (src, dst) = (&args.src, &args.dst);
     if !src.is_file() {
@@ -1060,36 +1097,25 @@ fn cmd_gen_index(cli: &Cli, args: &GenIndexArgs) -> Result<ExitCode, String> {
         }
         return Ok(ExitCode::SUCCESS);
     }
-    // Regenerate from the immediate concepts' frontmatter.
-    let read = std::fs::read_dir(&cli.base)
-        .map_err(|e| format!("read dir {}: {e}", cli.base.display()))?;
-    let mut names: Vec<PathBuf> = read
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.is_file() && p.extension().and_then(|x| x.to_str()) == Some("md"))
-        .collect();
-    names.sort();
-    let mut entries: Vec<(String, String, String)> = Vec::new();
-    for p in names {
-        let file = p
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default()
-            .to_string();
-        if okf::is_reserved(&file) {
-            continue;
-        }
-        let text = std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
-        let fm = okf::parse(&text).map(|x| x.fm).unwrap_or_default();
-        let title = fm
-            .title
-            .clone()
-            .unwrap_or_else(|| file.trim_end_matches(".md").to_string());
-        entries.push((file, title, fm.description.clone().unwrap_or_default()));
+    if !cli.base.is_dir() {
+        return Err(format!("{} is not a directory", cli.base.display()));
     }
-    std::fs::write(&path, okf::render_index(&entries))
-        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    // Regenerate through the script engine, so `gen-index` and a `.ctb`
+    // `index` item list a directory identically.
+    let spec = okfscript::OpSpec {
+        ordinal: 1,
+        line: 0,
+        op: okfscript::OkfOp::Index {
+            base: None,
+            recursive: args.recursive,
+        },
+    };
+    let plan = okfscript::simulate(&cli.base, &[spec], &okfscript::FsDisk, &okf::today_utc())?;
+    write_plan(&plan)?;
     if !cli.quiet {
-        println!("wrote {} ({} concept(s))", path.display(), entries.len());
+        for a in &plan.actions {
+            println!("wrote {} ({})", cli.base.join(&a.path).display(), a.effect);
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -1185,6 +1211,7 @@ fn run(mut cli: Cli) -> Result<ExitCode, String> {
         Command::Links(a) => cmd_links(&cli, &a),
         Command::Show(a) => cmd_show(&cli, &a),
         Command::Add(a) => cmd_add(&cli, &a),
+        Command::Adopt(a) => cmd_adopt(&cli, &a),
         Command::Mv(a) => cmd_mv(&cli, &a),
         Command::Set(a) => cmd_set(&cli, &a),
         Command::Log(a) => cmd_log(&cli, &a),

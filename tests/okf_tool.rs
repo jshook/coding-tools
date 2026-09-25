@@ -907,3 +907,155 @@ fn search_limit_regex_and_tag_filter_via_cli() {
     assert_eq!(v["count"], 1);
     assert_eq!(v["hits"][0]["path"], "kb/customers.md");
 }
+
+// ----- adopting an existing Markdown tree ---------------------------------------------
+
+/// A fresh scratch tree of plain Markdown, none of it with frontmatter.
+fn plain_tree(tag: &str) -> PathBuf {
+    let dir = scratch(tag);
+    let _ = std::fs::remove_dir_all(&dir);
+    write(&dir.join("a.md"), "# Hello\n\nBody.\n");
+    write(
+        &dir.join("guides/start.md"),
+        "# Getting started\n\nSteps.\n",
+    );
+    write(&dir.join("guides/README.md"), "Browse the guides here.\n");
+    dir
+}
+
+#[test]
+fn gen_index_keeps_the_root_okf_version() {
+    let dir = plain_tree("keep-version");
+    let scaffold = ct_okf(&dir)
+        .args(["gen-index", "--scaffold"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&scaffold), 0, "stderr: {}", stderr(&scaffold));
+    let out = ct_okf(&dir).arg("gen-index").output().unwrap();
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let index = std::fs::read_to_string(dir.join("index.md")).unwrap();
+    assert!(
+        index.starts_with("---\nokf_version: \"0.1\"\n---\n\n# Index\n\n"),
+        "{index}"
+    );
+    assert!(
+        index.contains("* [Hello](a.md)"),
+        "heading as title: {index}"
+    );
+}
+
+#[test]
+fn adopt_converts_a_tree_atomically_then_it_validates() {
+    let dir = plain_tree("adopt");
+    let (a, start) = (dir.join("a.md"), dir.join("guides/start.md"));
+    assert_eq!(code(&ct_okf(&dir).arg("validate").output().unwrap()), 1);
+
+    // One file already carrying frontmatter fails the whole run: nothing written.
+    let has = dir.join("has.md");
+    write(&has, "---\ntype: note\n---\n# Has\n");
+    let refused = ct_okf(&dir)
+        .args(["adopt".as_ref(), a.as_os_str(), has.as_os_str()])
+        .args(["--type", "guide"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&refused), 2);
+    assert!(
+        stderr(&refused).contains("already has frontmatter"),
+        "{}",
+        stderr(&refused)
+    );
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), "# Hello\n\nBody.\n");
+
+    let out = ct_okf(&dir)
+        .args(["adopt".as_ref(), a.as_os_str(), start.as_os_str()])
+        .args(["--type", "guide"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).contains("(title \"Getting started\")"),
+        "{}",
+        stdout(&out)
+    );
+    let text = std::fs::read_to_string(&start).unwrap();
+    let p = okf::parse(&text).unwrap();
+    assert_eq!(p.fm.type_.as_deref(), Some("guide"));
+    assert_eq!(p.fm.title.as_deref(), Some("Getting started"));
+    assert!(
+        text.ends_with("---\n\n# Getting started\n\nSteps.\n"),
+        "{text}"
+    );
+
+    // README.md is a reserved landing page: no frontmatter needed, not adoptable.
+    assert_eq!(code(&ct_okf(&dir).arg("validate").output().unwrap()), 0);
+    let readme = dir.join("guides/README.md");
+    let out = ct_okf(&dir)
+        .args([
+            "adopt".as_ref(),
+            readme.as_os_str(),
+            "--type".as_ref(),
+            "x".as_ref(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("reserved"), "{}", stderr(&out));
+}
+
+#[test]
+fn set_writes_tags_as_a_list() {
+    let dir = plain_tree("set-tags");
+    let a = dir.join("a.md");
+    write(&a, "---\ntype: guide\ntags:\n  - old\n---\n# Hello\n");
+    let out = ct_okf(&dir)
+        .args([
+            "set".as_ref(),
+            "tags=intro,core".as_ref(),
+            "--file".as_ref(),
+            a.as_os_str(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let text = std::fs::read_to_string(&a).unwrap();
+    assert_eq!(
+        text,
+        "---\ntype: guide\ntags: [intro, core]\n---\n# Hello\n"
+    );
+    assert_eq!(okf::parse(&text).unwrap().fm.tags, ["intro", "core"]);
+}
+
+#[test]
+fn gen_index_links_subdirectories_and_recurses() {
+    let dir = plain_tree("recursive");
+    // Without --recursive, a subdirectory with no index.md is not listed.
+    ct_okf(&dir).arg("gen-index").output().unwrap();
+    let root = std::fs::read_to_string(dir.join("index.md")).unwrap();
+    assert!(!root.contains("guides"), "{root}");
+
+    let out = ct_okf(&dir)
+        .args(["gen-index", "--recursive"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let guides = std::fs::read_to_string(dir.join("guides/index.md")).unwrap();
+    assert_eq!(
+        guides, "# Index\n\n* [Getting started](start.md)\n",
+        "README is not listed"
+    );
+    let root = std::fs::read_to_string(dir.join("index.md")).unwrap();
+    assert_eq!(
+        root,
+        "# Index\n\n* [Hello](a.md)\n* [guides](guides/index.md)\n"
+    );
+
+    // --recursive and --scaffold do not combine; a missing base is an error.
+    let both = ct_okf(&dir)
+        .args(["gen-index", "--recursive", "--scaffold"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&both), 2);
+    let missing = ct_okf(&dir.join("nope")).arg("gen-index").output().unwrap();
+    assert_eq!(code(&missing), 2);
+    assert!(!dir.join("nope").exists());
+}
