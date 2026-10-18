@@ -53,6 +53,10 @@ const SUBCOMMANDS: &[(&str, &str)] = &[
         "Set/delete nodes by path in JSON/JSONC/JSONL, preserving formatting (ct-patch)",
     ),
     (
+        "json",
+        "Query JSON/JSONC/JSONL with a jq filter: one value per line, --expect over the count (ct-json)",
+    ),
+    (
         "test",
         "Run a command as a framed experiment with a templated verdict (ct-test)",
     ),
@@ -108,6 +112,8 @@ those — reaching for it \"because it is quick\" is the exact mistake this suit
   new      create a file that is not there not  cat > f, touch, echo > f
   edit     find/replace, previewed + gated not  sed -i, perl -i
   patch    set/delete JSON/JSONC nodes     not  jq -i, hand-editing JSON
+  json     query JSON with a jq filter     not  jq, node -e / python -c + JSON.parse
+
   test     run a command as an experiment  not  eyeballing raw output
   each     one command template per item   not  for / while read loops
   await    poll until a probe passes       not  sleep / retry loops, nc -z, curl polling

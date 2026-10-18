@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use crate::explain::Format;
+use crate::lines::Eol;
 use crate::pulse::HeartbeatOpts;
 use crate::{blockdoc, pattern};
 
@@ -28,9 +29,9 @@ use crate::{blockdoc, pattern};
                   See `ct-edit --explain` for agent-oriented documentation."
 )]
 pub struct Cli {
-    /// Search root (relative or absolute); a file edits just that file, a directory is descended.
+    /// Search root (relative or absolute); a file edits just that file, a directory is descended. Repeatable: every --base joins one selection, so a script can touch two trees in one atomic run.
     #[arg(long, default_value = ".")]
-    pub base: PathBuf,
+    pub base: Vec<PathBuf>,
 
     /// Limit to files whose name matches; '|'-separated alternatives, each substring->glob->regex promoted and anchored.
     #[arg(long)]
@@ -48,11 +49,11 @@ pub struct Cli {
     #[arg(long)]
     pub no_ignore: bool,
 
-    /// Anchor to find, matched per line and read as LITERAL text unless --mode says otherwise. Accepts file:PATH / stdin: / text:VALUE; a multi-line payload matches as a line-anchored literal block. Required unless --script is given.
+    /// Anchor to find, matched per line and read as LITERAL text unless --mode says otherwise. Accepts file:PATH / stdin: / b64:DATA / text:VALUE; a multi-line payload matches as a line-anchored literal block. Required unless --script is given.
     #[arg(long, conflicts_with = "script")]
     pub find: Option<String>,
 
-    /// Replacement text. With a regex --find (--mode regex, or --mode auto promoting to one), $1/${name} expand; otherwise literal. Accepts file:PATH / text:VALUE; for a block --find, an empty payload deletes the matched lines. Required unless --script is given.
+    /// Replacement text. With a regex --find (--mode regex, or --mode auto promoting to one), $1/${name} expand; otherwise literal. Accepts file:PATH / stdin: / b64:DATA / text:VALUE; for a block --find, an empty payload deletes the matched lines. Required unless --script is given.
     #[arg(long, conflicts_with = "script")]
     pub replace: Option<String>,
 
@@ -64,9 +65,9 @@ pub struct Cli {
     #[arg(long, conflicts_with = "script")]
     pub squeeze_blank: bool,
 
-    /// Run a .ctb edit script: a batch of find/replace blocks verified in full before any write (see --explain).
-    #[arg(long, value_name = "PATH")]
-    pub script: Option<PathBuf>,
+    /// Run a .ctb edit script: a batch of edit/insert/drop/append items verified in full before any write (see --explain). A bare value is a path; b64:DATA carries the whole script inline on one shell-safe command line, and file:/stdin:/text: are accepted too.
+    #[arg(long, value_name = "PATH|SCHEME")]
+    pub script: Option<String>,
 
     /// Fence string opening script directive lines (for payloads that contain the default at line start).
     #[arg(long, default_value = blockdoc::DEFAULT_FENCE, requires = "script")]
@@ -87,6 +88,10 @@ pub struct Cli {
     /// Verdict expectation over the total replacement count: any|none|N|=N|+N|-N (default: any, or =1 under --nth/--at). In scripts, per-edit expect= defaults to =1.
     #[arg(long, conflicts_with = "script")]
     pub expect: Option<String>,
+
+    /// Line endings for the files this run writes: keep (each file's own, the default), lf, or crlf. Only files the edit changes are written, so this never rewrites an untouched file.
+    #[arg(long, value_enum, default_value = "keep")]
+    pub eol: Eol,
 
     /// Show what would change and the verdict, but write nothing.
     #[arg(long)]

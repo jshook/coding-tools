@@ -81,12 +81,13 @@ A `--set`/`--add` `VALUE` is parsed as JSON when it can be (`8080`, `true`,
 that looks like JSON, quote it as JSON: `--set .name='"true"'`. Inserted values
 are written compactly; the surrounding document formatting is preserved.
 
-Values are payload-typed: `file:PATH` and `stdin:` both read the value
-**verbatim as a string node** — exact bytes, never re-parsed as JSON — which
-is how a multi-line string gets into a document with zero quoting
-(`--set 'tool.notes=file:notes.txt'`, or `--set 'tool.notes=stdin:'` with the
-text piped in); `text:VALUE` escapes a literal value that genuinely begins
-with `file:`, `stdin:`, or `text:` (it still gets the normal JSON-or-string
+Values are payload-typed: `file:PATH`, `stdin:` and `b64:DATA` all read the
+value **verbatim as a string node** — exact bytes, never re-parsed as JSON —
+which is how a multi-line string gets into a document with zero quoting
+(`--set 'tool.notes=file:notes.txt'`, `--set 'tool.notes=stdin:'` with the
+text piped in, or `--set 'tool.notes=b64:…'` with it base64-encoded inline);
+`text:VALUE` escapes a literal value that genuinely begins with `file:`,
+`stdin:`, `b64:`, or `text:` (it still gets the normal JSON-or-string
 parse).
 
 ### YAML coverage

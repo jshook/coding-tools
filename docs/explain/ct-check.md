@@ -23,7 +23,7 @@ authoring side is documented in `ct-rules --explain`.
   for known violations, and the `why` behind it.
 - A probe reports **violations**; a rule *holds* when its probe reports none.
   Probes run the suite's read-only tools (`ct-search`, `ct-outline`,
-  `ct-tree`, `ct-view`, `ct-each` without `--mutating`, `ct-test`), a **built-in
+  `ct-tree`, `ct-view`, `ct-json`, `ct-each` without `--mutating`, `ct-test`), a **built-in
   check** (`deps`/`mods`, run in-process — see below), or a compiled-in
   **bridge** invocation of established Rust tooling (`cargo metadata`, `cargo
   tree`, `cargo deny check`, `rust-analyzer search|symbols` — hermetic flags
@@ -40,7 +40,8 @@ in-process** — the crate-graph and module-graph invariants. Prototype one with
 then `--add` to record it.
 
 **`deps`** — crate-graph invariants over hermetic `cargo metadata`
-(`--locked --offline`); each violation carries an evidence path.
+(`--locked --offline`), pruned to what `cargo tree` actually builds; each
+violation carries an evidence path.
 
 | Flag | A violation when… |
 | ---- | ----------------- |

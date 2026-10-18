@@ -44,11 +44,11 @@
 
     {
       "id": "no-duplicate-deps",
-      "question": "Is the dependency tree free of duplicate crate versions (windows-sys excepted)?",
-      "why": "duplicate versions bloat the binary and split trait impls; windows-sys is exempt because low-level platform crates (ring, behind the rustls update check) pin an older one that cannot unify",
+      "question": "Is the dependency tree free of duplicate crate versions (the windows-sys platform family excepted)?",
+      "why": "duplicate versions bloat the binary and split trait impls; the generated windows-sys family (windows-sys, windows-link, windows-targets, windows_*) is exempt because low-level crates pin generations that cannot unify — ring (behind the rustls update check) is on windows-sys 0.52 and sysinfo's windows 0.61 on windows-link 0.1 — the same family the deps test exempts",
       "tags": ["deps"],
       "added": "2026-06-11",
-      "probe": ["deps","--duplicates","--allow-duplicate","windows-sys"]
+      "probe": ["deps","--duplicates","--allow-duplicate","windows-sys,windows-link,windows-targets,windows_aarch64_gnullvm,windows_aarch64_msvc,windows_i686_gnu,windows_i686_gnullvm,windows_i686_msvc,windows_x86_64_gnu,windows_x86_64_gnullvm,windows_x86_64_msvc"]
     },
 
     {
@@ -58,6 +58,15 @@
       "tags": ["deps","portability"],
       "added": "2026-06-11",
       "probe": ["deps","--deny","openssl","--deny","native-tls"]
+    },
+
+    {
+      "id": "no-crlf",
+      "question": "Do all tracked text files use LF line endings (no carriage return anywhere)?",
+      "why": "the repo is Unix-newline only (.gitattributes pins eol=lf); a CRLF file on disk drifts from the index, trips git's renormalization warning, and makes line-anchored tools and diffs lie about what changed",
+      "tags": ["hygiene","portability"],
+      "added": "2026-10-18",
+      "probe": ["ct-search","--base",".","--hidden","--grep","\\r","--mode","regex","--expect","none","--detail"]
     }
   ]
 }

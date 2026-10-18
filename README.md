@@ -22,6 +22,7 @@ full name.
 | `ct new`    | `ct-new`    | Create a file with the content you give it, refusing to clobber (`cat > f`).  |
 | `ct edit`   | `ct-edit`   | Find/replace across files, gated by an `--expect` verdict and `--dry-run`.    |
 | `ct patch`  | `ct-patch`  | Set/delete nodes by path in JSON/JSONC/JSONL, preserving comments and layout. |
+| `ct json`   | `ct-json`   | Query JSON/JSONC/JSONL with a jq filter (in-process); one value per line, `--expect` over the count. |
 | `ct test`   | `ct-test`   | Run a command as a framed experiment; classify the result from its output.    |
 | `ct each`   | `ct-each`   | Run a command template once per item (no shell); aggregate `--expect` verdict. |
 | `ct outline`| `ct-outline`| Report a file's declarations — kind, name, `start:end` span — for bounded reads. |
@@ -55,8 +56,9 @@ less supervision:
   matched, so a wrong-sized change fails loudly instead of applying silently.
 - **Preview before write.** `ct-edit --dry-run` shows the diff and verdict without
   touching disk; edits preserve every untouched byte (indentation, terminators).
-- **Atomic batches.** `ct-edit --script` runs a whole batch of block edits under
-  prepare/confirm/write: every edit is simulated and judged in memory (and every
+- **Atomic batches.** `ct-edit --script` runs a whole batch of block edits —
+  and insertions, deletions, appends — under prepare/confirm/write: every edit
+  is simulated and judged in memory (and every
   target pre-flighted for writability) before anything is written — one failing
   anchor means zero writes, never a half-applied batch. `ct-okf --script` applies
   the same standard to a batch of OKF mutations (cascading over an in-memory
@@ -88,12 +90,14 @@ less supervision:
   that needs pinning **and** a glob `--name` is best sourced out of band
   (below).
 - **Payload schemes.** Payload-typed values accept `file:PATH` (the file's
-  contents), `stdin:` (all of standard input) — both verbatim, never promoted —
-  and `text:VALUE` (the escape for literal values starting with a scheme
-  prefix). `file:` and `stdin:` are the shell-safe path for a payload
-  containing backticks, `$`, or quotes: the bytes never pass through word
-  expansion, and `stdin:` needs no temp file. A multi-line pattern matches as a
-  line-anchored literal **block** in `ct-search`/`ct-view`/`ct-edit`.
+  contents), `stdin:` (all of standard input), `b64:DATA` (base64-decoded)
+  — all verbatim, never promoted — and `text:VALUE` (the escape for literal
+  values starting with a scheme prefix). The first three are the shell-safe
+  path for a payload containing backticks, `$`, or quotes: the bytes never
+  pass through word expansion; `stdin:` needs no temp file, and `b64:` needs
+  no pipe either, so a whole `ct-edit --script` can travel on one command
+  line. A multi-line pattern matches as a line-anchored literal **block** in
+  `ct-search`/`ct-view`/`ct-edit`.
 - **Self-diagnosing refusals.** A refusal explains itself, positioned in the
   source: a `ct-edit --find` that matched nothing reports the nearest miss for a
   block anchor *and* for a single line (naming the cause — whitespace drift, a
@@ -169,6 +173,15 @@ ct steer install --mode ask # softer: ask to confirm instead of denying
 ct steer check 'grep -r TODO src'   # see what the hook would decide (exit 1 = steer)
 ct steer uninstall          # remove it
 ```
+
+## Checking this repo
+
+The suite dogfoods its own rule layer: `.ct/rules.jsonc` records this
+repository's invariants — an SPDX header on every source file, no `dbg!`
+prints, an explain payload pair for every tool, no duplicate crate versions,
+no openssl, and LF line endings everywhere (`.gitattributes` pins `eol=lf`) —
+and `ct check` verifies them. Run it alongside `cargo test` before a commit; a
+red lane prints the rule's question, its `why`, and the offending paths.
 
 ## Releasing
 

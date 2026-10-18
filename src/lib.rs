@@ -22,7 +22,8 @@
 //!   option resolves through.
 //! * [`block`] — line-anchored literal block matching (and the nearest-miss
 //!   diagnostic) behind multi-line patterns in `ct-search`/`ct-view`/`ct-edit`.
-//! * [`blockdoc`] — the `.ctb` block-document parser behind `ct-edit --script`.
+//! * [`blockdoc`] — the `.ctb` block-document parser behind the `--script` forms of
+//!   `ct-edit`, `ct-new` and `ct-okf` (items, payload sections, `#% options`).
 //! * [`editscript`] — the `--script` batch engine: compiled edits simulated
 //!   in memory under the prepare/confirm/write standard.
 //! * [`allowlist`] — the fixed command allow-gates behind `ct-test` and
@@ -69,6 +70,8 @@
 //!   crate grouping and [`modgraph`]'s module naming for the heuristic breakdown.
 //! * [`edit`] — `ct-edit`'s line-scoped, byte-preserving replacement engine.
 //! * [`patch`] — `ct-patch`'s node-path / predicate / value parsing.
+//! * [`jsonq`] — `ct-json`'s jq-filter engine (jaq) and the bridge from
+//!   [`patch`]'s node paths to filters.
 //! * [`testrun`] — `ct-test`'s `--focus` output distiller.
 
 pub mod allowlist;
@@ -85,6 +88,8 @@ pub mod flaghint;
 pub mod indexing;
 pub mod indexwatch;
 pub mod jsonout;
+pub mod jsonq;
+pub mod lines;
 pub mod modgraph;
 pub mod newfile;
 pub mod okf;

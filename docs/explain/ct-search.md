@@ -55,7 +55,7 @@ An entry matches only when **all** supplied predicates hold.
 | `--base`     | `DIR`     | Search root, relative or absolute, regardless of the CWD at launch. Default: `.`            |
 | `--name`     | `PATTERN` | Match the entry's file name. `\|`-separated alternatives; each is promoted (see *Pattern matching*) and anchored to the whole name. |
 | `--type`     | `KINDS`   | Restrict to entry kinds: `f` (file), `d` (directory), `l` (symlink). Repeatable or comma-joined (`--type f,l`). |
-| `--grep`     | `PATTERN` | Match file **contents** (promoted; searched unanchored). Implies regular files. Accepts `file:PATH` / `stdin:` / `text:VALUE`; a multi-line payload matches as a line-anchored literal **block**. |
+| `--grep`     | `PATTERN` | Match file **contents** (promoted; searched unanchored). Implies regular files. Accepts `file:PATH` / `stdin:` / `b64:DATA` / `text:VALUE`; a multi-line payload matches as a line-anchored literal **block**. |
 | `--mode`     | `literal\|glob\|regex\|auto` | How patterns are interpreted. `literal`/`glob`/`regex` pin one reading for every pattern in the invocation — promotion **off**; state `literal` when the pattern is verbatim code. `auto` is the promoting default, stated out loud. |
 | `--size`     | `EXPR`    | Size predicate `[+\|-]N[k\|m\|g]`: `+N` larger than, `-N` smaller than, `N` at least N. Applies to regular files. |
 | `--hidden`   | —         | Include dot-entries (names starting with `.`). Default: skipped, and dot-directories are not descended into. |
@@ -182,11 +182,13 @@ by default, because an anchor is code) asks for this rule back.
 
 ### Payload schemes and block matching
 
-`--grep` is payload-typed: `file:PATH` reads the pattern verbatim from a file
-and `stdin:` reads it verbatim from standard input (both never promoted, so
-literal by default — and both immune to shell quoting, since the bytes never
-pass through word expansion); `text:VALUE` escapes a value that genuinely
-begins with `file:`/`stdin:`/`text:`; everything else is unaffected
+`--grep` is payload-typed: `file:PATH` reads the pattern verbatim from a file,
+`stdin:` reads it verbatim from standard input, and `b64:DATA` decodes a
+base64 string (all three never promoted, so literal by default — and all
+immune to shell quoting, since the bytes never pass through word expansion;
+`b64:` needs no pipe or file either); `text:VALUE` escapes a value that
+genuinely begins with `file:`/`stdin:`/`b64:`/`text:`; everything else is
+unaffected
 (`http://…`, `std::fmt`). A **multi-line** pattern matches as a
 line-anchored literal block: K lines match K consecutive source lines
 byte-for-byte, whitespace significant. Each block occurrence counts as a

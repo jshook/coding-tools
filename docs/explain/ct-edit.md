@@ -3,7 +3,8 @@
 > A find/replace that asserts its own effect: target files like `ct-search`,
 > set an `--expect`ation over the replacement count, preview with `--dry-run`,
 > and write only when the verdict holds. Multi-line payloads edit whole
-> blocks; `--script` runs a batch of edits atomically.
+> blocks; `--script` runs a batch of edits, insertions, deletions and appends
+> atomically — from a file, or inline on one shell-safe command line as `b64:`.
 
 `ct-edit` turns "make this change" into a framed, self-checking operation. It
 selects files with the same predicates as `ct-search`, computes **every**
@@ -32,7 +33,7 @@ the equivalent MCP / tool-use definition.
 
 | Option       | Argument  | Meaning                                                                              |
 | ------------ | --------- | ----------------------------------------------------------------------------------- |
-| `--base`     | `PATH`    | Root to edit. A **file** edits just that file; a **directory** is descended. Default `.` |
+| `--base`     | `PATH`    | Root to edit. A **file** edits just that file; a **directory** is descended. Default `.`. **Repeatable**: every `--base` joins one selection (a file reachable from two bases is loaded once), so a script can touch the repo and a directory outside it in one atomic run. |
 | `--name`     | `PATTERN` | Limit to files whose name matches; `\|`-separated alternatives, each promoted and anchored. |
 | `--hidden`   | —         | Include dot-entries. Default: skipped.                                               |
 | `--follow`   | —         | Follow symlinks while traversing.                                                    |
@@ -51,9 +52,33 @@ Only regular files are edited. Files that are not valid UTF-8 text are skipped.
 | `--at`      | `FILE:LINE` | Apply only the match **starting there**. `FILE` may be a whole-component path suffix (`cli/ct_edit.rs`); `LINE` is 1-based. Implies `--expect =1`. |
 | `--expect`  | `SPEC`    | Verdict expectation over the **total replacement count**: `any` (≥1, default), `none` (==0), `N` (≥N), `=N` (==N), `+N` (>N), `-N` (<N). Under `--nth`/`--at` the default becomes `=1`. |
 | `--dry-run` | —         | Compute and show the change and verdict, but write nothing.                                   |
+| `--eol`     | `keep\|lf\|crlf` | Line endings for the files this run **writes**: `keep` (each file's own, the default), `lf`, or `crlf`. Only changed files are written, so an untouched file is never re-terminated. |
 
 Replacements within a file preserve every untouched byte — line terminators,
 indentation, and surrounding text are left exactly as they were.
+
+### Line endings are preserved
+
+A file's line endings are part of its bytes, and `ct-edit` keeps them: a
+CRLF file is written back CRLF, an LF file LF, and a file without a final
+newline stays without one. This holds for every kind of change — a per-line
+replacement, a block replacement, an insertion, a deletion, an append — and
+under both the cascade and `--no-cascade` script paths. New lines take the
+ending of the lines around them: a replacement uses the replaced span's
+style, an insertion the style of the line before it (else after it, else the
+file's dominant one), so an edit never leaves a file with mixed endings that
+git then warns about on every commit. Anchors are compared with endings
+stripped, so an LF anchor matches a CRLF file and vice versa, and a `$`
+regex anchor matches the end of a CRLF line.
+
+To *change* a file's endings, state it: `--eol lf` or `--eol crlf` rewrites
+every terminator of each file the run writes, after the edits are applied.
+A file the run does not change is not written, hence not converted; to
+convert a file outright, give it a real edit or use a dedicated tool.
+A repo that pins one ending (`.gitattributes` `eol=lf`) can enforce it as a
+rule — `ct rules --add no-crlf … -- ct-search --base . --hidden --grep '\r'
+--mode regex --expect none --detail` — so a file that drifted is a red
+`ct check` lane naming the path, and `--eol lf` on the next edit is the repair.
 
 ### `--find` is literal by default
 
@@ -115,38 +140,52 @@ ct-edit: --nth 9, but the selection holds 3 match(es); the anchor matched at
 Neither combines with `--script`: inside a batch, an edit narrows with `file=`
 and states its own `expect=`.
 
-### Payload schemes: `file:` / `stdin:` / `text:`
+### Payload schemes: `file:` / `stdin:` / `b64:` / `text:`
 
-`--find` and `--replace` are payload-typed:
+`--find`, `--replace` and `--script` are payload-typed:
 
 | Scheme | The value is |
 | ------ | ------------ |
 | `file:PATH` | the file's contents, read verbatim (exact bytes, UTF-8) |
 | `stdin:` | all of standard input, read verbatim (no argument) |
-| `text:VALUE` | the literal remainder — the escape hatch for a value that genuinely begins with `file:`, `stdin:`, or `text:` |
+| `b64:DATA` | the base64 decoding of `DATA` — standard or URL-safe alphabet, padding optional, whitespace ignored; must decode to UTF-8 |
+| `text:VALUE` | the literal remainder — the escape hatch for a value that genuinely begins with `file:`, `stdin:`, `b64:`, or `text:` |
 
-Only those three exact prefixes are recognised; `http://…` and `std::fmt`
-are unaffected. A `file:`- or `stdin:`-sourced payload is **verbatim**: never
-promoted, so its match mode defaults to literal.
+Only those four exact prefixes are recognised; `http://…` and `std::fmt`
+are unaffected. A `file:`-, `stdin:`- or `b64:`-sourced payload is
+**verbatim**: never promoted, so its match mode defaults to literal.
+(For `--script`, a bare value is a *path*; the schemes carry the script
+itself.)
 
 **Payloads containing `` ` ``, `$`, `!`, or quotes must not be written
-inline.** Under a POSIX shell an inline `text:` payload is expanded before
-`ct-edit` ever sees it — a backtick inside a code comment becomes a command
-substitution, `$foo` becomes empty, and the anchor that reaches the tool is
-not the one you wrote. `file:` and `stdin:` both dodge this completely,
-because the bytes never pass through word expansion:
+inline as `text:`.** Under a POSIX shell an inline payload is expanded
+before `ct-edit` ever sees it — a backtick inside a code comment becomes a
+command substitution, `$foo` becomes empty, and the anchor that reaches the
+tool is not the one you wrote. The other three schemes all dodge this
+completely, because the bytes never pass through word expansion:
 
 ```sh
-# the cheap safe path: no temp file, no quoting to get right
+# one command line, no heredoc, no pipe, no scratch file: a base64 string
+# contains only [A-Za-z0-9+/=], which no shell touches
+ct-edit --base src --find b64:ICAgIHRvZG8hKCJ3aXJlIHRoaXMiKTsK --replace b64:ICAgIHdpcmUoKTsK --expect =1
+
+# the cheap piped path: no temp file, no quoting to get right
 printf '%s' "$BLOCK" | ct-edit --base src --find stdin: --replace 'text:' --expect =1
 
-# the reusable safe path: write the payload once, reference it by path
+# the reusable path: write the payload once, reference it by path
 ct-edit --base src --find file:/tmp/anchor.txt --replace file:/tmp/new.txt --expect =1
 ```
 
+`b64:` is the scheme for a harness whose shell hook refuses heredocs and
+`cat >>` (so `stdin:` is unreachable) and whose own editor will not touch a
+file it did not read: encode the payload — or the whole `.ctb` script — and
+the edit is **one** `ct-edit` call. Most agent runtimes can produce base64
+natively; at a shell, `base64 -w0 FILE` or `printf '%s' "$TEXT" | base64 -w0`
+does it.
+
 Standard input is read **once** per process, so several `stdin:` payloads in
-one call all resolve to the same text — use `file:` when `--find` and
-`--replace` both need out-of-band values.
+one call all resolve to the same text — use `file:` or `b64:` when `--find`
+and `--replace` both need out-of-band values.
 
 ### Block find/replace
 
@@ -279,7 +318,10 @@ overwrites, so the result's blank lines are whatever `--replace` specifies. In a
 `--script PATH` runs a **batch** of edits from a ct block document under the
 suite's prepare/confirm/write standard: the whole script is simulated and
 judged in memory first, and **no file changes unless every edit passes** —
-there is no flag that makes a partial write possible.
+there is no flag that makes a partial write possible. The value is a path,
+or the script itself under a payload scheme: `--script b64:…` carries a
+whole batch inline on one shell-safe command line, and `file:`/`stdin:`/
+`text:` work too.
 
 ```
 #% edit expect="=1" file=src/ast.rs
@@ -302,8 +344,64 @@ there is no flag that makes a partial write possible.
   whitespace; an empty `replace` section deletes the matched lines.
   `#% end` closes the edit. Attribute values split at the first `=`
   (`expect==1` works), but `expect="=1"` is the preferred spelling.
-- Outside edits, blank lines and `#`-comments are ignored. `--fence STR`
-  changes the directive prefix for payloads containing `#%` at line start.
+- Outside edits, blank lines and `#`-comments are ignored. Inside a section
+  every line is payload, including a blank line left before the next fence;
+  `#% options trailing-blank=strip` (between edits, in force from there on;
+  `keep` restores the default) drops such trailing blank lines as separators
+  when the next fence or the end of the file closes the section, while an
+  explicit `#% end` still keeps them. `--fence STR` changes the directive
+  prefix for payloads containing `#%` at line start.
+
+### Inserting, deleting, appending
+
+An insertion used to be spelled as an edit whose `replace` repeated the
+anchor plus the new lines — the anchor copied twice, which is exactly where
+copy errors come from. The other directives name the anchor **once** and
+leave it as it is. They take the same `expect=`/`file=` as `edit`, and the
+anchored ones the same `mode=`/`squeeze=`; `expect` judges the anchor's
+match count, as for `edit`.
+
+| Directive | Sections | Effect |
+| --------- | -------- | ------ |
+| `#% insert-before` | `find`, `text` | put `text` on the lines **before** each anchor match |
+| `#% insert-after`  | `find`, `text` | put `text` on the lines **after** each anchor match |
+| `#% drop`          | `find`         | delete each anchor match's **whole lines** |
+| `#% append`        | `text`         | put `text` after the file's last line |
+| `#% prepend`       | `text`         | put `text` before the file's first line |
+
+```
+#% insert-after file=src/a.rs
+#% find
+fn setup() {
+    init_logging();
+#% text
+    init_metrics();
+#% drop expect="=2" file=src/a.rs
+#% find
+dbg!(
+#% append file=CHANGELOG.md
+#% text
+- metrics are initialised at setup
+#% end
+```
+
+- A multi-line `find` is a literal block, as for `edit`, and a missed block
+  reports its nearest miss. A single-line `find` is matched **per line**
+  (literal by default, `mode=regex` for a pattern): `insert-*` puts the text
+  around every matching line, `drop` deletes every matching line whole —
+  so a regex `drop` leaves no blank line behind, where an `edit` with an
+  empty `replace` would.
+- `text` keeps every line, including a trailing blank one, and lands with
+  the surrounding lines' endings (see *Line endings are preserved*). An
+  `append` to a file without a final newline terminates the old last line
+  and leaves the new last line unterminated, so the file's shape is kept.
+- `append`/`prepend` match nothing: they count **one per file** they touch,
+  so with the `=1` default an `append` without `file=` refuses to run over a
+  selection of two files. Name the file, or state `expect=`.
+- In text output and `--json`, each item reports its directive (`insert-after
+  3/7: expect =1, mode literal -> SUCCESS`; `"op": "insert-after"`); the
+  unanchored `append`/`prepend` have no mode (`"mode": null`). A site of an
+  insertion has an empty `before`, a site of a deletion an empty `after`.
 
 **Semantics.** Phase 1 simulates the script in memory, in order: each edit
 matches the buffers *as transformed by earlier edits* (cascade — so "add a
@@ -312,8 +410,30 @@ judged there; every changed file is also pre-flighted for writability.
 Phase 2 writes the final buffers only when every edit passed, so the
 verdict is exactly faithful to what gets written. `--no-cascade` matches
 every edit against pristine content instead, and any two edits touching the
-same line become a usage error. Any failing edit → batch `ERROR`, **zero
-writes**, exit `1`; failing block edits carry their nearest miss.
+same line become a usage error (an insertion at the first line of a replaced
+block lands above it and one after its last line below it — those are not
+overlaps; an insertion strictly inside one is). Any failing edit → batch
+`ERROR`, **zero writes**, exit `1`; failing block edits carry their nearest
+miss.
+
+### The whole batch on one command line
+
+With `b64:` and the directives above, every edit a session makes is one
+`ct-edit` call, verified atomically, with no heredoc, no pipe and no scratch
+file — whatever the payload contains:
+
+```sh
+# the script, as the agent authored it (backticks, $, quotes and all):
+#   #% insert-after file=src/a.rs
+#   #% find
+#   fn setup() {
+#   #% text
+#       log!("`$HOME` is {}", std::env::var("HOME")?);
+#   #% end
+ct-edit --base src --script b64:IyUgaW5zZXJ0LWFmdGVyIGZpbGU9c3JjL2EucnMKIyUgZmluZApmbiBzZXR1cCgpIHsKIyUgdGV4dAogICAgbG9nISgiYCRIT01FYCBpcyB7fSIsIHN0ZDo6ZW52Ojp2YXIoIkhPTUUiKT8pOwojJSBlbmQK --dry-run
+```
+
+Reports name the script as `b64:` where a path would otherwise appear.
 
 ## Output
 
@@ -328,7 +448,8 @@ Text mode prints each changed line as `path:line:- before` then `path:line:+ aft
 followed by a summary: `N replacement(s) in M file(s) -> RESULT (status)`, where
 status is `applied`, `dry-run, not written`, or `verdict ERROR, not written`.
 Script runs prefix each site row with its edit ordinal (`[3/12] …`), then print
-a per-edit verdict table and the batch summary.
+a per-edit verdict table (`edit 3/12: expect =1, mode literal -> SUCCESS (1
+replacement(s))`, each row led by its directive) and the batch summary.
 
 `--json` emits:
 
@@ -345,7 +466,8 @@ a per-edit verdict table and the batch summary.
 ```
 
 A script run replaces `sites` with a per-edit array (and reports
-`"script"` and `"cascade"`):
+`"script"` — the path, or `b64:`/`stdin:`/`text:` for an inline script —
+and `"cascade"`); each edit names its directive as `"op"`:
 
 ```json
 {
@@ -353,13 +475,15 @@ A script run replaces `sites` with a per-edit array (and reports
   "cascade": true, "dry_run": false, "applied": false,
   "replacements": 1, "files_changed": 1,
   "edits": [
-    { "ordinal": 1, "expect": "=1", "mode": "literal",
+    { "ordinal": 1, "op": "edit", "expect": "=1", "mode": "literal",
       "replacements": 1, "verdict": "SUCCESS", "sites": [ … ] },
-    { "ordinal": 2, "expect": "=1", "mode": "literal",
+    { "ordinal": 2, "op": "insert-after", "expect": "=1", "mode": "literal",
       "replacements": 0, "verdict": "ERROR",
       "nearest_miss": { "path": "src/ast.rs", "line": 571,
                         "first_diverging_line": 3,
-                        "expected": "…", "found": "…" } }
+                        "expected": "…", "found": "…" } },
+    { "ordinal": 3, "op": "append", "expect": "=1", "mode": null,
+      "replacements": 1, "verdict": "SUCCESS", "sites": [ … ] }
   ]
 }
 ```
@@ -434,6 +558,13 @@ ct-edit --base src --name '*.rs' \
 # An atomic batch: all 12 edits verified in memory, then written together.
 ct-edit --base polydat/src --name '*.rs' --script target/edits.ctb --dry-run
 ct-edit --base polydat/src --name '*.rs' --script target/edits.ctb
+
+# The same batch inline, on one shell-safe command line, over two trees at
+# once -- the repo and a notes directory outside it -- written together.
+ct-edit --base polydat/src --base ~/notes --script b64:IyUgZWRpdCBmaWxlPWFzdC5ycwojJSBmaW5kCiAgICBVNjQodTY0KSwKIyUgcmVwbGFjZQogICAgVTY0KHU2NCksCiAgICBJNjQoaTY0KSwKIyUgYXBwZW5kIGZpbGU9bG9nLm1kCiMlIHRleHQKLSBhZGRlZCBJNjQKIyUgZW5kCg==
+
+# Normalise the endings of the files this run writes.
+ct-edit --base src --name '*.rs' --script target/edits.ctb --eol lf
 ```
 
 - **Preview a rename across Rust sources before writing, instead of sed -i 's/foo_bar/foo_baz/g'.**

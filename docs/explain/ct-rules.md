@@ -108,8 +108,9 @@ ct rules --add no-debug-prints --question "..." \
 ```
 
 `--prompt` and `--why` accept payload schemes — `file:PATH` reads the prose
-verbatim from a file and `stdin:` reads it verbatim from standard input (both
-multi-line, both zero quoting), `text:VALUE` escapes the prefix. The confirmation **says so** ("the originating request is retained
+verbatim from a file, `stdin:` reads it verbatim from standard input, and
+`b64:DATA` decodes it from base64 (all multi-line, all zero quoting),
+`text:VALUE` escapes the prefix. The confirmation **says so** ("the originating request is retained
 in the rule's `prompt` field"), so the human can edit or drop it immediately
 if they prefer. `prompt` is provenance only — verification never reads it. When the
 prose has served its purpose, `ct rules --flatten` strips every retained
@@ -125,8 +126,9 @@ Probes observe; they never change anything. The gate is **compiled in and
 immutable** — a store entry selects from it and can never extend it:
 
 - the suite's read-only tools (`ct-search`, `ct-outline`, `ct-tree`,
-  `ct-view`, plus `ct-test`, plus `ct-each` *without* `--mutating`);
-- the **built-in checks** `deps` (crate graph over `cargo metadata`) and `mods`
+  `ct-view`, `ct-json`, plus `ct-test`, plus `ct-each` *without* `--mutating`);
+- the **built-in checks** `deps` (crate graph over `cargo metadata`, pruned to
+  what `cargo tree` builds) and `mods`
   (module graph from `use` edges), run in-process from the rule layer;
 - the **bridge**: `cargo metadata`, `cargo tree` (hermetic flags enforced),
   `cargo deny check` (offline unless the rule opts in with `--network` —

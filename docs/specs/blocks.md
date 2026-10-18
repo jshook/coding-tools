@@ -175,6 +175,13 @@ verbatim with zero escaping (newlines, quotes, `$`, backslashes):
 - **Payload sections** (`#% find`, `#% replace`, `#% value`) run until the
   next fence line. `#% end` closes the item.
 - Outside items, blank lines and `#`-comment lines are ignored.
+- Inside a section every line is payload, including a blank line left before
+  the next fence to space the script out. `#% options trailing-blank=strip`
+  (a document-level directive, between items, in force from there on; `keep`
+  restores the default) drops the blank lines that end a section closed by
+  the next fence or by the end of the file; a section closed by an explicit
+  `#% end` keeps them, so a payload that really ends in a blank line is still
+  expressible. `options` and `end` are reserved directive names.
 
 ### 4.2 ct-edit vocabulary
 
@@ -407,3 +414,48 @@ and wait for demand.
   anywhere), cascade vs `--no-cascade`, `=1` script default,
   `ct-search`/`ct-view` block patterns, dry-run parity. All shipped in
   `tests/block_payloads.rs` plus unit tests in the four new lib modules.
+
+## 9. Amendments (2026-10-17)
+
+Field report from the spectralose session: a harness whose shell hook
+refuses heredocs and `cat >>`, and whose own editor refuses a file it did
+not read, left `ct edit --script` reachable only through a scratch `.ctb`
+file — two tool calls per edit, and no way to insert around an anchor
+without copying it into the replacement. The session drifted back to Node
+edit scripts. These additions close that gap; the explain page for
+`ct-edit` is the reference for each.
+
+- **`b64:DATA` scheme** (Layer 2, §3): a fourth prefix beside `file:`,
+  `stdin:` and `text:`, decoding standard or URL-safe base64 (padding
+  optional, whitespace ignored) to UTF-8. Verbatim like `file:`/`stdin:`.
+  Because a base64 string has no shell-special characters, a payload — or
+  a whole script — travels inline on one command line with no heredoc,
+  pipe or scratch file. Shared by every scheme-aware option.
+- **`--script` is payload-typed**: a bare value is still a path; `b64:`,
+  `file:`, `stdin:` and `text:` carry the document itself. Reports name an
+  inline script by its scheme (`b64:`).
+- **Directives** (§4.2): `insert-before` / `insert-after` (`find` + `text`,
+  the anchor named once and left in place), `drop` (`find`; whole lines,
+  so a single-line regex deletion leaves no blank), `append` / `prepend`
+  (`text`; one count per file touched). Same `expect=`/`file=`; the
+  anchored ones take `mode=`/`squeeze=`. `--no-cascade` treats an insertion
+  at a replaced block's first line, or just after its last, as disjoint.
+- **Line endings** are stated as a guarantee and implemented once: every
+  editor renders through `src/lines.rs`, so CRLF/LF and a missing final
+  newline survive per-line, block, insert, drop and append edits under both
+  script paths. `--eol keep|lf|crlf` rewrites the endings of the files a
+  run writes.
+- **`#% options trailing-blank=keep|strip`** (§4.1): the first field use of
+  a long script spaced its edits out with blank lines, and every one of them
+  was payload — a single-line replacement grew a newline and split a JSON
+  manifest line. The default stays verbatim (`keep`); `strip` makes a
+  trailing blank line before the next fence a separator, with `#% end` as
+  the verbatim escape hatch.
+- **`--base` is repeatable** on `ct-edit`: all bases join one selection
+  (a file reachable twice is loaded once), so a script touches two trees in
+  one atomic run. §6's "no new targeting vocabulary" stands: `file=` still
+  only narrows within the selection.
+- **`ct-json`** (`ct json`): the read-only JSON query verb deferred from this
+  round shipped the same day — `--path` reuses `ct-patch`'s path grammar
+  (plus `[*]`), `--query` runs a jq filter in-process, and `--expect` frames
+  the value count. See `explain/ct-json.md`.

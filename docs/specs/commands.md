@@ -32,6 +32,8 @@ can call by its full name.
 | `ct-new`    | Create a file with the content you give it — an existing target is refused unless `--on-exists` says otherwise; `--script` creates a batch atomically. | [explain/ct-new.md](../explain/ct-new.md) |
 | `ct-edit`   | Find/replace across selected files, gated by an `--expect` verdict and previewable with `--dry-run`. | [explain/ct-edit.md](../explain/ct-edit.md) |
 | `ct-patch`  | Set/delete nodes by path in JSON/JSONC/JSONL, preserving comments and formatting. | [explain/ct-patch.md](../explain/ct-patch.md) |
+| `ct-json`   | Query JSON/JSONC/JSONL with a jq filter, in-process — a node by `ct-patch`'s path, a projection, a join — one value per line, `--expect` over the count. | [explain/ct-json.md](../explain/ct-json.md) |
+
 | `ct-test`   | Run a command as a framed experiment — pose a question, classify the result from output, emit a templated verdict. | [explain/ct-test.md](../explain/ct-test.md) |
 | `ct-each`   | Run a command template once per item — no shell — with per-item verdicts and an aggregate `--expect`. | [explain/ct-each.md](../explain/ct-each.md) |
 | `ct-outline`| Report the declarations in a file or tree — kind, name, `start:end` span — for bounded reads. | [explain/ct-outline.md](../explain/ct-outline.md) |

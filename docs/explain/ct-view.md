@@ -27,7 +27,7 @@ the equivalent MCP / tool-use definition.
 | ------------- | -------- | ------------------------------------------------------------------------------------------------ |
 | `PATH`        | —        | The file to view (positional, required).                                                         |
 | `--range`     | `SPEC`   | Line range `A:B` (1-based, inclusive); also `A:` (to end), `:B` (from start), or `A` (one line). |
-| `--match`     | `PATTERN`| Show only lines matching the pattern (promoted; see *Pattern matching*), with `--context` around each. **Repeatable** — several patterns merge into one de-duplicated window set. Accepts `file:PATH` / `stdin:` / `text:VALUE`; a multi-line payload matches as a line-anchored literal **block**. |
+| `--match`     | `PATTERN`| Show only lines matching the pattern (promoted; see *Pattern matching*), with `--context` around each. **Repeatable** — several patterns merge into one de-duplicated window set. Accepts `file:PATH` / `stdin:` / `b64:DATA` / `text:VALUE`; a multi-line payload matches as a line-anchored literal **block**. |
 | `--mode`      | `literal\|glob\|regex` | Pin how `--match` is interpreted — promotion **off**. State `literal` when the pattern is verbatim code. |
 | `--context`, `-C` | `N`  | Lines of context shown around each `--match` hit. Default: `2`.                                  |
 | `--limit`     | `N`      | Cap the number of lines emitted.                                                                 |
@@ -92,7 +92,8 @@ pattern matched anything at all.
 
 `--match` is payload-typed: `file:PATH` reads the pattern verbatim from a
 file (literal by default), `stdin:` reads it verbatim from standard input
-(same, and needs no temp file), `text:VALUE` escapes the prefix. A **multi-line**
+(same, and needs no temp file), `b64:DATA` decodes a base64 string (same,
+and needs no pipe either), `text:VALUE` escapes the prefix. A **multi-line**
 pattern matches as a line-anchored literal block — K lines match K
 consecutive source lines byte-for-byte — and the context window expands
 around the whole matched region; a block that matches nothing reports its

@@ -152,7 +152,10 @@ usage/runtime error.
   script is simulated in memory (*cascading*, so a later op sees an earlier op's
   writes) and **nothing is written unless every op succeeds**. `--dry-run`
   prints the plan and writes nothing; `--fence STR` changes the directive prefix
-  (default `#%`).
+  (default `#%`). Payload sections (`description`, `message`, …) keep a blank
+  line left before the next fence unless the script says
+  `#% options trailing-blank=strip` (between items; a section closed by
+  `#% end` keeps it regardless).
 
 ## Examples
 

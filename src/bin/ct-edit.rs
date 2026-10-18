@@ -7,10 +7,12 @@
 //! predicates as `ct-search`, computes every replacement first, classifies the
 //! total against an `--expect`ation into a `SUCCESS`/`ERROR` verdict, and only
 //! writes when the verdict holds (never under `--dry-run`). `--find`/`--replace`
-//! accept `file:PATH` / `text:VALUE` payloads; a multi-line find matches as a
-//! line-anchored literal block. `--script` runs a `.ctb` batch of edits under
-//! the prepare/confirm/write standard: the whole script is simulated in memory
-//! and judged first, and no file changes unless every edit passes. Reachable
+//! accept `file:PATH` / `stdin:` / `b64:DATA` / `text:VALUE` payloads; a
+//! multi-line find matches as a line-anchored literal block. `--script` runs a
+//! `.ctb` batch (`edit`, `insert-before`/`insert-after`, `drop`,
+//! `append`/`prepend` items; a path, or the script itself inline as `b64:`)
+//! under the prepare/confirm/write standard: the whole script is simulated in
+//! memory and judged first, and no file changes unless every edit passes. Reachable
 //! directly or as `ct edit`. The canonical reference is `docs/explain/ct-edit.md`
 //! — the text this tool emits for `--explain md`; `docs/explain/ct-edit.json` is
 //! the MCP tool-use definition emitted for `--explain json`. Both are embedded
@@ -32,8 +34,9 @@ use serde_json::json;
 const EXPLAIN_MD: &str = include_str!("../../docs/explain/ct-edit.md");
 const EXPLAIN_JSON: &str = include_str!("../../docs/explain/ct-edit.json");
 
-/// Build the file selector shared by both forms.
-fn selector(cli: &Cli) -> Result<walk::Selector, String> {
+/// Build the file selectors shared by both forms: one per `--base`, all
+/// sharing the same name filter and walk options.
+fn selectors(cli: &Cli) -> Result<Vec<walk::Selector>, String> {
     let names = match &cli.name {
         Some(spec) => Some(
             pattern::compile_name_set_with(spec, cli.mode)
@@ -41,34 +44,70 @@ fn selector(cli: &Cli) -> Result<walk::Selector, String> {
         ),
         None => None,
     };
-    Ok(walk::Selector {
-        base: cli.base.clone(),
-        names,
-        types: vec![EntryType::F],
-        size: None,
-        hidden: cli.hidden,
-        follow: cli.follow,
-        no_ignore: cli.no_ignore,
-    })
+    Ok(cli
+        .base
+        .iter()
+        .map(|base| walk::Selector {
+            base: base.clone(),
+            names: names.clone(),
+            types: vec![EntryType::F],
+            size: None,
+            hidden: cli.hidden,
+            follow: cli.follow,
+            no_ignore: cli.no_ignore,
+        })
+        .collect())
 }
 
-/// Read every selected UTF-8 file into memory. Files that do not read as
-/// UTF-8 text (e.g. binaries) are left out, hence untouched.
-fn load_files(sel: &walk::Selector) -> Result<Vec<FileBuf>, String> {
-    let mut files = Vec::new();
-    for entry in sel.walk() {
-        let entry = entry?;
-        if !entry.file_type().is_some_and(|t| t.is_file()) {
-            continue;
-        }
-        if let Ok(content) = std::fs::read_to_string(entry.path()) {
-            files.push(FileBuf {
-                path: entry.path().display().to_string(),
-                content,
-            });
+/// Read every selected UTF-8 file into memory, in `--base` order. Files that
+/// do not read as UTF-8 text (e.g. binaries) are left out, hence untouched; a
+/// file reached from two bases is loaded once, so no edit can count it twice.
+fn load_files(sels: &[walk::Selector]) -> Result<Vec<FileBuf>, String> {
+    let mut files: Vec<FileBuf> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for sel in sels {
+        for entry in sel.walk() {
+            let entry = entry?;
+            if !entry.file_type().is_some_and(|t| t.is_file()) {
+                continue;
+            }
+            let identity =
+                std::fs::canonicalize(entry.path()).unwrap_or_else(|_| entry.path().to_path_buf());
+            if !seen.insert(identity) {
+                continue;
+            }
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                files.push(FileBuf {
+                    path: entry.path().display().to_string(),
+                    content,
+                });
+            }
         }
     }
     Ok(files)
+}
+
+/// The `--base` list as the diagnostics quote it.
+fn bases_label(cli: &Cli) -> String {
+    cli.base
+        .iter()
+        .map(|b| format!("'{}'", b.display()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Rewrite the line endings of every changed buffer per `--eol`. Only
+/// buffers an edit changed are candidates: an untouched file is never
+/// written, so it is never re-terminated either.
+fn apply_eol(cli: &Cli, files: &mut [FileBuf], changed: &[bool]) {
+    if cli.eol == coding_tools::lines::Eol::Keep {
+        return;
+    }
+    for (f, ch) in files.iter_mut().zip(changed) {
+        if *ch {
+            f.content = coding_tools::lines::normalize_eol(&f.content, cli.eol);
+        }
+    }
 }
 
 /// Confirm every changed file can be written before any write begins — the
@@ -183,9 +222,9 @@ fn empty_selection_note(cli: &Cli) -> String {
         None => String::new(),
     };
     let mut note = format!(
-        "the selection read 0 file(s): --base '{}'{name} — nothing was compared, so the \
+        "the selection read 0 file(s): --base {}{name} — nothing was compared, so the \
          verdict says nothing about the pattern",
-        cli.base.display()
+        bases_label(cli)
     );
     // `--mode` pins *every* pattern in the invocation, `--name` included, so
     // `--mode literal --name '*.rs'` looks for a file literally called `*.rs`.
@@ -329,7 +368,7 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
     };
     let mut picker = Picker::new(&pick);
 
-    let mut files = load_files(&selector(cli)?)?;
+    let mut files = load_files(&selectors(cli)?)?;
     let scanned = files.len();
     let mut replacements = 0usize;
     let mut sites: Vec<Site> = Vec::new();
@@ -402,6 +441,7 @@ fn run_single(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
     let verdict = expect.eval(replacements as u64);
     let applied = verdict == Verdict::Success && !cli.dry_run;
     if applied {
+        apply_eol(cli, &mut files, &changed);
         let to_write: Vec<&str> = files
             .iter()
             .zip(&changed)
@@ -501,25 +541,23 @@ fn miss_json(path: &str, m: &coding_tools::block::NearestMiss) -> serde_json::Va
 /// in memory, and write only when every edit passed — atomic by design, with
 /// no flag that makes a partial write possible.
 fn run_script(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String> {
-    let script_path = cli.script.as_ref().unwrap();
-    let src = std::fs::read_to_string(script_path)
-        .map_err(|e| format!("reading script {}: {e}", script_path.display()))?;
-    let items = blockdoc::parse(&src, &cli.fence, &["edit"])
-        .map_err(|e| format!("{}: {e}", script_path.display()))?;
+    // A bare --script value is a path; `b64:`/`file:`/`stdin:`/`text:` carry
+    // the document itself. The label stands in for the path in every report.
+    let (src, script_label) = payload::resolve_document(cli.script.as_deref().unwrap())
+        .map_err(|e| format!("reading script: {e}"))?;
+    let items = blockdoc::parse(&src, &cli.fence, editscript::DIRECTIVES)
+        .map_err(|e| format!("{script_label}: {e}"))?;
     if items.is_empty() {
-        return Err(format!(
-            "{}: script contains no edits",
-            script_path.display()
-        ));
+        return Err(format!("{script_label}: script contains no edits"));
     }
     let specs = items
         .iter()
         .enumerate()
         .map(|(i, it)| editscript::compile_item(it, i + 1))
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("{}: {e}", script_path.display()))?;
+        .map_err(|e| format!("{script_label}: {e}"))?;
 
-    let mut files = load_files(&selector(cli)?)?;
+    let mut files = load_files(&selectors(cli)?)?;
     let pristine: Vec<String> = files.iter().map(|f| f.content.clone()).collect();
 
     // Phase 1: the whole batch, simulated and judged in memory.
@@ -540,6 +578,7 @@ fn run_script(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
     // Phase 2: confirm writability, then write — only when every edit passed.
     let applied = batch_ok && !cli.dry_run;
     if applied {
+        apply_eol(cli, &mut files, &changed);
         let to_write: Vec<&str> = files
             .iter()
             .zip(&changed)
@@ -561,7 +600,7 @@ fn run_script(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
         let edits: Vec<_> = outcomes.iter().map(outcome_json).collect();
         let obj = json!({
             "tool": "ct-edit",
-            "script": script_path.display().to_string(),
+            "script": script_label,
             "verdict": verdict.label(),
             "cascade": !cli.no_cascade,
             "dry_run": cli.dry_run,
@@ -577,11 +616,18 @@ fn run_script(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
                 print_sites(&format!("[{}/{total}] ", o.ordinal), &o.sites);
             }
             for o in &outcomes {
+                // `edit 3/12: expect =1, mode literal -> …`; the other
+                // directives name themselves in the same slot, and the
+                // unanchored ones have no mode to report.
+                let mode = match &o.mode {
+                    Some(m) => format!(", mode {m}"),
+                    None => String::new(),
+                };
                 println!(
-                    "edit {}/{total}: expect {}, mode {} -> {} ({} replacement(s))",
+                    "{} {}/{total}: expect {}{mode} -> {} ({} replacement(s))",
+                    o.kind,
                     o.ordinal,
                     o.expect,
-                    o.mode,
                     o.verdict.label(),
                     o.replacements,
                 );
@@ -608,6 +654,7 @@ fn run_script(cli: &Cli, watchdog: &Option<Watchdog>) -> Result<ExitCode, String
 fn outcome_json(o: &EditOutcome) -> serde_json::Value {
     let mut obj = json!({
         "ordinal": o.ordinal,
+        "op": o.kind,
         "expect": o.expect,
         "mode": o.mode,
         "replacements": o.replacements,

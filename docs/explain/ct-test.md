@@ -56,12 +56,12 @@ cross-platform core of the suite's own `ct-*` tools, plus the host OS's stock
 read-only utilities.
 
 ```
-core (every OS):  ct-await ct-check ct-outline ct-search ct-tree ct-view
+core (every OS):  ct-await ct-check ct-json ct-outline ct-search ct-tree ct-view
 unix / MSYS2:     cat echo false file grep head ls pwd stat tail true wc
 native Windows:   findstr hostname more where whoami
 ```
 
-The suite's read-only `ct-search`/`ct-outline`/`ct-tree`/`ct-view`/`ct-check`/`ct-await`
+The suite's read-only `ct-search`/`ct-outline`/`ct-tree`/`ct-view`/`ct-json`/`ct-check`/`ct-await`
 are in the core — so `ct-test` is a ready **conditional wrapper** around them (see
 *Composing with the suite*) on any platform; the umbrella `ct` and the
 dispatching/mutating `ct-each`/`ct-edit`/`ct-patch`/`ct-rules` are not, since they
@@ -114,7 +114,7 @@ own options **before** the `--`; everything after `--` goes to the wrapped tool.
 | ------------ | -------- | ----------------------------------------------------------------------- |
 | `--question` | `TEXT`   | The question this experiment answers; printed as a `== … ==` banner.    |
 | `--cmd`      | `PROG`   | Program to run (must be on the allowlist). Trailing `-- ARGS…` are passed through to it. Always launched directly — there is no shell mode. |
-| `--stdin`    | `TEXT`   | Text written to the child's standard input. Accepts `file:PATH` / `stdin:` / `text:VALUE` payloads — multi-line input with zero quoting. |
+| `--stdin`    | `TEXT`   | Text written to the child's standard input. Accepts `file:PATH` / `stdin:` / `b64:DATA` / `text:VALUE` payloads — multi-line input with zero quoting. |
 | `--mode`     | `literal\|glob\|regex` | Pin how matcher patterns (and `--focus`) are interpreted — promotion **off**. State `literal` when a matcher is verbatim code. |
 
 ## Run bounds and liveness

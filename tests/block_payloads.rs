@@ -821,3 +821,313 @@ fn ct_test_stdin_accepts_a_file_payload() {
     assert_eq!(code(&out), 0, "{}", stderr(&out));
     assert!(stdout(&out).contains("SUCCESS"), "{}", stdout(&out));
 }
+
+/// A reference base64 encoder for the tests, so `b64:` payloads are built
+/// the way an agent would build them rather than by the decoder under test.
+fn b64(s: &str) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes = s.as_bytes();
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk.len();
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let v = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        out.push(A[(v >> 18) as usize & 63] as char);
+        out.push(A[(v >> 12) as usize & 63] as char);
+        out.push(if n > 1 {
+            A[(v >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if n > 2 {
+            A[v as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+#[test]
+fn b64_payloads_and_an_inline_b64_script_need_no_file_or_pipe() {
+    let dir = scratch("b64");
+    let file = dir.join("hostile.rs");
+    // Every shell-hostile character at once: backticks, $, a quote, a brace.
+    std::fs::write(&file, "let s = `$HOME`;\nlet t = \"it's\";\n").unwrap();
+
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            file.to_str().unwrap(),
+            "--find",
+            &format!("b64:{}", b64("let s = `$HOME`;")),
+            "--replace",
+            &format!("b64:{}", b64("let s = `${HOME}`;")),
+            "--expect",
+            "=1",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "let s = `${HOME}`;\nlet t = \"it's\";\n"
+    );
+
+    // A whole script inline: an insertion and an append, one command line,
+    // no scratch file. Reports name the script by its scheme.
+    let script = "#% insert-after file=hostile.rs\n#% find\nlet t = \"it's\";\n#% text\nlet u = `$x`;\n#% append file=hostile.rs\n#% text\n// end\n#% end\n";
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            dir.to_str().unwrap(),
+            "--script",
+            &format!("b64:{}", b64(script)),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["verdict"], "SUCCESS");
+    assert_eq!(v["script"], "b64:");
+    assert_eq!(v["edits"][0]["op"], "insert-after");
+    assert_eq!(v["edits"][0]["mode"], "literal");
+    assert_eq!(v["edits"][1]["op"], "append");
+    assert!(v["edits"][1]["mode"].is_null(), "{v}");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "let s = `${HOME}`;\nlet t = \"it's\";\nlet u = `$x`;\n// end\n"
+    );
+
+    // Garbage after the prefix is a usage error, not a clean negative.
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            file.to_str().unwrap(),
+            "--find",
+            "b64:not*base64",
+            "--replace",
+            "x",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 2, "{}", stderr(&out));
+    assert!(stderr(&out).contains("not base64"), "{}", stderr(&out));
+}
+
+#[test]
+fn script_directives_insert_drop_prepend_append_in_one_atomic_run() {
+    let dir = scratch("directives");
+    let a = dir.join("a.rs");
+    let log = dir.join("CHANGELOG.md");
+    let a_src = "fn setup() {\n    init_logging();\n    dbg!(1);\n}\n    dbg!(2);\n";
+    std::fs::write(&a, a_src).unwrap();
+    std::fs::write(&log, "# log\n").unwrap();
+    let script = dir.join("ops.ctb");
+    std::fs::write(
+        &script,
+        "#% insert-after file=a.rs\n#% find\nfn setup() {\n    init_logging();\n#% text\n    init_metrics();\n\
+         #% drop expect=\"=2\" file=a.rs\n#% find\ndbg!(\n\
+         #% prepend file=a.rs\n#% text\n// header\n\
+         #% append file=CHANGELOG.md\n#% text\n- metrics\n#% end\n",
+    )
+    .unwrap();
+
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            dir.to_str().unwrap(),
+            "--script",
+            script.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(&a).unwrap(),
+        "// header\nfn setup() {\n    init_logging();\n    init_metrics();\n}\n"
+    );
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "# log\n- metrics\n");
+    let text = stdout(&out);
+    assert!(
+        text.contains("insert-after 1/4: expect =1, mode literal -> SUCCESS (1 replacement(s))"),
+        "{text}"
+    );
+    assert!(
+        text.contains("drop 2/4: expect =2, mode literal -> SUCCESS (2 replacement(s))"),
+        "{text}"
+    );
+    assert!(
+        text.contains("append 4/4: expect =1 -> SUCCESS (1 replacement(s))"),
+        "{text}"
+    );
+    // An insertion site prints only `+` rows, a deletion only `-` rows.
+    // Under cascade the insert (after the 2-line anchor at line 1) lands on
+    // line 3, and the drop then sees the file with that line in place.
+    assert!(text.contains(":3:+     init_metrics();"), "{text}");
+    assert!(text.contains(":4:-     dbg!(1);"), "{text}");
+
+    // A missed insert anchor fails the batch with zero writes and a nearest
+    // miss, like a missed edit anchor.
+    std::fs::write(&a, a_src).unwrap();
+    let bad = dir.join("bad.ctb");
+    std::fs::write(
+        &bad,
+        "#% append file=CHANGELOG.md\n#% text\n- never\n#% insert-before file=a.rs\n#% find\nfn setup() {\n    init_tracing();\n#% text\nx\n#% end\n",
+    )
+    .unwrap();
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            dir.to_str().unwrap(),
+            "--script",
+            bad.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 1, "{}", stderr(&out));
+    assert!(stdout(&out).contains("nearest miss"), "{}", stdout(&out));
+    assert!(
+        stdout(&out).contains("insert-before 2/2"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), a_src);
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "# log\n- metrics\n");
+}
+
+#[test]
+fn line_endings_survive_every_edit_kind_and_eol_converts_written_files() {
+    let dir = scratch("eol");
+    let f = dir.join("crlf.txt");
+    std::fs::write(&f, "a\r\nb\r\nc\r\n").unwrap();
+    let script = dir.join("mix.ctb");
+    std::fs::write(
+        &script,
+        "#% edit\n#% find\nb\n#% replace\nB\n#% insert-after\n#% find\na\n#% text\nx\n#% append\n#% text\nz\n#% end\n",
+    )
+    .unwrap();
+    // The no-cascade path used to write interior lines with a bare \n.
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            f.to_str().unwrap(),
+            "--script",
+            script.to_str().unwrap(),
+            "--no-cascade",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(&f).unwrap(),
+        "a\r\nx\r\nB\r\nc\r\nz\r\n"
+    );
+
+    // A `$`-anchored regex sees the line body without its \r.
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            f.to_str().unwrap(),
+            "--mode",
+            "regex",
+            "--find",
+            "c$",
+            "--replace",
+            "C",
+            "--expect",
+            "=1",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(&f).unwrap(),
+        "a\r\nx\r\nB\r\nC\r\nz\r\n"
+    );
+
+    // --eol lf converts the file the run writes; a file without an edit is
+    // not written, hence not converted.
+    let g = dir.join("other.txt");
+    std::fs::write(&g, "p\r\nq\r\n").unwrap();
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            dir.to_str().unwrap(),
+            "--name",
+            "*.txt",
+            "--find",
+            "B",
+            "--replace",
+            "BB",
+            "--expect",
+            "=1",
+            "--eol",
+            "lf",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(std::fs::read_to_string(&f).unwrap(), "a\nx\nBB\nC\nz\n");
+    assert_eq!(std::fs::read_to_string(&g).unwrap(), "p\r\nq\r\n");
+}
+
+#[test]
+fn repeatable_base_joins_two_trees_in_one_atomic_run() {
+    let d1 = scratch("multibase-a");
+    let d2 = scratch("multibase-b");
+    let x = d1.join("x.rs");
+    let notes = d2.join("notes.md");
+    // Scratch dirs persist across runs; an earlier build of this test left its
+    // script (which mentions "uno") in d1, where the argv edit below would
+    // match it.
+    let _ = std::fs::remove_file(d1.join("two.ctb"));
+    std::fs::write(&x, "one\n").unwrap();
+    std::fs::write(&notes, "- n\n").unwrap();
+    // The script names "uno" in its replace section, so it lives outside the
+    // bases the argv edit below selects, or it would be a second match.
+    let script = scratch("multibase-script").join("two.ctb");
+    std::fs::write(
+        &script,
+        "#% edit file=x.rs\n#% find\none\n#% replace\nuno\n#% append file=notes.md\n#% text\n- m\n#% end\n",
+    )
+    .unwrap();
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            d1.to_str().unwrap(),
+            "--base",
+            d2.to_str().unwrap(),
+            "--script",
+            script.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(std::fs::read_to_string(&x).unwrap(), "uno\n");
+    assert_eq!(std::fs::read_to_string(&notes).unwrap(), "- n\n- m\n");
+
+    // A file reachable from two bases is loaded once, so it counts once.
+    let out = tool("ct-edit")
+        .args([
+            "--base",
+            d1.to_str().unwrap(),
+            "--base",
+            x.to_str().unwrap(),
+            "--find",
+            "uno",
+            "--replace",
+            "eins",
+            "--expect",
+            "=1",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert_eq!(std::fs::read_to_string(&x).unwrap(), "eins\n");
+}

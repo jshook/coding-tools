@@ -4,8 +4,11 @@
 //! The `deps` built-in check's crate-graph queries.
 //!
 //! The resolved dependency graph comes from `cargo metadata --format-version
-//! 1 --locked --offline` (hermetic by construction); this module parses that
-//! JSON into a [`Graph`] and answers the crate-level invariant questions:
+//! 1 --locked --offline` (hermetic by construction), pruned to the packages
+//! `cargo tree` actually builds ([`Graph::retain_built`]: metadata
+//! over-activates optional dependencies behind weak `dep?/feature` edges);
+//! this module parses that JSON into a [`Graph`] and answers the crate-level
+//! invariant questions:
 //! *is crate X anywhere in the tree* ([`deny_paths`]), *does workspace member
 //! A reach crate B* ([`forbid_path`]), *do any crates resolve at more than one
 //! version* ([`Graph::duplicates`]), *is the graph free of cycles* ([`cycles`]),
@@ -380,6 +383,26 @@ impl Graph {
         vec![self.label(start)]
     }
 
+    /// Keep only the packages cargo actually builds. `cargo metadata`'s
+    /// resolve over-approximates feature activation — a weak `dep?/feature`
+    /// can list an optional dependency nothing enables (jiff's `defmt`,
+    /// dragging in a second `syn`) — while `cargo tree` runs the real feature
+    /// resolver. `built` holds `name@version` keys from the latter (see
+    /// [`parse_tree_packages`]); a package absent from it, and every edge to
+    /// it, is dropped. Ids with no package record are kept.
+    pub fn retain_built(&mut self, built: &HashSet<String>) {
+        let packages = &self.packages;
+        let is_built = |id: &str| {
+            packages
+                .get(id)
+                .is_none_or(|p| built.contains(&format!("{}@{}", p.name, p.version)))
+        };
+        self.edges.retain(|id, _| is_built(id));
+        for out in self.edges.values_mut() {
+            out.retain(|(dep, _)| is_built(dep));
+        }
+    }
+
     /// Crate names that resolve at more than one version, with the versions.
     pub fn duplicates(&self) -> Vec<(String, Vec<String>)> {
         let mut by_name: BTreeMap<&str, HashSet<&str>> = BTreeMap::new();
@@ -566,6 +589,30 @@ pub fn layer_violations(
 
 // ----- The `deps` built-in check -------------------------------------------------
 
+/// The `name@version` keys of the packages `cargo tree` would build, parsed
+/// from its `--prefix none --format {p}` lines (`name vX.Y.Z`, possibly
+/// followed by a path or the `(*)` dedupe marker).
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::deps::parse_tree_packages;
+///
+/// let built = parse_tree_packages("app v0.1.0 (D:\\x)\nleaf v1.0.0\nleaf v1.0.0 (*)\n\n");
+/// assert_eq!(built.len(), 2);
+/// assert!(built.contains("leaf@1.0.0"));
+/// ```
+pub fn parse_tree_packages(text: &str) -> HashSet<String> {
+    text.lines()
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            let name = it.next()?;
+            let version = it.next()?.strip_prefix('v')?;
+            Some(format!("{name}@{version}"))
+        })
+        .collect()
+}
+
 /// The assertion flags of a `deps` built-in check. No framing
 /// (question / emit / json): the rule layer owns the verdict; this only asserts.
 #[derive(Parser, Debug)]
@@ -739,10 +786,43 @@ pub fn check(
             outcome.stderr.lines().last().unwrap_or("(no output)")
         ));
     }
-    let graph = match parse_metadata(&outcome.stdout) {
+    let mut graph = match parse_metadata(&outcome.stdout) {
         Ok(g) => g,
         Err(e) => return broken(format!("deps: {e}")),
     };
+    // `cargo tree` applies the real feature resolver; prune what metadata
+    // lists but cargo never builds (see `Graph::retain_built`).
+    let mut command = Command::new("cargo");
+    command
+        .args([
+            "tree",
+            "--locked",
+            "--offline",
+            "--workspace",
+            "--edges",
+            "normal,build,dev",
+            "--target",
+            "all",
+            "--prefix",
+            "none",
+            "--format",
+            "{p}",
+        ])
+        .current_dir(root);
+    let tree = match supervise::run_captured(command, None, timeout) {
+        Ok(o) => o,
+        Err(e) => return broken(format!("deps: cargo tree: {e}")),
+    };
+    if tree.timed_out {
+        return broken("deps: cargo tree timed out".to_string());
+    }
+    if !tree.status.is_some_and(|s| s.success()) {
+        return broken(format!(
+            "deps: cargo tree failed: {}",
+            tree.stderr.lines().last().unwrap_or("(no output)")
+        ));
+    }
+    graph.retain_built(&parse_tree_packages(&tree.stdout));
 
     let mut violations: Vec<Violation> = Vec::new();
     for name in &cli.deny {
@@ -897,6 +977,24 @@ mod tests {
                 .is_none()
         );
         assert!(forbid_path(&g, "ghost", "leaf", &all_edges()).is_err());
+    }
+
+    #[test]
+    fn retain_built_drops_what_cargo_never_builds() {
+        let mut g = sample();
+        assert_eq!(g.duplicates().len(), 1, "leaf v1 and v2 before pruning");
+        let built: HashSet<String> = ["app@0.1.0", "lib@0.1.0", "leaf@1.0.0"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        g.retain_built(&built);
+        assert!(g.duplicates().is_empty());
+        assert!(!g.edges.contains_key("leaf2-id"));
+        assert!(
+            g.edges["app-id"].iter().all(|(dep, _)| dep != "leaf2-id"),
+            "the dangling dev edge goes too"
+        );
+        assert_eq!(g.ids_named("leaf"), vec!["leaf1-id"]);
     }
 
     #[test]

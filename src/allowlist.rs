@@ -42,6 +42,7 @@ use std::path::Path;
 pub const CORE: &[&str] = &[
     "ct-await",
     "ct-check",
+    "ct-json",
     "ct-outline",
     "ct-search",
     "ct-tree",

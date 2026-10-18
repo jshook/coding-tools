@@ -1,0 +1,124 @@
+{
+  "name": "ct-json",
+  "description": "Query JSON/JSONC/JSONL documents with a jq filter, in-process (the jaq dialect: no jq binary, no shell), and get one JSON value per line framed by an --expect verdict over the result count. --file names a document (repeatable; a path, or file:PATH / stdin: / b64:DATA / text:JSON carrying the document itself); format follows the extension (.json/.jsonc one document, .jsonl/.ndjson one input per line, anything else JSON; YAML is refused) or --format. Comments and trailing commas are tolerated and object keys keep document order. --path reads a node in ct-patch's path grammar (dotted keys, [N], [key=value] = first element whose key equals the value, read as JSON if it is one else a string) plus [*] for every element; --query is any jq program (standard library included: map, select, group_by, to_entries, string interpolation, reduce, …), run after --path when both are given; default '.'. --query and --arg values are payload-typed too, so b64: carries a filter full of quotes and $ through any shell. --arg NAME=VALUE binds $NAME to a string, --argjson NAME=JSON to a parsed value. --slurp gathers every input into one array and runs the filter once. Output: compact JSON per result; --raw prints strings unquoted (jq -r); --pretty indents; --limit N stops after N results (evaluation stops too). The verdict is --expect over the number of results (any|none|N|=N|+N|-N, default any); a filter error or unreadable input is exit 2. Read-only (no allow-gate) and itself on the read-only allowlist, so ct-test/ct-each/ct-await/rule probes may dispatch it. With --json emits {tool, verdict, count, files, filter, values}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct json ...` or `ct-json ...`.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "file": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Documents to query (repeatable; each is one input). A bare value is a path to read; file:PATH, stdin:, b64:DATA, and text:JSON carry the document itself."
+      },
+      "query": {
+        "type": "string",
+        "description": "jq filter (jaq dialect) to run over each input, after --path if both are given. Default '.'. Payload-typed: file:PATH / stdin: / b64:DATA / text:VALUE; b64: is the shell-safe way to pass a filter containing quotes, $, or backticks."
+      },
+      "path": {
+        "type": "string",
+        "description": "Node to read first, in ct-patch's path grammar: dotted keys, [N] array indices, [key=value] (first element whose key equals value; value read as JSON if it is one, else a string), plus [*] for every element. Leading '.' optional. Selecting nothing yields no results (verdict ERROR under the default expect), not an error."
+      },
+      "arg": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "NAME=VALUE bindings (repeatable): $NAME is the string VALUE inside the filter. VALUE accepts file:/stdin:/b64:/text:. Each name may be bound once."
+      },
+      "argjson": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "NAME=JSON bindings (repeatable): $NAME is JSON, parsed."
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "json",
+          "jsonc",
+          "jsonl"
+        ],
+        "description": "Force the input format instead of detecting it from the file extension (.json/.jsonc one document; .jsonl/.ndjson one input per non-blank line; other extensions and scheme-carried documents read as JSON)."
+      },
+      "slurp": {
+        "type": "boolean",
+        "description": "Collect every input (each --file document, every JSONL record) into one array and run the filter once over it."
+      },
+      "raw": {
+        "type": "boolean",
+        "description": "Print string results as their own characters, without quotes (like jq -r). Non-strings are unaffected."
+      },
+      "pretty": {
+        "type": "boolean",
+        "description": "Indent each result value over several lines instead of one compact value per line."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Stop after N results; the filter is not evaluated further, so an open-ended generator stays bounded. The verdict counts the results kept."
+      },
+      "expect": {
+        "type": "string",
+        "description": "Verdict expectation over the number of results; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N)."
+      },
+      "quiet": {
+        "type": "boolean",
+        "description": "Suppress the results; print only the one-line summary ('N value(s) -> VERDICT')."
+      },
+      "json": {
+        "type": "boolean",
+        "description": "Emit a structured JSON result instead of the bare values: {tool, verdict, count, files, filter, values}. Object keys inside values are sorted by the suite's JSON writer; the text form keeps document order."
+      },
+      "json-pretty": {
+        "type": "boolean",
+        "description": "Like --json, but pretty-printed (indented)."
+      },
+      "timeout": {
+        "type": "number",
+        "description": "Abort with exit 2 (and a one-line message) if the query exceeds SECS seconds (fractional allowed)."
+      },
+      "heartbeat": {
+        "type": "number",
+        "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+      },
+      "heartbeat-emit": {
+        "type": "string",
+        "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+      },
+      "heartbeat-to": {
+        "type": "string",
+        "enum": [
+          "stderr",
+          "stdout"
+        ],
+        "description": "Stream heartbeat pulses are written to. Default: stderr."
+      }
+    },
+    "required": [
+      "file"
+    ]
+  },
+  "examples": [
+    {
+      "cmd": "ct json --file patch.json --path 'wires[*]' --expect =12",
+      "why": "List every wire, one JSON object per line, and assert there are exactly 12 — instead of a node -e loop over JSON.parse."
+    },
+    {
+      "cmd": "ct json --file patch.json --query '(.nodes | map({(.id|tostring): .type_id}) | add) as $t | .wires[] | \"\\($t[.from_node|tostring]).\\(.from_port) -> \\($t[.to_node|tostring]).\\(.to_port)\"' --raw",
+      "why": "Join two arrays of one document: print each wire with node ids resolved to type names through a lookup built from .nodes — the case that used to need a scratch .js file."
+    },
+    {
+      "cmd": "ct json --file .claude/settings.json --path 'hooks.PreToolUse[0].matcher' --raw",
+      "why": "Read one node of a JSONC config by the same path ct patch would set it with, instead of viewing the whole file."
+    },
+    {
+      "cmd": "ct json --file events.jsonl --slurp --query 'group_by(.level) | map({level: .[0].level, n: length})'",
+      "why": "Count JSONL records per level in one call, instead of grep -c per level."
+    },
+    {
+      "cmd": "ct json --file stdin: --query '.items[] | select(.size > $min) | .name' --argjson min=1024 --raw",
+      "why": "Query a document arriving on a pipe, and bind a threshold without quoting it into the filter."
+    }
+  ]
+}

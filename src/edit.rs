@@ -255,11 +255,12 @@ pub fn edit_content_picked(
     let mut count = 0usize;
     let mut sites = Vec::new();
 
-    for (idx, segment) in content.split_inclusive('\n').enumerate() {
-        let (body, nl) = match segment.strip_suffix('\n') {
-            Some(b) => (b, "\n"),
-            None => (segment, ""),
-        };
+    // The terminator is the whole line ending (`\r\n`, `\n`, or none at EOF),
+    // so the body a pattern sees carries no `\r`: a `$`-anchored regex matches
+    // a CRLF line, a site's before/after text is clean, and the ending goes
+    // back exactly as it was.
+    let segments = crate::lines::Segments::split(content);
+    for (idx, (body, nl)) in segments.segs.iter().copied().enumerate() {
         let line = idx + 1;
         // Assembled occurrence by occurrence rather than by `replace_all`, so a
         // pick can decline one match on a line and keep the rest of that line
@@ -282,7 +283,8 @@ pub fn edit_content_picked(
             last = m.end();
         }
         if hits == 0 {
-            out.push_str(segment);
+            out.push_str(body);
+            out.push_str(nl);
             continue;
         }
         new_body.push_str(&body[last..]);

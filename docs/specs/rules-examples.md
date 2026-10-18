@@ -401,6 +401,11 @@ Not top-ten by citation, but real project rules today:
   --base src --grep '{ITEM}' --quiet` (holds while every name is still used).
 - **Test placement** — assert a convention with `ct-outline`/`ct-search`
   framing, e.g. a `tests` module present where one is expected.
+- **Line-ending hygiene** — a repo whose `.gitattributes` pins `eol=lf` can
+  make a stray CRLF file a red lane instead of a git warning: `ct-search
+  --base . --hidden --grep '\r' --mode regex --expect none --detail` (holds
+  while no tracked text file carries a carriage return; `--detail` names the
+  offenders, and `ct-edit --eol lf` on the next edit to one is the repair).
 
 Size and complexity thresholds (god modules, fan-out) are visible today with
 `ct-tree --min-lines`/`--max-lines` as a *report*, but `ct-tree` carries no

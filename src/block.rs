@@ -363,98 +363,66 @@ pub fn edit_blocks_picked(
     squeeze: bool,
     picker: &mut Picker<'_>,
 ) -> (String, usize, Vec<Site>) {
-    // Split into (body, terminator) per line so untouched bytes round-trip. The
-    // terminator captures the whole line ending (`\r\n`, `\n`, a lone trailing
-    // `\r`, or none at EOF), so bodies are carriage-return-free and match a
-    // `\n`-split find block on a CRLF file without rewriting the file's endings.
-    let segments: Vec<(&str, &str)> = content
-        .split_inclusive('\n')
-        .map(|seg| {
-            if let Some(b) = seg.strip_suffix("\r\n") {
-                (b, "\r\n")
-            } else if let Some(b) = seg.strip_suffix('\n') {
-                (b, "\n")
-            } else if let Some(b) = seg.strip_suffix('\r') {
-                (b, "\r")
-            } else {
-                (seg, "")
-            }
+    // Split into (body, terminator) per line so untouched bytes round-trip:
+    // bodies are carriage-return-free and match a `\n`-split find block on a
+    // CRLF file, and the renderer writes each replacement in the matched span's
+    // own ending style (see `crate::lines::render`).
+    let segments = crate::lines::Segments::split(content);
+    let spans = block_spans(&segments.bodies(), block, squeeze, path, picker);
+    if spans.is_empty() {
+        return (content.to_string(), 0, Vec::new());
+    }
+    let sites: Vec<Site> = spans
+        .iter()
+        .map(|&(s, span)| Site {
+            path: path.to_string(),
+            line: s + 1,
+            before: segments.segs[s..s + span]
+                .iter()
+                .map(|(b, _)| *b)
+                .collect::<Vec<_>>()
+                .join("\n"),
+            after: replacement.join("\n"),
         })
         .collect();
-    let bodies: Vec<&str> = segments.iter().map(|(b, _)| *b).collect();
-    // The file's dominant newline, used for replacement lines when the matched
-    // span itself carries none (a block at EOF with no trailing newline).
-    let default_nl = if content.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    // Each match is a (start, source-line count) span. Exact matching always
-    // spans exactly `block.len()` lines; squeezing can span more.
+    let splices: Vec<crate::lines::Splice> = spans
+        .iter()
+        .map(|&(start, len)| crate::lines::Splice {
+            start,
+            len,
+            lines: replacement.to_vec(),
+        })
+        .collect();
+    (
+        crate::lines::render(&segments, &splices),
+        spans.len(),
+        sites,
+    )
+}
+
+/// Every span of `bodies` that `block` matches — exactly, or with blank runs
+/// squeezed — and that `picker` accepts, as `(0-based start, line count)`.
+/// Every match is offered to the pick in order before any is applied, so the
+/// ordinal `--nth` counts on is the anchor's, not the pick's.
+pub fn block_spans(
+    bodies: &[&str],
+    block: &[String],
+    squeeze: bool,
+    path: &str,
+    picker: &mut Picker<'_>,
+) -> Vec<(usize, usize)> {
     let spans: Vec<(usize, usize)> = if squeeze {
-        find_spans_squeezed(&bodies, block)
+        find_spans_squeezed(bodies, block)
     } else {
-        find_starts(&bodies, block)
+        find_starts(bodies, block)
             .into_iter()
             .map(|s| (s, block.len()))
             .collect()
     };
-    // Offer every span to the pick, in order, before any are applied: the
-    // ordinal `--nth` counts on is the anchor's, not the pick's.
-    let spans: Vec<(usize, usize)> = spans
+    spans
         .into_iter()
         .filter(|(s, _)| picker.accept(path, s + 1))
-        .collect();
-    if spans.is_empty() {
-        return (content.to_string(), 0, Vec::new());
-    }
-
-    let mut out = String::with_capacity(content.len());
-    let mut sites = Vec::new();
-    let mut next = spans.iter().peekable();
-    let mut i = 0usize;
-    while i < segments.len() {
-        if next.peek().is_some_and(|(s, _)| *s == i) {
-            let (_, span) = *next.next().unwrap();
-            // Preserve the matched span's line endings in the replacement: the
-            // last replacement line inherits the block's last terminator (so a
-            // block ending at EOF-without-newline stays unterminated), and
-            // interior lines take the span's newline style (so a CRLF block is
-            // replaced with CRLF, not mixed endings).
-            let last_term = segments[i + span - 1].1;
-            let nl = segments[i..i + span]
-                .iter()
-                .map(|(_, t)| *t)
-                .find(|t| !t.is_empty())
-                .unwrap_or(default_nl);
-            for (r, rl) in replacement.iter().enumerate() {
-                out.push_str(rl);
-                out.push_str(if r + 1 == replacement.len() {
-                    last_term
-                } else {
-                    nl
-                });
-            }
-            let before = segments[i..i + span]
-                .iter()
-                .map(|(b, _)| *b)
-                .collect::<Vec<_>>()
-                .join("\n");
-            sites.push(Site {
-                path: path.to_string(),
-                line: i + 1,
-                before,
-                after: replacement.join("\n"),
-            });
-            i += span;
-        } else {
-            out.push_str(segments[i].0);
-            out.push_str(segments[i].1);
-            i += 1;
-        }
-    }
-
-    (out, spans.len(), sites)
+        .collect()
 }
 
 #[cfg(test)]

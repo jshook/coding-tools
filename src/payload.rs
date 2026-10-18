@@ -15,10 +15,18 @@
 //!   passes through the shell's word expansion at all, and no temp file is
 //!   needed. Standard input is read **once** per process, so several `stdin:`
 //!   payloads in one invocation all resolve to that same text.
+//! * `b64:DATA` — the value is the base64 decoding of `DATA` (standard or
+//!   URL-safe alphabet, padding optional, whitespace ignored), which must be
+//!   UTF-8. A base64 string has no shell-special characters at all, so this
+//!   is the way to put a payload full of backticks, `$`, quotes and newlines
+//!   on **one command line** with no heredoc, no pipe, and no scratch file —
+//!   for a harness whose shell hook refuses heredocs, it is the only inline
+//!   route. Verbatim like `file:`/`stdin:`: never promoted.
 //! * `text:VALUE` — the remainder is the literal value; the escape hatch for
-//!   a payload that genuinely begins with `file:`, `stdin:`, or `text:`.
+//!   a payload that genuinely begins with `file:`, `stdin:`, `b64:`, or
+//!   `text:`.
 //!
-//! Only these three exact prefixes are recognised. Everything else is literal
+//! Only these four exact prefixes are recognised. Everything else is literal
 //! as-is — there is no general `scheme:` reservation, so values like
 //! `http://…` and `std::fmt` are unaffected.
 
@@ -63,7 +71,8 @@ fn read_stdin() -> Result<String, String> {
         .clone()
 }
 
-/// Resolve a raw option value through the `file:` / `stdin:` / `text:` schemes.
+/// Resolve a raw option value through the `file:` / `stdin:` / `b64:` /
+/// `text:` schemes.
 ///
 /// # Examples
 ///
@@ -76,6 +85,11 @@ fn read_stdin() -> Result<String, String> {
 ///
 /// // text: strips the prefix and nothing else.
 /// assert_eq!(resolve("text:file:not-a-path").unwrap().text, "file:not-a-path");
+///
+/// // b64: decodes, and counts as a verbatim (never promoted) source.
+/// let r = resolve("b64:YCRgIGEoYik=").unwrap();
+/// assert_eq!(r.text, "`$` a(b)");
+/// assert!(r.from_file);
 /// ```
 pub fn resolve(raw: &str) -> Result<Resolved, String> {
     if let Some(path) = raw.strip_prefix("file:") {
@@ -83,6 +97,11 @@ pub fn resolve(raw: &str) -> Result<Resolved, String> {
             .map_err(|e| format!("reading payload file '{path}': {e}"))?;
         Ok(Resolved {
             text,
+            from_file: true,
+        })
+    } else if let Some(data) = raw.strip_prefix("b64:") {
+        Ok(Resolved {
+            text: decode_base64(data)?,
             from_file: true,
         })
     } else if raw == "stdin:" || raw == "stdin:-" {
@@ -107,6 +126,104 @@ pub fn resolve(raw: &str) -> Result<Resolved, String> {
             from_file: false,
         })
     }
+}
+
+/// Whether `raw` opens with one of the payload scheme prefixes.
+pub fn has_scheme(raw: &str) -> bool {
+    ["file:", "stdin:", "b64:", "text:"]
+        .iter()
+        .any(|p| raw.starts_with(p))
+}
+
+/// Resolve a value that names a **document** — a script, say — where the
+/// unprefixed form is a *path* rather than literal text. `file:`, `stdin:`,
+/// `b64:` and `text:` resolve exactly as in [`resolve`]; anything else is read
+/// as a file. Returns the text and a short label for reports: the path as
+/// given, or the scheme name (`b64:`, `stdin:`, `text:`) when the document
+/// travelled inline.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::payload::resolve_document;
+///
+/// let (text, label) = resolve_document("b64:IyUgZWRpdAo=").unwrap();
+/// assert_eq!(text, "#% edit\n");
+/// assert_eq!(label, "b64:");
+/// assert!(resolve_document("/no/such/script.ctb").is_err());
+/// ```
+pub fn resolve_document(raw: &str) -> Result<(String, String), String> {
+    if has_scheme(raw) {
+        let r = resolve(raw)?;
+        let label = if let Some(path) = raw.strip_prefix("file:") {
+            path.to_string()
+        } else {
+            let scheme_end = raw.find(':').map(|i| i + 1).unwrap_or(raw.len());
+            raw[..scheme_end].to_string()
+        };
+        Ok((r.text, label))
+    } else {
+        let text = std::fs::read_to_string(raw).map_err(|e| format!("reading {raw}: {e}"))?;
+        Ok((text, raw.to_string()))
+    }
+}
+
+/// Decode a base64 payload: standard (`+` `/`) or URL-safe (`-` `_`) alphabet,
+/// `=` padding optional, ASCII whitespace ignored (so a line-wrapped encoding
+/// pastes in). The bytes must be UTF-8, as every payload is text.
+///
+/// # Examples
+///
+/// ```
+/// use coding_tools::payload::decode_base64;
+///
+/// assert_eq!(decode_base64("aGVsbG8=").unwrap(), "hello");
+/// assert_eq!(decode_base64("aGVsbG8").unwrap(), "hello");      // padding optional
+/// assert_eq!(decode_base64("aGVs\nbG8=\n").unwrap(), "hello"); // wrapped
+/// assert!(decode_base64("aGVsbG8*").is_err());
+/// ```
+pub fn decode_base64(data: &str) -> Result<String, String> {
+    let mut bytes = Vec::with_capacity(data.len() * 3 / 4);
+    let mut acc: u32 = 0;
+    let mut bits = 0u8;
+    let mut seen_pad = false;
+    for (i, c) in data.bytes().enumerate() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b'=' => {
+                seen_pad = true;
+                continue;
+            }
+            b' ' | b'\t' | b'\r' | b'\n' => continue,
+            _ => {
+                return Err(format!(
+                    "b64: payload is not base64: unexpected byte {:?} at offset {i}",
+                    c as char
+                ));
+            }
+        };
+        if seen_pad {
+            return Err(format!(
+                "b64: payload is not base64: data after '=' padding at offset {i}"
+            ));
+        }
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    // A dangling 6-bit group (length ≡ 1 mod 4) cannot encode a byte.
+    if bits >= 6 {
+        return Err("b64: payload is not base64: truncated final group".to_string());
+    }
+    String::from_utf8(bytes).map_err(|e| format!("b64: payload decodes to non-UTF-8 text: {e}"))
 }
 
 /// Split a payload into its lines for line-anchored matching. A single final
@@ -212,6 +329,85 @@ mod tests {
     #[test]
     fn missing_payload_file_is_an_error() {
         assert!(resolve("file:/no/such/payload").is_err());
+    }
+
+    #[test]
+    fn b64_decodes_every_alphabet_and_padding_shape() {
+        // Standard and URL-safe alphabets decode to the same bytes.
+        assert_eq!(decode_base64("Pz4/Pg==").unwrap(), "?>?>");
+        assert_eq!(decode_base64("Pz4_Pg").unwrap(), "?>?>");
+        // All three residue classes of length, padded and not.
+        assert_eq!(decode_base64("YQ==").unwrap(), "a");
+        assert_eq!(decode_base64("YWI=").unwrap(), "ab");
+        assert_eq!(decode_base64("YWJj").unwrap(), "abc");
+        assert_eq!(decode_base64("YQ").unwrap(), "a");
+        assert_eq!(decode_base64("").unwrap(), "");
+        // A payload with every shell-hostile character survives intact.
+        let hostile = "let s = `$HOME` + \"it's\" + '\\n';\n";
+        let enc = encode(hostile.as_bytes());
+        assert_eq!(decode_base64(&enc).unwrap(), hostile);
+        let r = resolve(&format!("b64:{enc}")).unwrap();
+        assert_eq!(r.text, hostile);
+        assert!(r.from_file, "b64 is a verbatim source");
+    }
+
+    #[test]
+    fn b64_rejects_garbage_and_non_utf8() {
+        assert!(decode_base64("YQ=x").unwrap_err().contains("after '='"));
+        assert!(decode_base64("Y").unwrap_err().contains("truncated"));
+        assert!(decode_base64("Y*").unwrap_err().contains("unexpected byte"));
+        // 0xFF is never valid UTF-8.
+        assert!(decode_base64("/w==").unwrap_err().contains("non-UTF-8"));
+    }
+
+    #[test]
+    fn resolve_document_reads_a_bare_value_as_a_path() {
+        let dir = std::env::temp_dir().join("ct-payload-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("doc.ctb");
+        std::fs::write(&p, "#% edit\n").unwrap();
+        let path = p.display().to_string();
+        let (text, label) = resolve_document(&path).unwrap();
+        assert_eq!(
+            (text.as_str(), label.as_str()),
+            ("#% edit\n", path.as_str())
+        );
+        let (text, label) = resolve_document(&format!("file:{path}")).unwrap();
+        assert_eq!(
+            (text.as_str(), label.as_str()),
+            ("#% edit\n", path.as_str())
+        );
+        let (text, label) = resolve_document("text:#% edit\n").unwrap();
+        assert_eq!((text.as_str(), label.as_str()), ("#% edit\n", "text:"));
+    }
+
+    /// A reference encoder for the tests, so the decoder is checked against
+    /// the standard alphabet with padding rather than against itself.
+    fn encode(bytes: &[u8]) -> String {
+        const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let n = chunk.len();
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let v = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+            out.push(A[(v >> 18) as usize & 63] as char);
+            out.push(A[(v >> 12) as usize & 63] as char);
+            out.push(if n > 1 {
+                A[(v >> 6) as usize & 63] as char
+            } else {
+                '='
+            });
+            out.push(if n > 2 {
+                A[v as usize & 63] as char
+            } else {
+                '='
+            });
+        }
+        out
     }
 
     #[test]

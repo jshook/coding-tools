@@ -784,17 +784,25 @@ fn rule_grep_count(stages: &[Vec<String>]) -> Option<Steer> {
     None
 }
 
-/// An interpreter one-liner that READS a file — `jq EXPR FILE`,
-/// `python -c '…open("x")…'`, `node -e`, `perl -e`, `ruby -e` — with no write
-/// signal → `ct view` / `ct search`. Pure-compute one-liners (no file read) and
-/// anything that looks like it writes are left alone.
+/// An interpreter one-liner that READS a file — `python -c '…open("x")…'`,
+/// `node -e`, `perl -e`, `ruby -e` — with no write signal → `ct view` /
+/// `ct search`; `jq FILTER FILE` → `ct json`, which runs the filter itself.
+/// Pure-compute one-liners (no file read) and anything that looks like it
+/// writes are left alone.
 fn rule_interpreter_read(stages: &[Vec<String>]) -> Option<Steer> {
     for s in stages {
         let Some(cmd) = cmd_of(s) else { continue };
-        // `jq EXPR FILE…`: a file argument means it reads a file, not a stream.
+        // `jq FILTER FILE…`: a file argument means it reads a file, not a
+        // stream — and ct-json runs the same filter in-process, with a verdict.
         if cmd == "jq" {
-            if let Some(&file) = positionals(s).get(1) {
-                return Some(interpreter_steer(Some(file)));
+            let pos = positionals(s);
+            if let (Some(&filter), Some(&file)) = (pos.first(), pos.get(1)) {
+                return Some(Steer {
+                    rule_id: "jq-read",
+                    tool: "ct json",
+                    suggestion: format!("ct json --file {file} --query '{filter}'"),
+                    note: "ct json runs a jq filter in-process (no jq binary, no pipe) and frames the result count with --expect; --path reads a node in ct-patch's grammar",
+                });
             }
             continue;
         }
@@ -2153,11 +2161,14 @@ mod tests {
 
     #[test]
     fn steers_interpreter_file_reads() {
-        // jq with a file argument reads a file → ct view
-        assert_eq!(tool("jq '.note' feedback/x.jsonl"), Some("ct view"));
+        // jq with a file argument → ct json, carrying the filter and the file
+        assert_eq!(tool("jq '.note' feedback/x.jsonl"), Some("ct json"));
+        assert_eq!(rule("jq '.note' feedback/x.jsonl"), Some("jq-read"));
         assert_eq!(
-            rule("jq '.note' feedback/x.jsonl"),
-            Some("interpreter-read")
+            analyze("jq -r '.note' feedback/x.jsonl")
+                .unwrap()
+                .suggestion,
+            "ct json --file feedback/x.jsonl --query '.note'"
         );
         // python one-liner that opens a file and prints → ct view
         let s = analyze(

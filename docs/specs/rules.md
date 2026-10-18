@@ -33,7 +33,7 @@ job well, a rule *leverages* it rather than ct rebuilding it.
 | **probe**    | The rule's command — an argv vector (never a shell) that runs read-only and reports violations. |
 | **violation**| One offending finding a probe reports. A rule holds when its probe reports zero violations and exits `0`. |
 | **def**      | A named definition in the store — a set of names, paths, or a pattern — that rules reference as `{def:NAME}` instead of hardcoding lists. |
-| **observer** | A read-only suite tool a probe can use (`ct-search`, `ct-outline`, `ct-tree`, `ct-view`, `ct-each`, `ct-test`). |
+| **observer** | A read-only suite tool a probe can use (`ct-search`, `ct-outline`, `ct-tree`, `ct-view`, `ct-json`, `ct-each`, `ct-test`). |
 | **built-in check** | A crate-/module-graph assertion the rule layer runs in-process, named by the probe head `deps`/`mods`. |
 | **bridge**   | The compiled-in table of permitted external Rust-tool invocations (§5). |
 | **lane**     | A rule's reporting state: `holds`, `violated`, `pending`, `broken`. |
@@ -157,7 +157,9 @@ always name the governing rule, so the suppression/fix path is self-teaching.
 Some invariant classes need facts the suite's observers don't carry. Two come
 from **built-in checks** — `deps` (the resolved crate graph) and `mods` (the
 intra-crate module graph) — reserved probe heads the rule layer runs
-**in-process**: `deps` shells one hermetic `cargo metadata` internally, `mods`
+**in-process**: `deps` shells one hermetic `cargo metadata` internally and
+prunes its graph to the packages `cargo tree` actually builds (metadata
+over-activates optional dependencies behind weak `dep?/feature` edges), `mods`
 parses `use` edges. They classify their own outcome, take no `expect` adapter,
 and are prototyped and recorded exactly like any other probe (§8). The rest —
 semantic symbol references, supply-chain policy, raw dependency paths — come
@@ -308,7 +310,7 @@ top-level tools; the remaining entries extend existing observers.
 
 | Fact source | Facts | Status |
 | ----------- | ----- | ------ |
-| `deps` (built-in check) | crate graph from `cargo metadata --locked --offline`: `--deny NAME`, `--forbid 'A=>B'` (workspace layering), `--layers` (ordered stack, `--layers-closed` for exhaustiveness), `--acyclic` (`--members` for the actionable scope), `--duplicates`, `--edges` kind filtering — every violation with an evidence path | **shipped** |
+| `deps` (built-in check) | crate graph from `cargo metadata --locked --offline`, pruned to what `cargo tree` builds: `--deny NAME`, `--forbid 'A=>B'` (workspace layering), `--layers` (ordered stack, `--layers-closed` for exhaustiveness), `--acyclic` (`--members` for the actionable scope), `--duplicates`, `--edges` kind filtering — every violation with an evidence path | **shipped** |
 | `ct-outline` visibility | report `pub`/`pub(crate)`/private on Rust entries (small extension to the existing pack) | small extension |
 | `mods` (built-in check) | heuristic `use`-statement module graph (ct-outline honesty class): `--forbid 'A=>B'`, `--acyclic`, `--layers` at module granularity, without rust-analyzer | **shipped** |
 

@@ -25,7 +25,8 @@ allowed silently. It runs ahead of *every* shell call, so a miss costs nothing.
 | `cat > f <<EOF`, `echo … > f`, `printf … > f`, `touch f` | `ct new` (refuses to clobber; `>` truncates silently) |
 | `sed -i`, `perl -i` | `ct edit` (preview + `--expect` gate) |
 | `head`/`tail`/`sed -n 'A,Bp'` on a file | `ct view --range` |
-| `python -c`/`node -e`/`perl -e`/`ruby -e`/`jq` reading a file | `ct view` / `ct search` |
+| `python -c`/`node -e`/`perl -e`/`ruby -e` reading a file | `ct view` / `ct search` |
+| `jq FILTER FILE` | `ct json --file FILE --query FILTER` |
 | `ls -R`, `tree` | `ct tree` |
 | `wc -l`/`wc` over files (incl. `cat FILES \| wc`) | `ct tree --summary` |
 | `for … do … done`, `while read` (per-item map) | `ct each` |

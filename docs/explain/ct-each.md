@@ -52,9 +52,10 @@ and emits templated lines; exit status follows the verdict.
 Items come from three combinable sources, in this order:
 
 1. `--items A B C` — explicit items, repeatable. Items are payload-typed:
-   a `file:PATH` item expands to the file's non-empty lines and `stdin:`
+   a `file:PATH` item expands to the file's non-empty lines, `stdin:`
    expands to standard input's non-empty lines (an item list without a pipe),
-   and `text:VALUE` is one literal item;
+   `b64:DATA` expands to the decoded text's non-empty lines (an item list
+   without a pipe or a file), and `text:VALUE` is one literal item;
 2. the **walker**: `--base PATH` (with the suite's shared `--name`/`--ext`/
    `--hidden`/`--follow` selectors; `--name`/`--ext` alone imply `--base .`)
    turns every matched file path into an item, in walk order — the natural
@@ -87,7 +88,7 @@ on Unix/MSYS2 and on native Windows:
 
 - **Default:** the read-only allowlist plus `ct-test` (itself gated to read-only
   commands, so dispatching it stays read-only). The allowlist is a cross-platform
-  core — `ct-await ct-check ct-outline ct-search ct-tree ct-view` — plus the host
+  core — `ct-await ct-check ct-json ct-outline ct-search ct-tree ct-view` — plus the host
   OS's stock read-only utilities: `cat echo false file grep head ls pwd stat tail
   true wc` on Unix/MSYS2, or `findstr hostname more where whoami` on native
   Windows.

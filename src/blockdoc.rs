@@ -12,6 +12,15 @@
 //! **payload sections** of the current item; `end` closes the item. Outside
 //! items, blank lines and `#`-comment lines are ignored.
 //!
+//! Inside a section every line is payload — including a blank line left
+//! before the next fence to space the script out. A document can opt out of
+//! that with the pragma `#% options trailing-blank=strip` (anywhere between
+//! items, in force from there on; `keep` is the default and restores it):
+//! blank lines at the end of a section closed by the next fence, or by the
+//! end of the file, are then dropped as separators. A section closed by an
+//! explicit `#% end` keeps them, so a payload that really ends in a blank
+//! line is still expressible under `strip`.
+//!
 //! ```text
 //! #% edit expect="=1" file=src/ast.rs
 //! #% find
@@ -147,10 +156,18 @@ pub fn parse(src: &str, fence: &str, item_names: &[&str]) -> Result<Vec<Item>, S
     let mut items: Vec<Item> = Vec::new();
     let mut open: Option<Item> = None;
     let mut section: Option<(String, String)> = None;
+    // `#% options trailing-blank=strip`: blank lines ending a section that the
+    // next fence (or EOF) closes are separators, not payload.
+    let mut strip_trailing = false;
 
-    let close_section = |item: &mut Item, section: &mut Option<(String, String)>| {
-        if let Some(s) = section.take() {
-            item.sections.push(s);
+    // `strip` is `strip_trailing` for a section the next fence or EOF closes,
+    // and false for an explicit `#% end`, which keeps the section as written.
+    let close_section = |item: &mut Item, section: &mut Option<(String, String)>, strip: bool| {
+        if let Some((name, mut payload)) = section.take() {
+            if strip {
+                strip_trailing_blank_lines(&mut payload);
+            }
+            item.sections.push((name, payload));
         }
     };
 
@@ -199,11 +216,34 @@ pub fn parse(src: &str, fence: &str, item_names: &[&str]) -> Result<Vec<Item>, S
             let Some(mut item) = open.take() else {
                 return Err(format!("line {line_no}: 'end' with no open item"));
             };
-            close_section(&mut item, &mut section);
+            close_section(&mut item, &mut section, false);
             items.push(item);
+        } else if name == OPTIONS_DIRECTIVE {
+            if let Some(item) = &open {
+                return Err(format!(
+                    "line {line_no}: '{OPTIONS_DIRECTIVE}' must appear between items, not inside '{}' (line {})",
+                    item.directive, item.line
+                ));
+            }
+            for (key, value) in parse_attrs(attr_rest, line_no)? {
+                match (key.as_str(), value.as_str()) {
+                    ("trailing-blank", "strip") => strip_trailing = true,
+                    ("trailing-blank", "keep") => strip_trailing = false,
+                    ("trailing-blank", other) => {
+                        return Err(format!(
+                            "line {line_no}: trailing-blank={other} is not keep|strip"
+                        ));
+                    }
+                    (other, _) => {
+                        return Err(format!(
+                            "line {line_no}: unknown option '{other}' (known: trailing-blank=keep|strip)"
+                        ));
+                    }
+                }
+            }
         } else if item_names.contains(&name) {
             if let Some(mut item) = open.take() {
-                close_section(&mut item, &mut section);
+                close_section(&mut item, &mut section, strip_trailing);
                 items.push(item);
             }
             open = Some(Item {
@@ -224,7 +264,7 @@ pub fn parse(src: &str, fence: &str, item_names: &[&str]) -> Result<Vec<Item>, S
                     "line {line_no}: section '{name}' takes no attributes"
                 ));
             }
-            close_section(item, &mut section);
+            close_section(item, &mut section, strip_trailing);
             if item.section(name).is_some() {
                 return Err(format!(
                     "line {line_no}: duplicate section '{name}' in '{}' item (line {})",
@@ -236,15 +276,79 @@ pub fn parse(src: &str, fence: &str, item_names: &[&str]) -> Result<Vec<Item>, S
     }
 
     if let Some(mut item) = open.take() {
-        close_section(&mut item, &mut section);
+        close_section(&mut item, &mut section, strip_trailing);
         items.push(item);
     }
     Ok(items)
 }
 
+/// The reserved document-level directive carrying parser options.
+pub const OPTIONS_DIRECTIVE: &str = "options";
+
+/// Drop whole blank (empty or whitespace-only) lines from the end of a payload
+/// whose lines each end in `\n`.
+fn strip_trailing_blank_lines(payload: &mut String) {
+    while let Some(body) = payload.strip_suffix('\n') {
+        let start = body.rfind('\n').map_or(0, |i| i + 1);
+        if body[start..].trim().is_empty() {
+            payload.truncate(start);
+        } else {
+            break;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trailing_blank_lines_are_payload_unless_options_say_strip() {
+        // Default: the blank line before the next fence is part of `replace`.
+        let doc = "#% edit\n#% find\na\n#% replace\nb\n\n#% edit\n#% find\nc\n\n  \n";
+        let items = parse(doc, "#%", &["edit"]).unwrap();
+        assert_eq!(items[0].section("replace"), Some("b\n\n"));
+        assert_eq!(items[1].section("find"), Some("c\n\n  \n"));
+
+        // strip: separators before a fence or EOF go; `#% end` keeps them.
+        let doc = "#% options trailing-blank=strip\n\
+                   #% edit\n#% find\na\n\n#% replace\nb\n\n\
+                   #% edit\n#% find\nc\n\n#% end\n\
+                   #% edit\n#% find\n\n#% replace\nd\n\n  \n";
+        let items = parse(doc, "#%", &["edit"]).unwrap();
+        assert_eq!(items[0].section("find"), Some("a\n"));
+        assert_eq!(items[0].section("replace"), Some("b\n"));
+        assert_eq!(
+            items[1].section("find"),
+            Some("c\n\n"),
+            "explicit end is verbatim"
+        );
+        assert_eq!(
+            items[2].section("find"),
+            Some(""),
+            "a blank-only section empties"
+        );
+        assert_eq!(items[2].section("replace"), Some("d\n"));
+
+        // The pragma can be switched back, and is checked.
+        let doc = "#% options trailing-blank=strip\n#% options trailing-blank=keep\n\
+                   #% edit\n#% find\na\n\n";
+        assert_eq!(
+            parse(doc, "#%", &["edit"]).unwrap()[0].section("find"),
+            Some("a\n\n")
+        );
+        let e = parse("#% options trailing-blank=maybe\n", "#%", &["edit"]).unwrap_err();
+        assert!(e.contains("keep|strip"), "{e}");
+        let e = parse("#% options eol=lf\n", "#%", &["edit"]).unwrap_err();
+        assert!(e.contains("unknown option 'eol'"), "{e}");
+        let e = parse(
+            "#% edit\n#% options trailing-blank=strip\n",
+            "#%",
+            &["edit"],
+        )
+        .unwrap_err();
+        assert!(e.contains("between items"), "{e}");
+    }
 
     #[test]
     fn parses_items_attrs_and_verbatim_sections() {

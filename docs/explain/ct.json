@@ -1,12 +1,12 @@
 {
   "name": "ct",
-  "description": "USE ct — DO NOT ROUTE AROUND IT. When a task has a ct tool, call that tool instead of raw shell or the harness's generic search/read tools; each ct tool is bounded (it will not flood context), deterministic, and self-verifying (a framed --expect/--question verdict, exit 0/1/2), and the ad-hoc equivalent is none of those even when it appears to work. Map: search = find files / search content (not find, grep -r, rg, ag, Grep, Glob); view --range = read a line range or regions (not sed -n, head, tail, Read offset/limit); tree --summary = file tree with counts/totals and survey = crate/module survey (not ls -R, wc -l, ad-hoc cargo metadata); outline = declarations in a file/tree (not grepping for 'fn '/'class '/'def '); new = create a file that does not exist yet, with an explicit --on-exists policy so it never silently clobbers (not cat > f, echo > f, touch); edit = previewed, --expect-gated find/replace (not sed -i, perl -i); patch = set/delete JSON/JSONC/JSONL nodes (not jq -i or hand-editing); test = run a command as a checked experiment (not eyeballing output); each = one command template per item (not for/while loops); await = poll until a probe passes, including --tcp-port/--http for 'a local service is listening now' (not sleep/retry loops, nc -z, or curl polling). ONE CALL, NOT A PIPELINE: do not cobble commands with pipes, xargs, and command substitution — combine steps with `ct and`/`ct or` (shell-less &&/||), fan out with `ct each`, and get totals/verdicts with --summary and --expect/--question instead of piping into wc, grep, or test. A hand-built pipeline is unbounded and silent on failure; a ct call is bounded and reports its verdict. --- Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, ct okf runs ct-okf, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). Two built-in boolean chains sequence several sub-commands in a single argv without a shell, using the separator ::: between segments: `ct and A ::: B ::: C` runs each in turn and stops at the first non-zero exit (shell-less &&, returning that code; 0 if all succeed); `ct or A ::: B` runs each in turn and stops at the first zero exit (shell-less ||, returning 0; the last segment's code if all fail). A blank segment is a usage error (exit 2), and chains do not nest. To invoke a chain through this schema set command to 'and' or 'or' and put the segments (with ::: separators) in args. This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
+  "description": "USE ct — DO NOT ROUTE AROUND IT. When a task has a ct tool, call that tool instead of raw shell or the harness's generic search/read tools; each ct tool is bounded (it will not flood context), deterministic, and self-verifying (a framed --expect/--question verdict, exit 0/1/2), and the ad-hoc equivalent is none of those even when it appears to work. Map: search = find files / search content (not find, grep -r, rg, ag, Grep, Glob); view --range = read a line range or regions (not sed -n, head, tail, Read offset/limit); tree --summary = file tree with counts/totals and survey = crate/module survey (not ls -R, wc -l, ad-hoc cargo metadata); outline = declarations in a file/tree (not grepping for 'fn '/'class '/'def '); new = create a file that does not exist yet, with an explicit --on-exists policy so it never silently clobbers (not cat > f, echo > f, touch); edit = previewed, --expect-gated find/replace (not sed -i, perl -i); patch = set/delete JSON/JSONC/JSONL nodes (not jq -i or hand-editing); json = query JSON with a jq filter — a node by path, a projection, a join, a count (not jq, node -e/python -c + JSON.parse); test = run a command as a checked experiment (not eyeballing output); each = one command template per item (not for/while loops); await = poll until a probe passes, including --tcp-port/--http for 'a local service is listening now' (not sleep/retry loops, nc -z, or curl polling). ONE CALL, NOT A PIPELINE: do not cobble commands with pipes, xargs, and command substitution — combine steps with `ct and`/`ct or` (shell-less &&/||), fan out with `ct each`, and get totals/verdicts with --summary and --expect/--question instead of piping into wc, grep, or test. A hand-built pipeline is unbounded and silent on failure; a ct call is bounded and reports its verdict. --- Umbrella launcher for the coding_tools suite. `ct <command> [args...]` runs the matching ct-<command> binary git-style, so `ct search` runs ct-search, `ct test` runs ct-test, `ct each` runs ct-each, `ct outline` runs ct-outline, `ct rules` runs ct-rules, `ct check` runs ct-check, ct okf runs ct-okf, and `ct await` runs ct-await; any other ct-* tool installed beside ct or on PATH is reachable too. ct passes the child's stdout, stderr, and exit status through unchanged (0 success, 1 clean negative, 2 usage or runtime error). Two built-in boolean chains sequence several sub-commands in a single argv without a shell, using the separator ::: between segments: `ct and A ::: B ::: C` runs each in turn and stops at the first non-zero exit (shell-less &&, returning that code; 0 if all succeed); `ct or A ::: B` runs each in turn and stops at the first zero exit (shell-less ||, returning 0; the last segment's code if all fail). A blank segment is a usage error (exit 2), and chains do not nest. To invoke a chain through this schema set command to 'and' or 'or' and put the segments (with ::: separators) in args. This definition also carries every suite tool's full tool-use definition under `tools`, so an agent can hoist them all in one call; for a single tool use `ct <command> --explain json` (e.g. `ct search --explain json`), and `ct --explain md` documents the suite for humans.",
   "input_schema": {
     "type": "object",
     "properties": {
       "command": {
         "type": "string",
-        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), new (ct-new), edit (ct-edit), patch (ct-patch), test (ct-test), each (ct-each), outline (ct-outline), rules (ct-rules), check (ct-check), await (ct-await). Any other ct-* tool on PATH also works. The reserved words 'and' and 'or' run a shell-less boolean chain over the segments in args (separated by ':::') instead of a single tool.",
+        "description": "Subcommand to run; resolves to the ct-<command> binary. Built-in: search (ct-search), view (ct-view), tree (ct-tree), new (ct-new), edit (ct-edit), patch (ct-patch), test (ct-test), each (ct-each), json (ct-json), outline (ct-outline), rules (ct-rules), check (ct-check), await (ct-await). Any other ct-* tool on PATH also works. The reserved words 'and' and 'or' run a shell-less boolean chain over the segments in args (separated by ':::') instead of a single tool.",
         "enum": [
           "search",
           "view",
@@ -514,14 +514,19 @@
     },
     {
       "name": "ct-edit",
-      "description": "Find/replace across files chosen by ct-search-style predicates, framed as a self-checking edit. It computes every replacement first, classifies the total against --expect into a SUCCESS/ERROR verdict, and writes ONLY when the verdict is SUCCESS and --dry-run is not set; otherwise nothing is written. Replacements preserve every untouched byte (line terminators, indentation, surrounding text). --find/--replace accept payload schemes: file:PATH reads the value verbatim from a file (never promoted; literal by default), text:VALUE escapes the prefix. A single-line --find is matched per line and read as LITERAL text by default, because an anchor is a piece of code and code is full of ( ) [ ] . ? | *; --mode regex or --mode glob asks for the other readings, and --mode auto restores substring->glob->regex promotion. --mode applies to EVERY pattern in the invocation, so absent it --name still promotes as a glob while --find stays literal. When an anchor genuinely is not unique, --nth N applies only the Nth match in selection order (files in walk order, then top to bottom) and --at FILE:LINE applies only the match starting there; both imply --expect '=1', and a pick that lands on nothing reports where the anchor did match. A MULTI-LINE find payload matches as a line-anchored literal block (K lines match K consecutive source lines byte-for-byte; the replace payload's lines replace the block, an empty replace deletes it; a failed block reports its nearest miss: best-aligned candidate and first diverging line). With a regex --find, $1/${name} expand in --replace (use $$ for literal $); otherwise the replacement is literal. --script PATH runs a .ctb batch of edits atomically under the prepare/confirm/write standard: '#% edit expect=\"=1\" mode=literal file=...' opens an edit (expect defaults to =1 in scripts), '#% find' / '#% replace' carry verbatim payloads, '#% end' closes; the whole script is simulated in memory first (cascade: each edit sees earlier edits' output; --no-cascade matches pristine and rejects overlap), every changed file is pre-flighted for writability, and nothing is written unless EVERY edit passes — no flag permits a partial write. Only regular UTF-8 text files are edited. Not subject to the ct-test command allowlist (it runs no programs); safety is via --dry-run, --expect, atomicity, and your VCS. With --json emits {tool, verdict, dry_run, applied, replacements, files_changed, sites:[{path,line,before,after}]}; script runs emit per-edit results {ordinal, expect, mode, replacements, verdict, sites, nearest_miss?}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct edit ...` or `ct-edit ...`.",
+      "description": "Find/replace across files chosen by ct-search-style predicates, framed as a self-checking edit. It computes every replacement first, classifies the total against --expect into a SUCCESS/ERROR verdict, and writes ONLY when the verdict is SUCCESS and --dry-run is not set; otherwise nothing is written. Replacements preserve every untouched byte (line terminators, indentation, surrounding text): a CRLF file is written back CRLF, an LF file LF, a missing final newline stays missing, and new lines take the ending of the lines around them; --eol lf|crlf rewrites the endings of the files a run writes. --find/--replace accept payload schemes: file:PATH reads the value verbatim from a file (never promoted; literal by default), stdin: reads standard input, b64:DATA decodes base64 (the shell-safe way to carry backticks, $, quotes and newlines INLINE on one command line with no heredoc, pipe or scratch file), text:VALUE escapes the prefix. A single-line --find is matched per line and read as LITERAL text by default, because an anchor is a piece of code and code is full of ( ) [ ] . ? | *; --mode regex or --mode glob asks for the other readings, and --mode auto restores substring->glob->regex promotion. --mode applies to EVERY pattern in the invocation, so absent it --name still promotes as a glob while --find stays literal. When an anchor genuinely is not unique, --nth N applies only the Nth match in selection order (files in walk order, then top to bottom) and --at FILE:LINE applies only the match starting there; both imply --expect '=1', and a pick that lands on nothing reports where the anchor did match. A MULTI-LINE find payload matches as a line-anchored literal block (K lines match K consecutive source lines byte-for-byte; the replace payload's lines replace the block, an empty replace deletes it; a failed block reports its nearest miss: best-aligned candidate and first diverging line). With a regex --find, $1/${name} expand in --replace (use $$ for literal $); otherwise the replacement is literal. --script PATH runs a .ctb batch atomically under the prepare/confirm/write standard; --script b64:DATA carries the whole script inline on one command line (file:/stdin:/text: also accepted). Items: '#% edit expect=\"=1\" mode=literal file=...' with '#% find' / '#% replace' (expect defaults to =1 in scripts; an empty replace deletes); '#% insert-before' / '#% insert-after' with '#% find' / '#% text' put text on the lines before/after each anchor match, naming the anchor once and leaving it in place; '#% drop' with '#% find' deletes each match's whole lines (a single-line find deletes every matching line, leaving no blank); '#% append' / '#% prepend' with '#% text' add lines at the end/start of the file and count one per file touched (so with =1 they need file= or an expect=). '#% end' closes an item. The whole script is simulated in memory first (cascade: each edit sees earlier edits' output; --no-cascade matches pristine and rejects overlap), every changed file is pre-flighted for writability, and nothing is written unless EVERY edit passes — no flag permits a partial write. --base is repeatable, so one script can touch two trees in one atomic run; per-item file= narrows within the whole selection. Only regular UTF-8 text files are edited. Not subject to the ct-test command allowlist (it runs no programs); safety is via --dry-run, --expect, atomicity, and your VCS. With --json emits {tool, verdict, dry_run, applied, replacements, files_changed, sites:[{path,line,before,after}]}; script runs emit per-edit results {ordinal, op, expect, mode (null for append/prepend), replacements, verdict, sites, nearest_miss?}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct edit ...` or `ct-edit ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
           "base": {
-            "type": "string",
-            "description": "Root to edit. A file edits just that file; a directory is descended. Default '.'.",
-            "default": "."
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Roots to edit (repeatable). A file edits just that file; a directory is descended. Every --base joins one selection, so a script can touch two trees in one atomic run. Default ['.'].",
+            "default": [
+              "."
+            ]
           },
           "name": {
             "type": "string",
@@ -537,11 +542,11 @@
           },
           "find": {
             "type": "string",
-            "description": "Anchor to find, matched per line and read as LITERAL text unless --mode says otherwise (an anchor is a piece of code: ( ) [ ] . ? | * are matched as themselves). Accepts file:PATH / stdin: / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block. Required unless script is given."
+            "description": "Anchor to find, matched per line and read as LITERAL text unless --mode says otherwise (an anchor is a piece of code: ( ) [ ] . ? | * are matched as themselves). Accepts file:PATH / stdin: / b64:DATA / text:VALUE payloads; a multi-line payload matches as a line-anchored literal block. Required unless script is given."
           },
           "replace": {
             "type": "string",
-            "description": "Replacement text. With a regex --find (--mode regex, or --mode auto promoting to one), $1/${name} expand (use $$ for literal $); otherwise literal. Accepts file:PATH / stdin: / text:VALUE; for a block find, an empty payload deletes the matched lines. Required unless script is given."
+            "description": "Replacement text. With a regex --find (--mode regex, or --mode auto promoting to one), $1/${name} expand (use $$ for literal $); otherwise literal. Accepts file:PATH / stdin: / b64:DATA / text:VALUE; for a block find, an empty payload deletes the matched lines. Required unless script is given."
           },
           "mode": {
             "type": "string",
@@ -567,7 +572,7 @@
           },
           "script": {
             "type": "string",
-            "description": "Run a .ctb edit script: a batch of find/replace blocks simulated and judged in full before any write; nothing is written unless every edit passes."
+            "description": "Run a .ctb edit script: a batch of edit / insert-before / insert-after / drop / append / prepend items simulated and judged in full before any write; nothing is written unless every item passes. A bare value is a path; b64:DATA carries the whole script inline on one shell-safe command line, and file:PATH / stdin: / text:VALUE are accepted too."
           },
           "fence": {
             "type": "string",
@@ -581,6 +586,16 @@
           "expect": {
             "type": "string",
             "description": "Verdict expectation over the total replacement count; default 'any', or '=1' under --nth/--at (in scripts, per-edit expect= defaults to '=1'). One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N). The edit is written only if the verdict is SUCCESS."
+          },
+          "eol": {
+            "type": "string",
+            "enum": [
+              "keep",
+              "lf",
+              "crlf"
+            ],
+            "description": "Line endings for the files this run writes: keep (each file's own, the default), lf, or crlf. Only files the edit changes are written, so an untouched file is never re-terminated.",
+            "default": "keep"
           },
           "dry-run": {
             "type": "boolean",
@@ -624,6 +639,108 @@
           }
         },
         "required": []
+      }
+    },
+    {
+      "name": "ct-json",
+      "description": "Query JSON/JSONC/JSONL documents with a jq filter, in-process (the jaq dialect: no jq binary, no shell), and get one JSON value per line framed by an --expect verdict over the result count. --file names a document (repeatable; a path, or file:PATH / stdin: / b64:DATA / text:JSON carrying the document itself); format follows the extension (.json/.jsonc one document, .jsonl/.ndjson one input per line, anything else JSON; YAML is refused) or --format. Comments and trailing commas are tolerated and object keys keep document order. --path reads a node in ct-patch's path grammar (dotted keys, [N], [key=value] = first element whose key equals the value, read as JSON if it is one else a string) plus [*] for every element; --query is any jq program (standard library included: map, select, group_by, to_entries, string interpolation, reduce, …), run after --path when both are given; default '.'. --query and --arg values are payload-typed too, so b64: carries a filter full of quotes and $ through any shell. --arg NAME=VALUE binds $NAME to a string, --argjson NAME=JSON to a parsed value. --slurp gathers every input into one array and runs the filter once. Output: compact JSON per result; --raw prints strings unquoted (jq -r); --pretty indents; --limit N stops after N results (evaluation stops too). The verdict is --expect over the number of results (any|none|N|=N|+N|-N, default any); a filter error or unreadable input is exit 2. Read-only (no allow-gate) and itself on the read-only allowlist, so ct-test/ct-each/ct-await/rule probes may dispatch it. With --json emits {tool, verdict, count, files, filter, values}. Exit: 0 SUCCESS, 1 ERROR, 2 usage/runtime error. Invoke as `ct json ...` or `ct-json ...`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Documents to query (repeatable; each is one input). A bare value is a path to read; file:PATH, stdin:, b64:DATA, and text:JSON carry the document itself."
+          },
+          "query": {
+            "type": "string",
+            "description": "jq filter (jaq dialect) to run over each input, after --path if both are given. Default '.'. Payload-typed: file:PATH / stdin: / b64:DATA / text:VALUE; b64: is the shell-safe way to pass a filter containing quotes, $, or backticks."
+          },
+          "path": {
+            "type": "string",
+            "description": "Node to read first, in ct-patch's path grammar: dotted keys, [N] array indices, [key=value] (first element whose key equals value; value read as JSON if it is one, else a string), plus [*] for every element. Leading '.' optional. Selecting nothing yields no results (verdict ERROR under the default expect), not an error."
+          },
+          "arg": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "NAME=VALUE bindings (repeatable): $NAME is the string VALUE inside the filter. VALUE accepts file:/stdin:/b64:/text:. Each name may be bound once."
+          },
+          "argjson": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "NAME=JSON bindings (repeatable): $NAME is JSON, parsed."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "jsonc",
+              "jsonl"
+            ],
+            "description": "Force the input format instead of detecting it from the file extension (.json/.jsonc one document; .jsonl/.ndjson one input per non-blank line; other extensions and scheme-carried documents read as JSON)."
+          },
+          "slurp": {
+            "type": "boolean",
+            "description": "Collect every input (each --file document, every JSONL record) into one array and run the filter once over it."
+          },
+          "raw": {
+            "type": "boolean",
+            "description": "Print string results as their own characters, without quotes (like jq -r). Non-strings are unaffected."
+          },
+          "pretty": {
+            "type": "boolean",
+            "description": "Indent each result value over several lines instead of one compact value per line."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Stop after N results; the filter is not evaluated further, so an open-ended generator stays bounded. The verdict counts the results kept."
+          },
+          "expect": {
+            "type": "string",
+            "description": "Verdict expectation over the number of results; default 'any'. One of: any (>=1), none (==0), N (>=N), =N (==N), +N (>N), -N (<N)."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Suppress the results; print only the one-line summary ('N value(s) -> VERDICT')."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Emit a structured JSON result instead of the bare values: {tool, verdict, count, files, filter, values}. Object keys inside values are sorted by the suite's JSON writer; the text form keeps document order."
+          },
+          "json-pretty": {
+            "type": "boolean",
+            "description": "Like --json, but pretty-printed (indented)."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Abort with exit 2 (and a one-line message) if the query exceeds SECS seconds (fractional allowed)."
+          },
+          "heartbeat": {
+            "type": "number",
+            "description": "Print a liveness pulse every SECS seconds (fractional allowed) while the run is in progress."
+          },
+          "heartbeat-emit": {
+            "type": "string",
+            "description": "Heartbeat line template. Tokens: {ELAPSED} (whole seconds so far) {TOOL}. Default: \"[{ELAPSED}s]\"."
+          },
+          "heartbeat-to": {
+            "type": "string",
+            "enum": [
+              "stderr",
+              "stdout"
+            ],
+            "description": "Stream heartbeat pulses are written to. Default: stderr."
+          }
+        },
+        "required": [
+          "file"
+        ]
       }
     },
     {
@@ -1362,7 +1479,7 @@
     },
     {
       "name": "ct-rules",
-      "description": "Say what the rules are: the specification and storage interface of the project's invariant surface (.ct/rules.jsonc; the verifying side is ct-check). Verbs (exactly one per invocation): --init scaffolds a commented store under .ct/ (the suite's home for project-local state; discovered by walking upward to the nearest .ct, --file overrides); --add ID records a rule — the probe after `--` is gate-validated and RUN immediately, and must hold (a violated candidate is refused exit 1 with the probe's own violation output; a broken probe is refused exit 2) unless --pending parks it as an aspiration that ct-check reports separately and never enforces; --promote ID re-runs a pending rule's probe and clears the pending flag once it holds; --remove ID deletes by exact id (duplicate ids are always refused — ids are history); --def NAME=VALUE sets named vocabulary (VALUE parsed as JSON, e.g. a list, else taken as a string) that rules reference as {def:NAME} inside probe argvs; --list prints defs and rules; --prompt TEXT (with --add) retains the verbatim human request behind the rule as provenance — the confirmation tells the user it was retained — and --flatten strips every retained prompt in one pass, leaving only the mechanical definitions; the store itself is human-friendly JSONC (a standing header comment re-established on every write, one field per line per rule, blank lines between rules); --hook cargo writes tests/ct_invariants.rs, a plain reviewed-in-git shim that makes `cargo test` run `ct check --quiet` and fail loudly (including when the ct binary is missing; a shim ct-rules did not generate is never overwritten). A bare probe with no verb runs it and reports without saving — prototyping; the same probe with --add ID --question … then records it. Probes observe and never change anything: the gate is compiled-in and immutable — the suite's read-only tools (ct-search ct-outline ct-tree ct-view, ct-test, ct-each without --mutating), the built-in checks deps|mods (crate/module graph invariants, run in-process), plus the bridge (cargo metadata / cargo tree hermetic, cargo deny check offline unless --network, rust-analyzer search|symbols search-only); never the mutating tools, ct-check (no self-recursion), ct-rules itself, shells, or unlisted externals. --add options: --question (required), --why (printed whenever the rule fails), --tag, --severity warn (violations report but never redden the exit), --expect empty | --expect-ok PATTERN | --expect-err PATTERN (outcome adapters for bridge tools; ct-test matcher semantics), --network, --timeout SECS, --pending. All store mutations are comment-preserving (the suite's own patch machinery). ct-rules writes only the store and the hook shim, and is on no allow-gate. Exit: 0 success; 1 refused on the merits (candidate/promotion does not hold); 2 usage or store error. Invoke as `ct rules ...` or `ct-rules ...`.",
+      "description": "Say what the rules are: the specification and storage interface of the project's invariant surface (.ct/rules.jsonc; the verifying side is ct-check). Verbs (exactly one per invocation): --init scaffolds a commented store under .ct/ (the suite's home for project-local state; discovered by walking upward to the nearest .ct, --file overrides); --add ID records a rule — the probe after `--` is gate-validated and RUN immediately, and must hold (a violated candidate is refused exit 1 with the probe's own violation output; a broken probe is refused exit 2) unless --pending parks it as an aspiration that ct-check reports separately and never enforces; --promote ID re-runs a pending rule's probe and clears the pending flag once it holds; --remove ID deletes by exact id (duplicate ids are always refused — ids are history); --def NAME=VALUE sets named vocabulary (VALUE parsed as JSON, e.g. a list, else taken as a string) that rules reference as {def:NAME} inside probe argvs; --list prints defs and rules; --prompt TEXT (with --add) retains the verbatim human request behind the rule as provenance — the confirmation tells the user it was retained — and --flatten strips every retained prompt in one pass, leaving only the mechanical definitions; the store itself is human-friendly JSONC (a standing header comment re-established on every write, one field per line per rule, blank lines between rules); --hook cargo writes tests/ct_invariants.rs, a plain reviewed-in-git shim that makes `cargo test` run `ct check --quiet` and fail loudly (including when the ct binary is missing; a shim ct-rules did not generate is never overwritten). A bare probe with no verb runs it and reports without saving — prototyping; the same probe with --add ID --question … then records it. Probes observe and never change anything: the gate is compiled-in and immutable — the suite's read-only tools (ct-search ct-outline ct-tree ct-view ct-json, ct-test, ct-each without --mutating), the built-in checks deps|mods (crate/module graph invariants, run in-process), plus the bridge (cargo metadata / cargo tree hermetic, cargo deny check offline unless --network, rust-analyzer search|symbols search-only); never the mutating tools, ct-check (no self-recursion), ct-rules itself, shells, or unlisted externals. --add options: --question (required), --why (printed whenever the rule fails), --tag, --severity warn (violations report but never redden the exit), --expect empty | --expect-ok PATTERN | --expect-err PATTERN (outcome adapters for bridge tools; ct-test matcher semantics), --network, --timeout SECS, --pending. All store mutations are comment-preserving (the suite's own patch machinery). ct-rules writes only the store and the hook shim, and is on no allow-gate. Exit: 0 success; 1 refused on the merits (candidate/promotion does not hold); 2 usage or store error. Invoke as `ct rules ...` or `ct-rules ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1477,7 +1594,7 @@
     },
     {
       "name": "ct-check",
-      "description": "Verify the project's recorded invariants: load the rule store (.ct/rules.jsonc, discovered by walking upward to the nearest .ct directory, git-style), run every selected rule's probe in store order, and report each rule in one of five lanes — SUCCESS (zero violations), ERROR (violations, severity fail => exit 1), WARN (violations, severity warn => reported, never reddens the exit), PENDING (an aspiration recorded with --pending: current state reported, never enforced), BROKEN (the probe itself is defective: exited 2, died, timed out, or its binary is missing; any broken rule => the whole run exits 2 — a defective store is a maintenance signal). Probes are argv vectors (never a shell), gated to a compiled-in, immutable set: the suite's read-only tools (ct-search ct-outline ct-tree ct-view, ct-test, ct-each without --mutating), the built-in checks deps|mods (crate/module graph invariants, run in-process), plus the bridge of known read-only Rust-tool invocations (cargo metadata / cargo tree with hermetic flags enforced, cargo deny check offline unless the rule carries network:true, rust-analyzer search|symbols search-only). The store is validated before anything runs (malformed entries, duplicate ids, unknown {def:NAME} references, non-gated probes => exit 2 naming the rule). Bridge probes are read through the rule's expect adapter: exit (default), empty (holds iff exit 0 and no stdout), or ct-test-style ok-match/err-match patterns. ct-check is purely read-only (writes nothing, ever; ct-rules is the writing surface) and is itself on the suite's read-only allowlist, so ct-test/ct-each can wrap it — but a rule's probe may not run ct-check (no self-recursion). A red lane is never unexplained: the reason, the rule's why, and the head of the probe's violation output go to stderr. Exit: 0 all enforced rules hold, 1 any enforced violation, 2 usage/store error or any BROKEN rule. Invoke as `ct check ...` or `ct-check ...`.",
+      "description": "Verify the project's recorded invariants: load the rule store (.ct/rules.jsonc, discovered by walking upward to the nearest .ct directory, git-style), run every selected rule's probe in store order, and report each rule in one of five lanes — SUCCESS (zero violations), ERROR (violations, severity fail => exit 1), WARN (violations, severity warn => reported, never reddens the exit), PENDING (an aspiration recorded with --pending: current state reported, never enforced), BROKEN (the probe itself is defective: exited 2, died, timed out, or its binary is missing; any broken rule => the whole run exits 2 — a defective store is a maintenance signal). Probes are argv vectors (never a shell), gated to a compiled-in, immutable set: the suite's read-only tools (ct-search ct-outline ct-tree ct-view ct-json, ct-test, ct-each without --mutating), the built-in checks deps|mods (crate/module graph invariants, run in-process), plus the bridge of known read-only Rust-tool invocations (cargo metadata / cargo tree with hermetic flags enforced, cargo deny check offline unless the rule carries network:true, rust-analyzer search|symbols search-only). The store is validated before anything runs (malformed entries, duplicate ids, unknown {def:NAME} references, non-gated probes => exit 2 naming the rule). Bridge probes are read through the rule's expect adapter: exit (default), empty (holds iff exit 0 and no stdout), or ct-test-style ok-match/err-match patterns. ct-check is purely read-only (writes nothing, ever; ct-rules is the writing surface) and is itself on the suite's read-only allowlist, so ct-test/ct-each can wrap it — but a rule's probe may not run ct-check (no self-recursion). A red lane is never unexplained: the reason, the rule's why, and the head of the probe's violation output go to stderr. Exit: 0 all enforced rules hold, 1 any enforced violation, 2 usage/store error or any BROKEN rule. Invoke as `ct check ...` or `ct-check ...`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1663,7 +1780,7 @@
     },
     {
       "name": "ct-steer",
-      "description": "Steer ad-hoc shell to the ct tool that serves it, and install the steering hook. ct-steer recognises a fixed set of high-confidence shell idioms a suite tool serves better — `find … | xargs grep` / `find -exec grep` and `grep -r`/`rg`/`ag` (ct search), `find … -name` (ct search), `sed -i`/`perl -i` (ct edit), `cat > f`/`echo … > f`/`printf … > f`/`touch f` (ct new — the shell's `>` truncates an existing file silently; an append `>>`, descriptor plumbing like `2>`, and a quoted `>` are left alone), `head`/`tail`/`sed -n 'A,Bp'` on a file and `python -c`/`node -e`/`perl -e`/`ruby -e`/`jq` reading a file (ct view / ct search), `grep -c` (ct search --summary), `ls -R`/`tree` and `wc`/`wc -l` over files incl. `cat FILES | wc` (ct tree), `for`/`while` per-item loops (ct each), sleep-bearing `for`/`while`/`until` poll/wait loops (ct await), and `&&`/`||` chains whose every segment is itself ct-serviceable (ct and / ct or). A multi-line scriptlet is classified line by line (ignoring cd/assignments/echo/comments): when every meaningful step is already ct or ct-advisable and not all are yet ct, the whole thing folds into one shell-less `ct and A ::: B ::: C` chain; when some steps are opaque, the ct equivalents are advised individually. Run as a Claude Code PreToolUse hook, it steers the agent to the ct equivalent instead of running the raw command. The matcher is deliberately conservative: it only fires on those idioms, never re-steers a command that already invokes ct, and the hook is fail-open (anything it does not recognise, or any malformed input, is allowed silently). Beyond Bash, the hook can also gate the harness's own Grep/Glob/Read tools — Grep/Glob steer to ct search, Read to ct view (images/PDFs/notebooks pass through) — enabled per tool at install time. Subcommands: `hook` is the runtime hook — it reads a PreToolUse tool-call envelope on stdin and prints a decision JSON (`permissionDecision` deny/ask, or an `additionalContext` warn) on a match, nothing on a miss, always exiting 0 so it never fails the call on its own account; `--mode deny|ask|warn` (default deny) picks the action. `install`/`uninstall` merge or remove the PreToolUse steering hook in a Claude Code settings file (`--scope project|local|user`, default project → .claude/settings.json / .claude/settings.local.json / ~/.claude/settings.json; `--tools Bash,Grep,Glob,Read` (default Bash) chooses which tools to gate, one matcher entry each); the merge is idempotent and preserves the rest of the file — including comments and layout — because it edits through ct-patch's byte-range splices rather than reserialising, with `--dry-run` to show the resulting file and `--print` to emit just the snippet for manual paste. `check` classifies a command string and prints what the hook would decide, exiting 0 when the command is allowed and 1 when it would be steered. Invoke as `ct steer …` or `ct-steer …`.",
+      "description": "Steer ad-hoc shell to the ct tool that serves it, and install the steering hook. ct-steer recognises a fixed set of high-confidence shell idioms a suite tool serves better — `find … | xargs grep` / `find -exec grep` and `grep -r`/`rg`/`ag` (ct search), `find … -name` (ct search), `sed -i`/`perl -i` (ct edit), `cat > f`/`echo … > f`/`printf … > f`/`touch f` (ct new — the shell's `>` truncates an existing file silently; an append `>>`, descriptor plumbing like `2>`, and a quoted `>` are left alone), `head`/`tail`/`sed -n 'A,Bp'` on a file and `python -c`/`node -e`/`perl -e`/`ruby -e` reading a file (ct view / ct search), `jq FILTER FILE` (ct json), `grep -c` (ct search --summary), `ls -R`/`tree` and `wc`/`wc -l` over files incl. `cat FILES | wc` (ct tree), `for`/`while` per-item loops (ct each), sleep-bearing `for`/`while`/`until` poll/wait loops (ct await), and `&&`/`||` chains whose every segment is itself ct-serviceable (ct and / ct or). A multi-line scriptlet is classified line by line (ignoring cd/assignments/echo/comments): when every meaningful step is already ct or ct-advisable and not all are yet ct, the whole thing folds into one shell-less `ct and A ::: B ::: C` chain; when some steps are opaque, the ct equivalents are advised individually. Run as a Claude Code PreToolUse hook, it steers the agent to the ct equivalent instead of running the raw command. The matcher is deliberately conservative: it only fires on those idioms, never re-steers a command that already invokes ct, and the hook is fail-open (anything it does not recognise, or any malformed input, is allowed silently). Beyond Bash, the hook can also gate the harness's own Grep/Glob/Read tools — Grep/Glob steer to ct search, Read to ct view (images/PDFs/notebooks pass through) — enabled per tool at install time. Subcommands: `hook` is the runtime hook — it reads a PreToolUse tool-call envelope on stdin and prints a decision JSON (`permissionDecision` deny/ask, or an `additionalContext` warn) on a match, nothing on a miss, always exiting 0 so it never fails the call on its own account; `--mode deny|ask|warn` (default deny) picks the action. `install`/`uninstall` merge or remove the PreToolUse steering hook in a Claude Code settings file (`--scope project|local|user`, default project → .claude/settings.json / .claude/settings.local.json / ~/.claude/settings.json; `--tools Bash,Grep,Glob,Read` (default Bash) chooses which tools to gate, one matcher entry each); the merge is idempotent and preserves the rest of the file — including comments and layout — because it edits through ct-patch's byte-range splices rather than reserialising, with `--dry-run` to show the resulting file and `--print` to emit just the snippet for manual paste. `check` classifies a command string and prints what the hook would decide, exiting 0 when the command is allowed and 1 when it would be steered. Invoke as `ct steer …` or `ct-steer …`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1724,7 +1841,7 @@
   "builtin_checks": [
     {
       "name": "deps",
-      "description": "Built-in crate-graph check — a reserved probe head the rule layer runs in-process (not a standalone command). Asserts properties of the resolved dependency graph from one hermetic `cargo metadata --format-version 1 --locked --offline` invocation, with every violation carrying an evidence path. Use it as a rule probe (`ct rules --add ID --question … -- deps …`, verified by `ct check`) or prototype it without saving (`ct rules -- deps …`). It classifies its own outcome, so it takes no --expect adapter. Assertions (at least one required): --deny NAME (a crate reachable from any workspace member), --forbid 'A=>B' (package A reaches package B; A absent is broken), --duplicates (a crate at more than one version; --allow-duplicate NAME exempts low-level platform crates like windows-sys), --acyclic (any dependency cycle — Tarjan SCC; --members scopes it to the workspace-member subgraph, the actionable form), --layers L0,L1,... (ordered highest first, crate-name patterns; a lower layer must not reach a higher one, indirectly; --layers-closed flags members matching no layer). --edges normal,build,dev restricts traversed edge kinds (default all three). Outcome: holds (no violations), violated (with the evidence paths), or broken (no assertion, defective --forbid spec, empty --layers pattern, or cargo metadata failure).",
+      "description": "Built-in crate-graph check — a reserved probe head the rule layer runs in-process (not a standalone command). Asserts properties of the resolved dependency graph from one hermetic `cargo metadata --format-version 1 --locked --offline` invocation, pruned to the packages `cargo tree` actually builds (cargo metadata over-activates optional dependencies behind weak `dep?/feature` edges), with every violation carrying an evidence path. Use it as a rule probe (`ct rules --add ID --question … -- deps …`, verified by `ct check`) or prototype it without saving (`ct rules -- deps …`). It classifies its own outcome, so it takes no --expect adapter. Assertions (at least one required): --deny NAME (a crate reachable from any workspace member), --forbid 'A=>B' (package A reaches package B; A absent is broken), --duplicates (a crate at more than one version; --allow-duplicate NAME exempts low-level platform crates like windows-sys), --acyclic (any dependency cycle — Tarjan SCC; --members scopes it to the workspace-member subgraph, the actionable form), --layers L0,L1,... (ordered highest first, crate-name patterns; a lower layer must not reach a higher one, indirectly; --layers-closed flags members matching no layer). --edges normal,build,dev restricts traversed edge kinds (default all three). Outcome: holds (no violations), violated (with the evidence paths), or broken (no assertion, defective --forbid spec, empty --layers pattern, or cargo metadata failure).",
       "input_schema": {
         "type": "object",
         "properties": {

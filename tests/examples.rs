@@ -22,6 +22,7 @@ const TOOLS: &[&str] = &[
     "ct-edit",
     "ct-new",
     "ct-patch",
+    "ct-json",
     "ct-test",
     "ct-each",
     "ct-outline",

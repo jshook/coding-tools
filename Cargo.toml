@@ -85,6 +85,10 @@ path = "src/bin/ct-await.rs"
 name = "ct-survey"
 path = "src/bin/ct-survey.rs"
 
+[[bin]]
+name = "ct-json"
+path = "src/bin/ct-json.rs"
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 regex = "1.12.3"
@@ -100,6 +104,13 @@ sysinfo = { version = "0.37.2", default-features = false, features = ["system"] 
 # Daily best-effort update check against the crates.io sparse index. rustls with
 # bundled webpki roots (ureq's default features), so no OpenSSL/system-cert reliance.
 ureq = "3"
+# `ct-json`: the jq dialect (jaq) behind --query; `serde` bridges serde_json values in.
+jaq-core = "3.1.1"
+jaq-std = "3.0.3"
+jaq-json = { version = "2.0.3", features = ["serde"] }
+# Cargo.lock pins indexmap (jaq-json's map) to 2.2.x so it shares rowan's hashbrown 0.14
+# (yaml-edit); a bare `cargo update -p indexmap` splits hashbrown again, and the
+# no-duplicate-deps rule says so.
 
 # Unix only: process-group kill for `--timeout` on the child-running tools.
 [target.'cfg(unix)'.dependencies]

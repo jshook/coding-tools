@@ -108,8 +108,8 @@ different fixes:
 
 The same fixed, immutable read-only set `ct-each` dispatches by default — a
 **platform-aware** allowlist, so probes work on Unix/MSYS2 and on native Windows
-alike. It is a cross-platform core (`ct-await ct-check ct-outline ct-search
-ct-tree ct-view`) plus the host OS's stock read-only utilities (`cat echo false
+alike. It is a cross-platform core (`ct-await ct-check ct-json ct-outline
+ct-search ct-tree ct-view`) plus the host OS's stock read-only utilities (`cat echo false
 file grep head ls pwd stat tail true wc` on Unix/MSYS2, or `findstr hostname more
 where whoami` on native Windows), plus `ct-test` and `ct-each` (without
 `--mutating`). `ct-check` being included means *"wait until the project's

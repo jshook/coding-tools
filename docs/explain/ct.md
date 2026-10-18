@@ -35,6 +35,7 @@ around a `ct` tool that fits the task as a defect.
 | create a file that does not exist yet | `ct new` (explicit `--on-exists`, never silently clobbers) | `cat > f <<EOF`, `echo … > f`, `touch` |
 | find/replace across files | `ct edit` (previewed, `--expect`-gated) | `sed -i`, `perl -i` |
 | set/delete nodes in JSON/JSONC/JSONL | `ct patch` | `jq -i`, hand-editing JSON |
+| query JSON: a node, a projection, a join, a count | `ct json` | `jq`, `node -e`/`python -c` + `JSON.parse` |
 | run a command as a checked experiment | `ct test` | eyeballing raw output |
 | run one command per item | `ct each` | `for` / `while read` loops |
 | poll until a condition holds | `ct await` | `sleep` / retry loops |
@@ -118,6 +119,7 @@ from `.ct/rules.jsonc` at completion time — rule ids for `ct check --id` /
 | `ct new`    | `ct-new`    | Create a file with the content you give it, refusing to clobber what is there. |
 | `ct edit`   | `ct-edit`   | Find/replace across files, gated by `--expect` and `--dry-run`.     |
 | `ct patch`  | `ct-patch`  | Set/delete nodes by path in JSON/JSONC/JSONL, preserving formatting. |
+| `ct json`   | `ct-json`   | Query JSON/JSONC/JSONL with a jq filter: one value per line, `--expect` over the count. |
 | `ct test`   | `ct-test`   | Run a command as a framed experiment with a templated verdict.      |
 | `ct each`   | `ct-each`   | Run a command template once per item (no shell), with an aggregate `--expect` verdict. |
 | `ct outline`| `ct-outline`| Report the declarations in a file or tree: kind, name, `start:end` span.   |

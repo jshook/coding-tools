@@ -50,7 +50,8 @@ suite uses:
 | `TEXT`          | The literal text.                                                |
 | `file:PATH`     | The file's contents, verbatim — how a template is instantiated.  |
 | `stdin:`        | All of standard input, verbatim — the shell-safe way to pass a body containing quotes, `$`, or backticks. |
-| `text:VALUE`    | Escape hatch for a body that genuinely begins with `file:` / `stdin:` / `text:`. |
+| `b64:DATA`      | The base64 decoding of `DATA`, verbatim — the same shell safety on one command line, with no heredoc or pipe. |
+| `text:VALUE`    | Escape hatch for a body that genuinely begins with `file:` / `stdin:` / `b64:` / `text:`. |
 
 A non-empty body is written with a final newline if it does not already end in
 one, so a file created from an argv string is not missing its terminator. Pass
@@ -110,8 +111,12 @@ fn depth_is_bounded() {
 | `content`      | Payload section, taken **verbatim** — code pastes in with zero escaping. Omit it for an empty file. |
 
 `--fence` changes the directive marker (default `#%`) for a body that itself
-starts lines with it. Two items naming the same target is a usage error: which
-body would win is exactly the order-dependence the batch form exists to remove.
+starts lines with it. A blank line left before the next fence is part of
+`content`; under `#% options trailing-blank=strip` (a document-level directive
+between items, see the [spec](../specs/blocks.md)) it is a separator instead,
+and a body that really ends in a blank line keeps it by closing with `#% end`.
+Two items naming the same target is a usage error: which body would win is
+exactly the order-dependence the batch form exists to remove.
 
 ## Output
 
